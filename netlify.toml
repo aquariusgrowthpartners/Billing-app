@@ -1,0 +1,38 @@
+# Static-hosting fallback.
+#
+# Railway is the primary target: it runs Express + SQLite from one origin, which
+# is what this app needs. Netlify can host only the SPA, so /api must be proxied
+# to a separately deployed backend via VITE_API_PROXY / the redirect below.
+
+[build]
+  base    = "."
+  command = "npm run build"
+  publish = "client/dist"
+
+[build.environment]
+  NODE_VERSION = "20"
+
+# Serve from /billing so the same build works under a subpath.
+[[redirects]]
+  from = "/billing/*"
+  to   = "/billing/index.html"
+  status = 200
+
+[[redirects]]
+  from = "/billing"
+  to   = "/billing/index.html"
+  status = 200
+
+# Proxy API calls to the backend host. Set the URL in Netlify's env vars.
+[[redirects]]
+  from   = "/billing-api/*"
+  to     = "https://YOUR-RAILWAY-BACKEND.up.railway.app/api/:splat"
+  status = 200
+  force  = true
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options        = "DENY"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy        = "same-origin"

@@ -1,0 +1,35 @@
+{
+  "name": "billing-calendar",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Local-first billing calendar for a small healthcare billing business",
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "server": "node server/index.js",
+    "client": "vite --config client/vite.config.js",
+    "build": "vite build --config client/vite.config.js",
+    "seed": "node server/seed.js",
+    "db:reset": "node server/seed.js --reset",
+    "smoke": "node scripts/smoke.mjs"
+  },
+  "dependencies": {
+    "archiver": "^8.0.0",
+    "better-sqlite3": "^13.0.3",
+    "exceljs": "^4.4.0",
+    "express": "^4.21.2",
+    "multer": "^2.4.0",
+    "pdf-parse": "^2.4.5",
+    "pdfkit": "^0.20.2",
+    "react-router-dom": "^7.18.4",
+    "recharts": "^3.10.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^5.0.4",
+    "esbuild": "^0.28.2",
+    "jsdom": "^30.1.2",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "vite": "^7.1.9"
+  }
+}
