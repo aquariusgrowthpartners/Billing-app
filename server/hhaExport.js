@@ -443,7 +443,7 @@ const nameOf = (first, last) => `${first ?? ''} ${last ?? ''}`.trim();
  * to generate.
  */
 export function validateVisitExport(agencyId) {
-  const settings = allSettings();
+  const settings = allSettings(agencyId);
   const rows = visitSourceRows(agencyId);
   const issues = [];
 

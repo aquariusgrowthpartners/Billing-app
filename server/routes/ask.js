@@ -266,7 +266,7 @@ router.post('/', async (req, res) => {
 
   try {
     /* Step A — intent */
-    const a = await complete(query, { system: systemPlan(), timeoutMs: 20000 });
+    const a = await complete(query, { system: systemPlan(), timeoutMs: 20000, agencyId: req.agencyId });
     if (a.source === 'none') {
       return res.json({
         answer:
@@ -370,6 +370,7 @@ router.post('/', async (req, res) => {
         system:
           'You answer questions about a home-care billing database. Be precise with numbers, show your arithmetic, and never invent records that are not in the data provided. Only claim a filter was applied if it appears in applied_filters.',
         timeoutMs: 25000,
+        agencyId: req.agencyId,
       }
     );
 

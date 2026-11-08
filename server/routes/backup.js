@@ -73,7 +73,9 @@ async function scopedSnapshot(targetPath, agencyId) {
         for (const r of rows) ins.run(...cols.map((c) => r[c]));
       } else if (name === 'settings') {
         // shared config, but never ship the AI secret in a tenant backup
-        const rows = db.prepare(`SELECT * FROM settings WHERE key <> 'ai_api_key'`).all();
+        const rows = db
+          .prepare(`SELECT * FROM settings WHERE agency_id = ? AND key <> 'ai_api_key'`)
+          .all(agencyId);
         const ins = clone.prepare(
           `INSERT INTO settings (${cols.join(',')}) VALUES (${cols.map(() => '?').join(',')})`
         );

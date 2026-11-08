@@ -41,7 +41,7 @@ router.get('/validation', (req, res) => {
  * CaregiverImport_{AgencyTaxID}_{YYYYMMDD}.csv
  */
 router.get('/caregivers.csv', (req, res) => {
-  const settings = allSettings();
+  const settings = allSettings(req.agencyId);
   const taxId = settings.agency_tax_id ?? '';
   const caretakers = db
     .prepare(

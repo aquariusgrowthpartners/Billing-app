@@ -325,7 +325,7 @@ router.post('/general', upload.single('file'), async (req, res) => {
 
     const text = await pdfText(req.file.buffer);
     if (text) {
-      const r = await summarise(text);
+      const r = await summarise(text, { agencyId: req.agencyId });
       summary = r.summary;
       summarySource = r.source;
     }
@@ -408,6 +408,7 @@ router.post('/parse-new-hire', upload.single('file'), async (req, res) => {
   const { text: raw, source } = await complete(prompt, {
     system: 'You extract structured data from documents. Reply with JSON only.',
     timeoutMs: 20000,
+    agencyId: req.agencyId,
   });
 
   const fields = Object.fromEntries(NEW_HIRE_FIELDS.map((k) => [k, '']));

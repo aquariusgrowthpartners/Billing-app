@@ -115,8 +115,11 @@ export function previewRows(workStart, workEnd, agencyId) {
 }
 
 /** The agency block, read straight from settings. */
-export function agencyBlock() {
-  const get = (k) => db.prepare(`SELECT value FROM settings WHERE key = ?`).get(k)?.value ?? '';
+export function agencyBlock(agencyId = 1) {
+  const get = (k) =>
+    db
+      .prepare(`SELECT value FROM settings WHERE agency_id = ? AND key = ?`)
+      .get(agencyId, k)?.value ?? '';
   return {
     umpi: get('office_npi').trim(),
     name: get('agency_name').trim(),
@@ -144,7 +147,7 @@ export const fileNameFor = (agencyUmpi, labelStart, labelEnd, today = new Date()
  * Resolves to a Buffer ready to stream.
  */
 export async function buildWorkbook({ labelStart, labelEnd, workStart, workEnd, agencyId }) {
-  const agency = agencyBlock();
+  const agency = agencyBlock(agencyId);
   const rows = buildRows(workStart, workEnd, agencyId);
 
   const wb = new ExcelJS.Workbook();

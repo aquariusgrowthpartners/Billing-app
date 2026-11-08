@@ -199,9 +199,11 @@ CREATE TABLE service_agreements (
   UNIQUE(client_id, dhs_service_agreement_num));
 
 CREATE TABLE settings (
-    key        TEXT PRIMARY KEY,
+    agency_id  INTEGER NOT NULL DEFAULT 1,
+    key        TEXT    NOT NULL,
     value      TEXT,
-    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    updated_at TEXT    NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (agency_id, key)
   );
 
 CREATE TABLE task_checklist_items (

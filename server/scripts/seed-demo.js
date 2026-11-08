@@ -198,7 +198,9 @@ for (const [k, v] of Object.entries({
   agency_tax_id: '00-0000000',
   office_npi: '0000000000',
 })) {
-  db.prepare("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO NOTHING").run(k, v);
+  db.prepare(
+    "INSERT INTO settings (agency_id, key, value) VALUES (1, ?, ?) ON CONFLICT(agency_id, key) DO NOTHING"
+  ).run(k, v);
 }
 
 /* ------------------------------------------------- service agreements ---

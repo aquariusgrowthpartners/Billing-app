@@ -70,7 +70,9 @@ export function renderClaimName(template, parts) {
  */
 export function buildClaimName(client, periodStart, periodEnd) {
   const { seq, label } = nextSeq(client.id, periodStart, periodEnd, client.agency_id);
-  const template = getSetting('claim_name_template') || '{last}_{ma}_{dos_start}_{dos_end}_{seq}';
+  const template =
+    getSetting('claim_name_template', client.agency_id ?? 1) ||
+    '{last}_{ma}_{dos_start}_{dos_end}_{seq}';
 
   const name = renderClaimName(template, {
     last: slug(client.last_name, 'Client'),

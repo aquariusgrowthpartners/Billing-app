@@ -26,10 +26,12 @@ const PROMPT =
   'Summarize the following document in exactly two sentences. Focus on action items and dates:';
 
 /** Read the current AI configuration from the settings table. */
-export function aiConfig() {
+export function aiConfig(agencyId = 1) {
   const rows = db
-    .prepare("SELECT key, value FROM settings WHERE key IN ('ai_provider','ai_api_key')")
-    .all();
+    .prepare(
+      "SELECT key, value FROM settings WHERE agency_id = ? AND key IN ('ai_provider','ai_api_key')"
+    )
+    .all(agencyId);
   const map = Object.fromEntries(rows.map((r) => [r.key, r.value]));
   const provider = String(map.ai_provider ?? 'none').toLowerCase();
   const key = String(map.ai_api_key ?? '').trim();
@@ -96,8 +98,8 @@ export function firstTwoSentences(text, maxChars = 320) {
  * Free-form completion against the configured provider.
  * Returns { text, source }. Never throws — provider problems come back as text.
  */
-export async function complete(userPrompt, { system, timeoutMs = 20000 } = {}) {
-  const { provider, key, enabled } = aiConfig();
+export async function complete(userPrompt, { system, timeoutMs = 20000, agencyId = 1 } = {}) {
+  const { provider, key, enabled } = aiConfig(agencyId);
   if (!enabled) return { text: NO_KEY, source: 'none' };
 
   const cfg = PROVIDERS[provider];
@@ -145,11 +147,11 @@ export async function complete(userPrompt, { system, timeoutMs = 20000 } = {}) {
  * Summarise extracted document text.
  * Returns { summary, source } — source is 'deepseek' | 'openai' | 'none' | 'gibberish'.
  */
-export async function summarise(text, { timeoutMs = 15000 } = {}) {
+export async function summarise(text, { timeoutMs = 15000, agencyId = 1 } = {}) {
   if (!text || !String(text).trim()) return { summary: GIBBERISH, source: 'gibberish' };
   if (isGibberish(text)) return { summary: GIBBERISH, source: 'gibberish' };
 
-  const { provider, key, enabled } = aiConfig();
+  const { provider, key, enabled } = aiConfig(agencyId);
   if (!enabled) return { summary: NO_KEY, source: 'none' };
 
   const cfg = PROVIDERS[provider];

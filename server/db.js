@@ -38,7 +38,7 @@ fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
  * a complete script that copies the live schema and fills synthetic rows, and
  * running it out-of-process keeps this module free of its imports.
  */
-if (IS_DEMO && !fs.existsSync(DB_PATH)) {
+function seedDemoDatabase() {
   /*
    * Seeding happens at IMAGE BUILD time (see Dockerfile), which writes a
    * ready-made demo database to SEED_TEMPLATE. At runtime we only copy it into
@@ -50,7 +50,6 @@ if (IS_DEMO && !fs.existsSync(DB_PATH)) {
    * child-process path stays only as a fallback for local runs without an image.
    */
   const template = path.join(__dirname, '..', 'seed', 'demo.db');
-  console.log(`  demo mode   no database at ${DB_PATH}`);
 
   if (fs.existsSync(template)) {
     fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
@@ -72,6 +71,53 @@ if (IS_DEMO && !fs.existsSync(DB_PATH)) {
       console.error('  demo mode   cannot continue without a database');
       process.exit(1);
     }
+  }
+}
+
+/**
+ * A demo volume can outlive the image that created it. When the migration that
+ * added `agency_id` landed, an older `/app/data/demo.db` kept booting and every
+ * tenant query then failed with "no such column". Detect that stale schema
+ * before opening the database and rebuild it from the current image seed.
+ */
+function demoSchemaIsStale(dbPath) {
+  // Every table that must carry the tenant key. A volume can predate a later
+  // migration (the original bug was rebill_tasks; settings was the second one),
+  // so check each table rather than trusting the file's age.
+  const REQUIRED = [
+    ['rebill_tasks', 'agency_id'],
+    ['settings', 'agency_id'],
+  ];
+  let probe = null;
+  try {
+    probe = new Database(dbPath, { readonly: true, fileMustExist: true });
+    for (const [table, column] of REQUIRED) {
+      const cols = probe.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name);
+      if (!cols.includes(column)) return true;
+    }
+    return false;
+  } catch {
+    // Unreadable, empty, or missing table: all mean "rebuild it".
+    return true;
+  } finally {
+    try {
+      probe?.close();
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+if (IS_DEMO) {
+  if (!fs.existsSync(DB_PATH)) {
+    console.log(`  demo mode   no database at ${DB_PATH}`);
+    seedDemoDatabase();
+  } else if (demoSchemaIsStale(DB_PATH)) {
+    console.warn(
+      `  demo mode   stale demo schema at ${DB_PATH} (missing tenant columns) — reseeding`
+    );
+    for (const suffix of ['', '-wal', '-shm']) fs.rmSync(DB_PATH + suffix, { force: true });
+    seedDemoDatabase();
   }
 }
 
@@ -169,9 +215,11 @@ db.exec(`
 
   -- Simple key/value store for app preferences (claim naming template, etc.).
   CREATE TABLE IF NOT EXISTS settings (
-    key        TEXT PRIMARY KEY,
+    agency_id  INTEGER NOT NULL DEFAULT 1 REFERENCES agencies(id) ON DELETE CASCADE,
+    key        TEXT    NOT NULL,
     value      TEXT,
-    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    updated_at TEXT    NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (agency_id, key)
   );
 
   -- People who coordinate a client's care. Assigned per client.
@@ -205,6 +253,38 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_claims_client       ON claims (client_id, period_start);
   CREATE INDEX IF NOT EXISTS idx_claims_status       ON claims (status);
 `);
+
+/**
+ * Settings became per-agency. SQLite cannot change a primary key in place, so
+ * an existing single-column-key table is rebuilt once, preserving every row as
+ * Agency 1. New databases already have the composite key from CREATE TABLE.
+ */
+function migrateSettingsToAgency() {
+  const cols = db.prepare(`PRAGMA table_info(settings)`).all().map((c) => c.name);
+  if (cols.includes('agency_id')) return false;
+
+  db.transaction(() => {
+    db.exec(`
+      DROP TABLE IF EXISTS settings_new;
+      CREATE TABLE settings_new (
+        agency_id  INTEGER NOT NULL DEFAULT 1,
+        key        TEXT    NOT NULL,
+        value      TEXT,
+        updated_at TEXT    NOT NULL DEFAULT (datetime('now')),
+        PRIMARY KEY (agency_id, key),
+        FOREIGN KEY (agency_id) REFERENCES agencies(id) ON DELETE CASCADE
+      );
+      INSERT INTO settings_new (agency_id, key, value, updated_at)
+      SELECT 1, key, value, updated_at FROM settings;
+      DROP TABLE settings;
+      ALTER TABLE settings_new RENAME TO settings;
+    `);
+  })();
+  console.log('  migrations   settings are now per-agency');
+  return true;
+}
+
+migrateSettingsToAgency();
 
 /**
  * Additive migrations. These only ever ADD columns, so an existing database
@@ -322,7 +402,7 @@ db.exec(`
  * these rows — the numbers were never recorded and the uploads predate storage.
  * They are marked with a note so the UI can say "unknown" rather than "0".
  */
-if (db.prepare(`SELECT value FROM settings WHERE key = 'ra_files_backfill'`).get()?.value !== 'done') {
+if (db.prepare(`SELECT value FROM settings WHERE agency_id = 1 AND key = 'ra_files_backfill'`).get()?.value !== 'done') {
   const imports = db
     .prepare(
       `SELECT i.id, i.file_name, i.claim_count, i.imported_at
@@ -354,8 +434,8 @@ if (db.prepare(`SELECT value FROM settings WHERE key = 'ra_files_backfill'`).get
   }
   if (made) console.log(`  migrations   backfilled ${made} RA file row(s)`);
   db.prepare(
-    `INSERT INTO settings (key, value) VALUES ('ra_files_backfill', 'done')
-     ON CONFLICT(key) DO UPDATE SET value = 'done'`
+    `INSERT INTO settings (agency_id, key, value) VALUES (1, 'ra_files_backfill', 'done')
+     ON CONFLICT(agency_id, key) DO UPDATE SET value = 'done'`
   ).run();
 }
 
@@ -365,7 +445,7 @@ if (db.prepare(`SELECT value FROM settings WHERE key = 'ra_files_backfill'`).get
  * rows so the audit screen has one row per RA from the start.
  */
 if (
-  db.prepare(`SELECT value FROM settings WHERE key = 'ra_file_split'`).get()?.value !== 'done'
+  db.prepare(`SELECT value FROM settings WHERE agency_id = 1 AND key = 'ra_file_split'`).get()?.value !== 'done'
 ) {
   const legacy = db
     .prepare(`SELECT * FROM ra_imports WHERE file_name LIKE '%,%' OR file_name IS NOT NULL`)
@@ -399,8 +479,8 @@ if (
   }
   if (made) console.log(`  migrations   split ${made} legacy RA file row(s)`);
   db.prepare(
-    `INSERT INTO settings (key, value) VALUES ('ra_file_split', 'done')
-     ON CONFLICT(key) DO UPDATE SET value = 'done'`
+    `INSERT INTO settings (agency_id, key, value) VALUES (1, 'ra_file_split', 'done')
+     ON CONFLICT(agency_id, key) DO UPDATE SET value = 'done'`
   ).run();
 }
 
@@ -638,7 +718,8 @@ if (process.env.BILLING_MIGRATION_LOG !== '0') {
 /** Seed defaults. INSERT OR IGNORE, so an existing value is never overwritten. */
 function seedSetting(key, value) {
   db.prepare(
-    `INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO NOTHING`
+    `INSERT INTO settings (agency_id, key, value) VALUES (1, ?, ?)
+     ON CONFLICT(agency_id, key) DO NOTHING`
   ).run(key, value);
 }
 
@@ -653,7 +734,7 @@ seedSetting('claim_name_template', '{last}_{ma}_{dos_start}_{dos_end}_{seq}');
  * orphans. Guarded so it runs exactly once.
  */
 if (
-  db.prepare(`SELECT value FROM settings WHERE key = 'ra_source_backfill'`).get()?.value !== 'done'
+  db.prepare(`SELECT value FROM settings WHERE agency_id = 1 AND key = 'ra_source_backfill'`).get()?.value !== 'done'
 ) {
   const tagged = db
     .prepare(
@@ -666,8 +747,8 @@ if (
     .run().changes;
   if (tagged) console.log(`  migrations   tagged ${tagged} day entr(y/ies) as ra_import`);
   db.prepare(
-    `INSERT INTO settings (key, value) VALUES ('ra_source_backfill', 'done')
-     ON CONFLICT(key) DO UPDATE SET value = 'done'`
+    `INSERT INTO settings (agency_id, key, value) VALUES (1, 'ra_source_backfill', 'done')
+     ON CONFLICT(agency_id, key) DO UPDATE SET value = 'done'`
   ).run();
 }
 
@@ -680,7 +761,7 @@ if (
  * an import saved in future that happens to create no claims is left alone.
  */
 if (
-  db.prepare(`SELECT value FROM settings WHERE key = 'ra_import_orphan_sweep'`).get()?.value !== 'done'
+  db.prepare(`SELECT value FROM settings WHERE agency_id = 1 AND key = 'ra_import_orphan_sweep'`).get()?.value !== 'done'
 ) {
   const swept = db
     .prepare(
@@ -690,8 +771,8 @@ if (
     .run().changes;
   if (swept) console.log(`  migrations   removed ${swept} orphaned RA import log row(s)`);
   db.prepare(
-    `INSERT INTO settings (key, value) VALUES ('ra_import_orphan_sweep', 'done')
-     ON CONFLICT(key) DO UPDATE SET value = 'done'`
+    `INSERT INTO settings (agency_id, key, value) VALUES (1, 'ra_import_orphan_sweep', 'done')
+     ON CONFLICT(agency_id, key) DO UPDATE SET value = 'done'`
   ).run();
 }
 
@@ -721,8 +802,8 @@ if (IS_DEMO) {
   if (demoKey) {
     const provider = String(process.env.DEMO_AI_PROVIDER ?? 'deepseek').trim().toLowerCase();
     const set = db.prepare(
-      `INSERT INTO settings (key, value, updated_at) VALUES (?, ?, datetime('now'))
-       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`
+      `INSERT INTO settings (agency_id, key, value, updated_at) VALUES (1, ?, ?, datetime('now'))
+       ON CONFLICT(agency_id, key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`
     );
     set.run('ai_api_key', demoKey);
     set.run('ai_provider', ['deepseek', 'openai'].includes(provider) ? provider : 'deepseek');

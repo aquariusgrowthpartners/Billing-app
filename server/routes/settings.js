@@ -16,14 +16,14 @@ const router = express.Router();
  * The key is write-only from the client's point of view: `has_ai_key` says
  * whether one is saved, and the value itself is never sent back.
  */
-function redactedSettings() {
-  const all = allSettings();
+function redactedSettings(agencyId) {
+  const all = allSettings(agencyId);
   const key = String(all.ai_api_key ?? '').trim();
   return { ...all, ai_api_key: '', has_ai_key: Boolean(key) };
 }
 
 router.get('/', (req, res) => {
-  res.json({ settings: redactedSettings(), template_tokens: TEMPLATE_TOKENS });
+  res.json({ settings: redactedSettings(req.agencyId), template_tokens: TEMPLATE_TOKENS });
 });
 
 /** PUT /api/settings  { claim_name_template } */
@@ -107,9 +107,9 @@ router.put('/', (req, res) => {
   if (!Object.keys(updates).length) {
     return res.status(400).json({ error: 'Nothing to update.' });
   }
-  for (const [key, value] of Object.entries(updates)) setSetting(key, value);
+  for (const [key, value] of Object.entries(updates)) setSetting(key, value, req.agencyId);
 
-  res.json({ settings: redactedSettings(), template_tokens: TEMPLATE_TOKENS });
+  res.json({ settings: redactedSettings(req.agencyId), template_tokens: TEMPLATE_TOKENS });
 });
 
 export default router;

@@ -255,7 +255,10 @@ router.get('/:id/pdf', async (req, res) => {
     doc.on('data', (c) => chunks.push(c));
     const done = new Promise((resolve) => doc.on('end', resolve));
 
-    const agency = db.prepare(`SELECT value FROM settings WHERE key = 'agency_name'`).get()?.value ?? '';
+    const agency =
+      db
+        .prepare(`SELECT value FROM settings WHERE agency_id = ? AND key = 'agency_name'`)
+        .get(req.agencyId)?.value ?? '';
 
     doc.font('Helvetica-Bold').fontSize(17).text('Denied Claim Record');
     if (agency) doc.font('Helvetica').fontSize(10).fillColor('#555').text(agency);
@@ -680,7 +683,7 @@ router.post('/:id/explain', async (req, res) => {
     lineBlock,
   ].join('\n');
 
-  const { text, source } = await complete(prompt);
+  const { text, source } = await complete(prompt, { agencyId: req.agencyId });
 
   res.json({
     explanation: text,

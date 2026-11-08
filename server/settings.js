@@ -18,21 +18,26 @@ const DEFAULTS = {
   claim_name_template: '{last}_{ma}_{dos_start}_{dos_end}_{seq}',
 };
 
-export function getSetting(key) {
-  const row = db.prepare(`SELECT value FROM settings WHERE key = ?`).get(key);
+export function getSetting(key, agencyId = 1) {
+  const row = db
+    .prepare(`SELECT value FROM settings WHERE agency_id = ? AND key = ?`)
+    .get(agencyId, key);
   return row?.value ?? DEFAULTS[key] ?? null;
 }
 
-export function setSetting(key, value) {
+export function setSetting(key, value, agencyId = 1) {
   db.prepare(
-    `INSERT INTO settings (key, value, updated_at) VALUES (@key, @value, datetime('now'))
-     ON CONFLICT(key) DO UPDATE SET value = @value, updated_at = datetime('now')`
-  ).run({ key, value });
-  return getSetting(key);
+    `INSERT INTO settings (agency_id, key, value, updated_at)
+     VALUES (@agency, @key, @value, datetime('now'))
+     ON CONFLICT(agency_id, key) DO UPDATE SET value = @value, updated_at = datetime('now')`
+  ).run({ agency: agencyId, key, value });
+  return getSetting(key, agencyId);
 }
 
-export function allSettings() {
-  const rows = db.prepare(`SELECT key, value, updated_at FROM settings`).all();
+export function allSettings(agencyId = 1) {
+  const rows = db
+    .prepare(`SELECT key, value, updated_at FROM settings WHERE agency_id = ?`)
+    .all(agencyId);
   const out = { ...DEFAULTS };
   for (const r of rows) out[r.key] = r.value;
   return out;

@@ -36,7 +36,7 @@ function rangesFrom(query) {
 router.get('/mpsmisc/preview', (req, res) => {
   const { labelStart, labelEnd, workStart, workEnd } = rangesFrom(req.query);
   const rows = previewRows(workStart, workEnd, req.agencyId);
-  const agency = agencyBlock();
+  const agency = agencyBlock(req.agencyId);
 
   const missingAgency = [];
   if (!agency.umpi) missingAgency.push('Provider Identification Number (UMPI)');
