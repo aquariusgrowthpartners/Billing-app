@@ -65,13 +65,29 @@ app.disable('x-powered-by');
 app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: true, limit: '2mb' }));
 
-// Local-only guard: reject anything that did not arrive over loopback.
-app.use((req, res, next) => {
-  const ip = req.socket.remoteAddress ?? '';
-  const loopback = ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
-  if (!loopback) return res.status(403).json({ error: 'This server only accepts local connections.' });
-  next();
-});
+/*
+ * Local-only guard: reject anything that did not arrive over loopback.
+ *
+ * This is the app's original safety property — it holds patient data and was
+ * built to run on one machine. A deployment is the one case where remote
+ * traffic is the point, so it requires a deliberate opt-in:
+ *
+ *   ALLOW_REMOTE=true
+ *
+ * Defaulting to local-only means a misconfigured deploy is locked down rather
+ * than silently public.
+ */
+const ALLOW_REMOTE = String(process.env.ALLOW_REMOTE ?? '').toLowerCase() === 'true';
+if (ALLOW_REMOTE) {
+  console.log('  network      remote connections ALLOWED (ALLOW_REMOTE=true)');
+} else {
+  app.use((req, res, next) => {
+    const ip = req.socket.remoteAddress ?? '';
+    const loopback = ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
+    if (!loopback) return res.status(403).json({ error: 'This server only accepts local connections.' });
+    next();
+  });
+}
 
 app.get('/api/health', (_req, res) => {
   res.json({
