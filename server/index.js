@@ -142,6 +142,14 @@ app.get('/api/week', (req, res) => {
 
 app.use('/api/auth', authRouter);
 
+/* Public: the login screen needs to know whether this deployment is a demo.
+   It exposes one boolean and no tenant data. */
+app.get('/api/mode', (_req, res) => {
+  res.json({
+    demo: String(process.env.DEMO_MODE ?? '').toLowerCase() === 'true',
+  });
+});
+
 /* every route below is tenant-scoped */
 app.use('/api', tenant);
 
@@ -150,12 +158,6 @@ app.use('/api/agreements', agreementsRouter);
 app.use('/api/service-agreements', serviceAgreementsRouter);
 app.use('/api/tasks', tasksRouter);
 
-/* Tells the client whether it is looking at synthetic data. */
-app.get('/api/mode', (_req, res) => {
-  res.json({
-    demo: String(process.env.DEMO_MODE ?? '').toLowerCase() === 'true',
-  });
-});
 app.use('/api/ask', askRouter);
 app.use('/api/day-entries', dayEntriesRouter);
 app.use('/api/claims', claimsRouter);

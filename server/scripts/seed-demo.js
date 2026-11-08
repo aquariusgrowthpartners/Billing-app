@@ -418,6 +418,11 @@ insertRow('tasks', {
   due_date: '2026-05-30',
 });
 
+db.prepare(
+  `INSERT INTO settings (agency_id, key, value) VALUES (?, 'demo_seed_complete', '1')
+   ON CONFLICT(agency_id, key) DO UPDATE SET value = '1'`
+).run(AGENCY_ID);
+
 const counts = Object.fromEntries(
   ['clients', 'caretakers', 'day_entries', 'claims', 'tasks', 'denied_claims'].map((t) => [
     t,

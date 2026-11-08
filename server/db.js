@@ -482,6 +482,11 @@ migrateSettingsToAgency();
  * in application code instead.
  */
 function addColumnIfMissing(table, column, definition) {
+  // A fresh database creates tables in stages; a migration aimed at a table
+  // that has not been created yet is simply a no-op.
+  if (!db.prepare(`SELECT 1 FROM sqlite_master WHERE type='table' AND name = ?`).get(table)) {
+    return false;
+  }
   const existing = db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name);
   if (!existing.includes(column)) {
     db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
@@ -495,6 +500,9 @@ function addColumnIfMissing(table, column, definition) {
  * Reports which form was used so the caller can log it.
  */
 function addReferenceColumn(table, column, target, onDelete = 'SET NULL') {
+  if (!db.prepare(`SELECT 1 FROM sqlite_master WHERE type='table' AND name = ?`).get(table)) {
+    return 'missing-table';
+  }
   const existing = db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name);
   if (existing.includes(column)) return 'present';
   try {
@@ -508,6 +516,38 @@ function addReferenceColumn(table, column, target, onDelete = 'SET NULL') {
     return 'plain-integer';
   }
 }
+
+/*
+ * Bring an older single-tenant database up to the tenant schema. Every table
+ * that carries tenant rows gets agency_id (default 1, which is the original
+ * Dundas workspace). Existing rows are therefore preserved and owned by the
+ * real tenant, never by the public demo.
+ */
+for (const table of [
+  'clients',
+  'payers',
+  'agreements',
+  'day_entries',
+  'claims',
+  'case_managers',
+  'caretakers',
+  'service_agreements',
+  'tasks',
+  'task_checklist_items',
+  'ra_imports',
+  'ra_import_files',
+  'ra_import_history',
+  'denied_claims',
+  'denied_line_items',
+  'rebill_tasks',
+  'recent_clients',
+]) {
+  addColumnIfMissing(table, 'agency_id', 'INTEGER NOT NULL DEFAULT 1');
+}
+
+// Service-coding columns the RA importer and UI have always expected.
+addColumnIfMissing('day_entries', 'service_code', 'TEXT');
+addColumnIfMissing('day_entries', 'modifier', 'TEXT');
 
 addColumnIfMissing('claims', 'variance_days', 'INTEGER');
 addColumnIfMissing('claims', 'local_pdf_path', 'TEXT');
@@ -1006,6 +1046,40 @@ if (IS_DEMO) {
  * resumes if seeding was interrupted) and only when explicitly enabled on a
  * non-demo deployment.
  */
+/** Remove every row owned by the demo agency before a retry. */
+function resetDemoAgencyData(agencyId) {
+  const tables = [
+    'rebill_tasks',
+    'denied_line_items',
+    'denied_claims',
+    'day_entries',
+    'claims',
+    'task_checklist_items',
+    'tasks',
+    'agreements',
+    'service_agreements',
+    'ra_import_files',
+    'ra_import_history',
+    'ra_imports',
+    'case_managers',
+    'payers',
+    'caretakers',
+    'clients',
+    'recent_clients',
+    'settings',
+  ];
+  db.transaction(() => {
+    for (const table of tables) {
+      try {
+        db.prepare(`DELETE FROM ${table} WHERE agency_id = ?`).run(agencyId);
+      } catch {
+        /* table not present in this build; nothing to clear */
+      }
+    }
+  })();
+  console.log(`  demo agency  cleared partial seed (agency ${agencyId})`);
+}
+
 function ensureDemoAgency() {
   if (IS_DEMO) return;
   if (process.env.ENSURE_DEMO_AGENCY !== 'true' && process.env.NODE_ENV !== 'production') {
@@ -1033,10 +1107,16 @@ function ensureDemoAgency() {
     console.log('  demo agency  demo@dundas.com created');
   }
 
-  const clientCount = db
-    .prepare(`SELECT COUNT(*) AS n FROM clients WHERE agency_id = ?`)
-    .get(agencyId).n;
-  if (!clientCount) {
+  const seeded = db
+    .prepare(
+      `SELECT value FROM settings WHERE agency_id = ? AND key = 'demo_seed_complete'`
+    )
+    .get(agencyId)?.value;
+
+  if (seeded !== '1') {
+    // A prior boot may have died halfway through (the original day_entries
+    // schema bug). Clear its partial rows, then seed cleanly from zero.
+    resetDemoAgencyData(agencyId);
     console.log(`  demo agency  seeding synthetic data as agency ${agencyId}`);
     try {
       const out = execFileSync(
