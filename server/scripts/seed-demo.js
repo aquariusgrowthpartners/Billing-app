@@ -43,7 +43,16 @@ db.pragma('foreign_keys = ON');
  * then crashes on a column the demo DB is missing. Copying guarantees the demo
  * is structurally identical to production.
  */
+/*
+ * Where the schema comes from.
+ *
+ * Locally we read it straight from the live database, so it tracks migrations
+ * automatically. In a container `data/` is excluded (it holds PHI), so we fall
+ * back to the committed DDL snapshot in demo-schema.sql.
+ */
+const SCHEMA_FILE = path.join(__dirname, 'demo-schema.sql');
 let schemaSql = [];
+
 if (fs.existsSync(LIVE)) {
   const live = new Database(LIVE, { readonly: true });
   schemaSql = live
@@ -57,8 +66,21 @@ if (fs.existsSync(LIVE)) {
     .map((r) => r.sql);
   live.close();
   console.log(`  copied ${schemaSql.length} schema objects from the live database`);
+} else if (fs.existsSync(SCHEMA_FILE)) {
+  // Strip comment LINES first: a comment containing a semicolon would
+  // otherwise split mid-statement and corrupt the schema.
+  const body = fs
+    .readFileSync(SCHEMA_FILE, 'utf8')
+    .split('\n')
+    .filter((line) => !line.trim().startsWith('--'))
+    .join('\n');
+  schemaSql = body
+    .split(';')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  console.log(`  loaded ${schemaSql.length} schema objects from demo-schema.sql`);
 } else {
-  console.error('  REFUSING: no live database to copy the schema from.');
+  console.error('  REFUSING: no live database and no demo-schema.sql to seed from.');
   process.exit(1);
 }
 
