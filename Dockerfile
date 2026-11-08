@@ -31,6 +31,13 @@ ENV HOST=0.0.0.0
 # Dockerfile VOLUME instruction), so just make sure the path exists.
 RUN mkdir -p /app/data
 
+# Build the demo database INTO the image. Seeding here, at build time, avoids
+# running a child process against a freshly-mounted volume at startup — which
+# failed on Railway with an opaque "Command failed". At boot the server just
+# copies this file into /app/data.
+RUN mkdir -p /app/seed \
+ && DEMO_DB=/app/seed/demo.db node server/scripts/seed-demo.js
+
 EXPOSE 4000
 
 CMD ["node", "server/index.js"]

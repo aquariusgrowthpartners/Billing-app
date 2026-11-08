@@ -39,21 +39,39 @@ fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
  * running it out-of-process keeps this module free of its imports.
  */
 if (IS_DEMO && !fs.existsSync(DB_PATH)) {
-  console.log(`  demo mode   no database at ${DB_PATH} — seeding`);
-  try {
-    const out = execFileSync(process.execPath, [path.join(__dirname, 'scripts', 'seed-demo.js')], {
-      env: { ...process.env, DEMO_DB: DB_PATH },
-      stdio: ['ignore', 'pipe', 'pipe'],
-      encoding: 'utf8',
-    });
-    if (out) process.stdout.write(out);
-  } catch (err) {
-    // Surface the child's own output: "Command failed" alone is undebuggable.
-    if (err.stdout) process.stdout.write(String(err.stdout));
-    if (err.stderr) process.stderr.write(String(err.stderr));
-    console.error(`  demo mode   auto-seed FAILED: ${err.message}`);
-    console.error('  demo mode   cannot continue without a database');
-    process.exit(1);
+  /*
+   * Seeding happens at IMAGE BUILD time (see Dockerfile), which writes a
+   * ready-made demo database to SEED_TEMPLATE. At runtime we only copy it into
+   * the mounted volume.
+   *
+   * Running the seeder as a child process here was fragile: the volume can be
+   * empty or awkwardly mounted, and a failure took the whole server down with a
+   * bare "Command failed". Copying a file has none of those failure modes. The
+   * child-process path stays only as a fallback for local runs without an image.
+   */
+  const template = path.join(__dirname, '..', 'seed', 'demo.db');
+  console.log(`  demo mode   no database at ${DB_PATH}`);
+
+  if (fs.existsSync(template)) {
+    fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
+    fs.copyFileSync(template, DB_PATH);
+    console.log(`  demo mode   copied prebuilt demo database from ${template}`);
+  } else {
+    console.log('  demo mode   no prebuilt database in the image — running the seeder');
+    try {
+      const out = execFileSync(process.execPath, [path.join(__dirname, 'scripts', 'seed-demo.js')], {
+        env: { ...process.env, DEMO_DB: DB_PATH },
+        stdio: ['ignore', 'pipe', 'pipe'],
+        encoding: 'utf8',
+      });
+      if (out) process.stdout.write(out);
+    } catch (err) {
+      if (err.stdout) process.stdout.write(String(err.stdout));
+      if (err.stderr) process.stderr.write(String(err.stderr));
+      console.error(`  demo mode   auto-seed FAILED: ${err.message}`);
+      console.error('  demo mode   cannot continue without a database');
+      process.exit(1);
+    }
   }
 }
 
