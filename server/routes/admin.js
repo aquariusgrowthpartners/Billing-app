@@ -208,4 +208,282 @@ router.post('/orphaned-entries/cleanup', (req, res) => {
   res.json({ deleted, preserved: before - deleted });
 });
 
+/* ------------------------------------------------- import local workspace */
+
+const IMPORT_PATH_COLUMNS = new Set([
+  'pdf_path',
+  'stored_path',
+  'local_pdf_path',
+  'generated_pdf_path',
+  'document_path',
+  'service_agreement_pdf_path',
+]);
+
+const IMPORT_DELETE_ORDER = [
+  'rebill_tasks',
+  'denied_line_items',
+  'denied_claims',
+  'day_entries',
+  'claims',
+  'task_checklist_items',
+  'tasks',
+  'agreements',
+  'service_agreements',
+  'ra_import_files',
+  'ra_import_history',
+  'ra_imports',
+  'case_managers',
+  'payers',
+  'caretakers',
+  'clients',
+  'recent_clients',
+];
+
+/**
+ * POST /api/admin/import-local
+ *
+ * One-time migration of a local JSON export into the authenticated admin's
+ * agency. Every inserted row gets req.agencyId, and every internal id is
+ * remapped so local ids can never collide with another tenant's rows.
+ *
+ * Refuses the Demo Agency outright. Existing data requires `mode: "replace"`
+ * plus `confirm: "REPLACE"` so a second run cannot silently duplicate a
+ * workspace.
+ */
+router.post('/import-local', (req, res) => {
+  if (!req.user || req.user.role !== 'admin') {
+    return res.status(403).json({ error: 'An administrator login is required.' });
+  }
+  const agency = db.prepare(`SELECT id, name FROM agencies WHERE id = ?`).get(req.agencyId);
+  if (!agency) return res.status(404).json({ error: 'Agency not found.' });
+  if (agency.name === 'Demo Agency') {
+    return res.status(403).json({ error: 'Refusing to import real data into the Demo Agency.' });
+  }
+
+  const body = req.body ?? {};
+  const data = body.data;
+  if (!data || typeof data !== 'object') {
+    return res.status(400).json({ error: 'data object is required.' });
+  }
+  const mode = body.mode === 'replace' ? 'replace' : 'merge';
+  const dryRun = body.dryRun === true;
+
+  if (mode === 'replace' && body.confirm !== 'REPLACE') {
+    return res.status(400).json({ error: 'Replace mode requires confirm: "REPLACE".' });
+  }
+
+  const existing = db
+    .prepare(`SELECT COUNT(*) AS n FROM clients WHERE agency_id = ?`)
+    .get(req.agencyId).n;
+  if (existing > 0 && mode !== 'replace') {
+    return res.status(409).json({
+      error:
+        'This agency already has data. Re-run with --replace to wipe it first, or import into an empty agency.',
+      existing_clients: existing,
+    });
+  }
+
+  const colsOf = (table) =>
+    new Set(db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name));
+  const columnCache = new Map();
+  const columns = (table) => {
+    if (!columnCache.has(table)) columnCache.set(table, colsOf(table));
+    return columnCache.get(table);
+  };
+
+  const insert = (table, row, overrides = {}) => {
+    const targetCols = columns(table);
+    const values = { ...row, ...overrides, agency_id: req.agencyId };
+    delete values.id;
+    for (const col of IMPORT_PATH_COLUMNS) {
+      if (col in values) values[col] = null;
+    }
+    const keys = Object.keys(values).filter((k) => k !== 'id' && targetCols.has(k));
+    if (!keys.length) throw new Error(`No importable columns for ${table}`);
+    const sql = `INSERT INTO ${table} (${keys.join(',')}) VALUES (${keys
+      .map((k) => '@' + k)
+      .join(',')})`;
+    return Number(
+      db.prepare(sql).run(Object.fromEntries(keys.map((k) => [k, values[k]]))).lastInsertRowid
+    );
+  };
+
+  const rows = (table) => (Array.isArray(data[table]) ? data[table] : []);
+  const maps = {};
+  for (const t of [
+    'case_managers',
+    'payers',
+    'caretakers',
+    'clients',
+    'service_agreements',
+    'agreements',
+    'ra_imports',
+    'ra_import_files',
+    'claims',
+    'day_entries',
+    'denied_claims',
+    'denied_line_items',
+    'rebill_tasks',
+    'tasks',
+    'task_checklist_items',
+  ]) {
+    maps[t] = new Map();
+  }
+  const map = (table, localId) => {
+    if (localId == null) return null;
+    return maps[table].get(Number(localId)) ?? null;
+  };
+  const mapRequired = (table, localId, label) => {
+    const mapped = map(table, localId);
+    if (mapped == null) throw new Error(`${label}: missing ${table} reference ${localId}`);
+    return mapped;
+  };
+
+  const counts = {};
+  const work = () => {
+    if (mode === 'replace') {
+      for (const table of IMPORT_DELETE_ORDER) {
+        try {
+          db.prepare(`DELETE FROM ${table} WHERE agency_id = ?`).run(req.agencyId);
+        } catch {
+          /* table absent in this build */
+        }
+      }
+    }
+
+    for (const r of rows('case_managers')) {
+      const id = insert('case_managers', r);
+      maps.case_managers.set(Number(r.id), id);
+      counts.case_managers = (counts.case_managers ?? 0) + 1;
+    }
+    for (const r of rows('payers')) {
+      const id = insert('payers', r);
+      maps.payers.set(Number(r.id), id);
+      counts.payers = (counts.payers ?? 0) + 1;
+    }
+    for (const r of rows('caretakers')) {
+      const id = insert('caretakers', r);
+      maps.caretakers.set(Number(r.id), id);
+      counts.caretakers = (counts.caretakers ?? 0) + 1;
+    }
+    for (const r of rows('clients')) {
+      const id = insert('clients', r, { case_manager_id: map('case_managers', r.case_manager_id) });
+      maps.clients.set(Number(r.id), id);
+      counts.clients = (counts.clients ?? 0) + 1;
+    }
+    for (const r of rows('service_agreements')) {
+      const id = insert('service_agreements', r, {
+        client_id: mapRequired('clients', r.client_id, 'service_agreements'),
+      });
+      maps.service_agreements.set(Number(r.id), id);
+      counts.service_agreements = (counts.service_agreements ?? 0) + 1;
+    }
+    for (const r of rows('agreements')) {
+      const id = insert('agreements', r, {
+        client_id: mapRequired('clients', r.client_id, 'agreements'),
+        payer_id: map('payers', r.payer_id),
+        service_agreement_id: map('service_agreements', r.service_agreement_id),
+      });
+      maps.agreements.set(Number(r.id), id);
+      counts.agreements = (counts.agreements ?? 0) + 1;
+    }
+    for (const r of rows('ra_imports')) {
+      const id = insert('ra_imports', r);
+      maps.ra_imports.set(Number(r.id), id);
+      counts.ra_imports = (counts.ra_imports ?? 0) + 1;
+    }
+    for (const r of rows('ra_import_files')) {
+      const id = insert('ra_import_files', r, {
+        ra_import_id: map('ra_imports', r.ra_import_id),
+      });
+      maps.ra_import_files.set(Number(r.id), id);
+      counts.ra_import_files = (counts.ra_import_files ?? 0) + 1;
+    }
+    for (const r of rows('claims')) {
+      const id = insert('claims', r, {
+        client_id: mapRequired('clients', r.client_id, 'claims'),
+        agreement_id: map('agreements', r.agreement_id),
+        ra_import_id: map('ra_imports', r.ra_import_id),
+      });
+      maps.claims.set(Number(r.id), id);
+      counts.claims = (counts.claims ?? 0) + 1;
+    }
+    for (const r of rows('day_entries')) {
+      const id = insert('day_entries', r, {
+        client_id: mapRequired('clients', r.client_id, 'day_entries'),
+        agreement_id: map('agreements', r.agreement_id),
+        caretaker_id: map('caretakers', r.caretaker_id),
+        claim_id: map('claims', r.claim_id),
+        ra_import_id: map('ra_imports', r.ra_import_id),
+      });
+      maps.day_entries.set(Number(r.id), id);
+      counts.day_entries = (counts.day_entries ?? 0) + 1;
+    }
+    for (const r of rows('denied_claims')) {
+      const id = insert('denied_claims', r, {
+        client_id: map('clients', r.client_id),
+        caretaker_id: map('caretakers', r.caretaker_id),
+        original_claim_id: map('claims', r.original_claim_id),
+        ra_import_id: map('ra_imports', r.ra_import_id),
+      });
+      maps.denied_claims.set(Number(r.id), id);
+      counts.denied_claims = (counts.denied_claims ?? 0) + 1;
+    }
+    for (const r of rows('denied_line_items')) {
+      const id = insert('denied_line_items', r, {
+        denied_claim_id: mapRequired('denied_claims', r.denied_claim_id, 'denied_line_items'),
+        client_id: map('clients', r.client_id),
+        recovered_by_day_entry_id: map('day_entries', r.recovered_by_day_entry_id),
+      });
+      maps.denied_line_items.set(Number(r.id), id);
+      counts.denied_line_items = (counts.denied_line_items ?? 0) + 1;
+    }
+    for (const r of rows('rebill_tasks')) {
+      const id = insert('rebill_tasks', r, {
+        denied_line_item_id: mapRequired(
+          'denied_line_items',
+          r.denied_line_item_id,
+          'rebill_tasks'
+        ),
+        client_id: map('clients', r.client_id),
+        caretaker_id: map('caretakers', r.caretaker_id),
+      });
+      maps.rebill_tasks.set(Number(r.id), id);
+      counts.rebill_tasks = (counts.rebill_tasks ?? 0) + 1;
+    }
+    for (const r of rows('tasks')) {
+      const id = insert('tasks', r, { caretaker_id: map('caretakers', r.caretaker_id) });
+      maps.tasks.set(Number(r.id), id);
+      counts.tasks = (counts.tasks ?? 0) + 1;
+    }
+    for (const r of rows('task_checklist_items')) {
+      const id = insert('task_checklist_items', r, {
+        task_id: mapRequired('tasks', r.task_id, 'task_checklist_items'),
+      });
+      maps.task_checklist_items.set(Number(r.id), id);
+      counts.task_checklist_items = (counts.task_checklist_items ?? 0) + 1;
+    }
+  };
+
+  if (dryRun) {
+    const preview = {};
+    for (const table of Object.keys(maps)) preview[table] = rows(table).length;
+    return res.json({ dry_run: true, target_agency: agency, mode, counts: preview });
+  }
+
+  try {
+    db.transaction(work)();
+    res.json({
+      imported: true,
+      target_agency: agency,
+      mode,
+      counts,
+      total: Object.values(counts).reduce((a, b) => a + b, 0),
+    });
+  } catch (err) {
+    console.error(`[admin] local import failed: ${err.message}`);
+    res.status(500).json({ error: `Import failed: ${err.message}` });
+  }
+});
+
 export default router;

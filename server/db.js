@@ -393,6 +393,8 @@ db.exec(`
     npi_number TEXT,
     notes      TEXT,
     active     INTEGER NOT NULL DEFAULT 1,
+    status     TEXT    NOT NULL DEFAULT 'Active',
+    dl_number  TEXT,
     agency_id  INTEGER NOT NULL DEFAULT 1
   );
 
@@ -563,6 +565,8 @@ addColumnIfMissing('payers', 'hhaechange_payer_id', 'TEXT');
 addColumnIfMissing('clients', 'diagnosis_code', 'TEXT');
 addColumnIfMissing('caretakers', 'ssn', 'TEXT');
 addColumnIfMissing('caretakers', 'gender', 'TEXT');
+addColumnIfMissing('caretakers', 'status', "TEXT NOT NULL DEFAULT 'Active'");
+addColumnIfMissing('caretakers', 'dl_number', 'TEXT');
 // Date of birth is required by BOTH HHAeXchange exports and had no home before.
 addColumnIfMissing('caretakers', 'dob', 'TEXT');
 addColumnIfMissing('day_entries', 'start_time', 'TEXT');

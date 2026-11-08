@@ -6,6 +6,7 @@ import ClaimEditDialog from '../components/ClaimEditDialog.jsx';
 import { useClaimActions } from '../components/ClaimActionModals.jsx';
 import { formatMoney, todayISO } from '../calc.js';
 import { download } from '../download.js';
+import EmptyState from '../components/EmptyState.jsx';
 
 export default function ClaimsDashboard() {
   const [claims, setClaims] = useState([]);
@@ -259,6 +260,11 @@ export default function ClaimsDashboard() {
         </div>
         {loading && !claims.length ? (
           <p className="empty">Loading claims…</p>
+        ) : claims.length === 0 ? (
+          <EmptyState icon="🧾" title="No claims yet" id="claims-empty">
+            Open a <Link to="/clients">client</Link> → <strong>Generate Claim</strong> to create the
+            first one.
+          </EmptyState>
         ) : (
           <ClaimsTable
             onArchive={requestArchive}
@@ -270,20 +276,10 @@ export default function ClaimsDashboard() {
             showClient
             onEdit={setEditing}
             onPdfChanged={async () => { await load(); }}
-            emptyMessage={
-              claims.length
-                ? 'No claims match this filter.'
-                : 'No claims yet. Open a client and use Generate Claim.'
-            }
+            emptyMessage="No claims match this filter."
           />
         )}
       </section>
-
-      {!loading && claims.length === 0 && (
-        <p className="muted small">
-          Tip: <Link to="/clients">open a client</Link> → Profile &amp; Agreements → Generate Claim.
-        </p>
-      )}
 
       {claimActionModals}
 

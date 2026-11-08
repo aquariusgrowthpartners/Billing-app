@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../api.js';
 import { SkeletonCards } from '../components/Skeleton.jsx';
+import EmptyState from '../components/EmptyState.jsx';
 import { formatLongDate } from '../calc.js';
 
 /** The add-client form's starting state. */
@@ -87,6 +88,13 @@ export default function ClientList() {
         />
       )}
 
+      {!loading && clients.length === 0 ? (
+        <div className="card">
+          <EmptyState icon="👤" title="No clients yet" id="clients-empty">
+            Click <strong>+ Add Client</strong> to create your first client.
+          </EmptyState>
+        </div>
+      ) : (
       <div className="card">
         <div className="table-scroll hide-on-mobile">
           <table className="table">
@@ -139,15 +147,6 @@ export default function ClientList() {
                   </td>
                 </tr>
               )}
-              {!loading && clients.length === 0 && (
-                <tr>
-                  <td colSpan={6} className="empty">
-                    {showArchived
-                      ? 'No clients yet. Use + Add Client to create the first one.'
-                      : 'No active clients. Tick "Show Archived" to include archived ones.'}
-                  </td>
-                </tr>
-              )}
             </tbody>
           </table>
         </div>
@@ -188,14 +187,8 @@ export default function ClientList() {
             ))}
           </div>
         )}
-        {!loading && clients.length === 0 && (
-          <p className="empty show-on-mobile" id="client-cards-empty">
-            {showArchived
-              ? 'No clients yet. Use + Add Client to create the first one.'
-              : 'No active clients. Tick "Show Archived" to include archived ones.'}
-          </p>
-        )}
       </div>
+      )}
     </div>
   );
 }

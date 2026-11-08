@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../api.js';
 import CaretakerForm from '../components/CaretakerForm.jsx';
+import EmptyState from '../components/EmptyState.jsx';
 
 const blank = { first_name: '', last_name: '', npi_number: '', notes: '', active: true };
 
@@ -122,6 +123,13 @@ export default function Caretakers() {
         />
       )}
 
+      {!loading && caretakers.length === 0 ? (
+        <div className="card">
+          <EmptyState icon="🧑‍⚕️" title="No caretakers yet" id="caretakers-empty">
+            Click <strong>+ Add Caretaker</strong> to add the first person who delivers care.
+          </EmptyState>
+        </div>
+      ) : (
       <div className="card">
         <div className="table-scroll">
           <table className="table">
@@ -189,15 +197,6 @@ export default function Caretakers() {
                   </tr>
                 )
               )}
-              {!loading && caretakers.length === 0 && (
-                <tr>
-                  <td colSpan={8} className="empty">
-                    {showInactive
-                      ? 'No caretakers yet. Use + Add Caretaker.'
-                      : 'No active caretakers. Tick "Show inactive" to see retired ones.'}
-                  </td>
-                </tr>
-              )}
               {loading && caretakers.length === 0 && (
                 <tr>
                   <td colSpan={8} className="empty">
@@ -209,6 +208,7 @@ export default function Caretakers() {
           </table>
         </div>
       </div>
+      )}
     </div>
   );
 }

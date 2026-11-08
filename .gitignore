@@ -24,3 +24,7 @@ data/
 *.log
 *.bak
 *.bak-*
+
+# Local PHI exports — never commit a database dump or import payload.
+local-export.json
+local-export.sql
