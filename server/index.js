@@ -184,7 +184,8 @@ app.use('/api', (_req, res) => res.status(404).json({ error: 'Unknown API route'
 // rebill that landed while the server was down is still credited.
 try {
   const r = reconcileOnStartup();
-  markOrphanedImports(req.agencyId);
+  // Boot-time maintenance has no request and must cover every agency.
+  markOrphanedImports();
   if (r.recovered || r.open_tasks) {
     console.log(
       `  denials      ${r.recovered} recovered on startup, ${r.open_tasks} open rebill task(s)`
