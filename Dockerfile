@@ -4,9 +4,13 @@
 # `pnpm install`, then saw a root `dist/` and switched to its static-site
 # provider — serving the SPA with Caddy and never starting Express. A Dockerfile
 # removes the guessing entirely: one runtime, one start command.
-FROM node:20-bookworm-slim
+FROM node:22-bookworm-slim
 
-# better-sqlite3 is a native module and compiles on install
+# better-sqlite3@13 requires Node >= 22 (its engines field says so). Building
+# this image on node:20 produced a runtime segfault (exit 139) in the native
+# binding, which is what made demo seeding fail with an opaque "Command failed".
+#
+# It is also a native module, so it compiles on install.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends python3 make g++ ca-certificates \
  && rm -rf /var/lib/apt/lists/*
