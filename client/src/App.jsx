@@ -14,6 +14,7 @@ import Tasks from './pages/Tasks.jsx';
 import AskDundas from './pages/AskDundas.jsx';
 import { ToastProvider } from './components/Toast.jsx';
 import Login from './pages/Login.jsx';
+import ChangePassword from './pages/ChangePassword.jsx';
 import { getToken, clearToken } from './api.js';
 import api from './api.js';
 
@@ -120,6 +121,7 @@ export default function App() {
   const [navOpen, setNavOpen] = useState(false);
   const [demoMode, setDemoMode] = useState(false);
   const [authed, setAuthed] = useState(false);
+  const [user, setUser] = useState(null);
   const [authChecked, setAuthChecked] = useState(false);
   const [bannerHeight, setBannerHeight] = useState(0);
   const bannerRef = useRef(null);
@@ -157,6 +159,7 @@ export default function App() {
         const d = await api.mode();
         if (!alive) return;
         if (d?.demo) {
+          setUser(null);
           setAuthed(true);
           return;
         }
@@ -165,19 +168,27 @@ export default function App() {
         // instead of a page full of 401 errors.
         if (getToken()) {
           try {
-            await api.me();
-            if (alive) setAuthed(true);
+            const me = await api.me();
+            if (alive) {
+              setUser(me?.user ?? null);
+              setAuthed(true);
+            }
           } catch {
             if (alive) {
               clearToken();
+              setUser(null);
               setAuthed(false);
             }
           }
         } else {
+          setUser(null);
           setAuthed(false);
         }
       } catch {
-        if (alive) setAuthed(false);
+        if (alive) {
+          setUser(null);
+          setAuthed(false);
+        }
       } finally {
         if (alive) setAuthChecked(true);
       }
@@ -218,10 +229,13 @@ export default function App() {
       </div>
     ) : !demoMode && !authed ? (
       <Login
-        onAuthed={() => {
+        onAuthed={(u) => {
+          setUser(u ?? null);
           setAuthed(true);
         }}
       />
+    ) : user?.must_change_password === 1 ? (
+      <ChangePassword user={user} onChanged={setUser} />
     ) : (
     <BrowserRouter basename={BASENAME}>
       <div

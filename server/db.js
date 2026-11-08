@@ -551,6 +551,29 @@ for (const table of [
 addColumnIfMissing('day_entries', 'service_code', 'TEXT');
 addColumnIfMissing('day_entries', 'modifier', 'TEXT');
 
+/*
+ * Forced password change for the bootstrap admin. The column is added once;
+ * when that happens on an existing deployment, mark the real admin so the
+ * temporary password cannot be used indefinitely. After the user changes it the
+ * flag is cleared and this migration never sets it again.
+ */
+const mustChangeColumn = addColumnIfMissing(
+  'users',
+  'must_change_password',
+  'INTEGER NOT NULL DEFAULT 0'
+);
+if (mustChangeColumn) {
+  const adminEmail = String(process.env.REAL_ADMIN_EMAIL ?? 'james@aquariusgp.com')
+    .trim()
+    .toLowerCase();
+  const marked = db
+    .prepare(`UPDATE users SET must_change_password = 1 WHERE lower(email) = ?`)
+    .run(adminEmail);
+  if (marked.changes) {
+    console.log(`  migrations   must-change-password set for ${adminEmail}`);
+  }
+}
+
 addColumnIfMissing('claims', 'variance_days', 'INTEGER');
 addColumnIfMissing('claims', 'local_pdf_path', 'TEXT');
 addColumnIfMissing('claims', 'generated_pdf_path', 'TEXT');
@@ -1186,7 +1209,8 @@ function ensureRealAdmin() {
   if (existing) return;
 
   db.prepare(
-    `INSERT INTO users (agency_id, email, password_hash, role) VALUES (?, ?, ?, 'admin')`
+    `INSERT INTO users (agency_id, email, password_hash, role, must_change_password)
+     VALUES (?, ?, ?, 'admin', 1)`
   ).run(agency.id, email, hashPassword(password));
   console.log(`  real agency  admin created for ${email}`);
 }

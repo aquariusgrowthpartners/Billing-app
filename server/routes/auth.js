@@ -24,6 +24,7 @@ function publicUser(user, agency) {
     role: user.role,
     agency_id: user.agency_id,
     agency_name: agency?.name ?? null,
+    must_change_password: user.must_change_password ?? 0,
   };
 }
 
@@ -104,6 +105,38 @@ router.post('/login', (req, res) => {
   }
   const agency = db.prepare('SELECT * FROM agencies WHERE id = ?').get(user.agency_id);
   res.json({ token: signToken(user), user: publicUser(user, agency) });
+});
+
+/* POST /api/auth/change-password  { current_password, new_password } */
+router.post('/change-password', (req, res) => {
+  const header = req.headers.authorization ?? '';
+  const token = header.startsWith('Bearer ') ? header.slice(7).trim() : null;
+  const payload = verifyToken(token);
+  if (!payload) return res.status(401).json({ error: 'Not signed in.' });
+
+  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(payload.sub);
+  if (!user) return res.status(401).json({ error: 'Not signed in.' });
+
+  const b = req.body ?? {};
+  const current = String(b.current_password ?? '');
+  const next = String(b.new_password ?? '');
+
+  if (!verifyPassword(current, user.password_hash)) {
+    return res.status(401).json({ error: 'Current password is incorrect.' });
+  }
+  const problem = passwordProblem(next);
+  if (problem) return res.status(400).json({ error: problem });
+  if (current === next) {
+    return res.status(400).json({ error: 'The new password must be different from the current one.' });
+  }
+
+  db.prepare(
+    `UPDATE users SET password_hash = ?, must_change_password = 0 WHERE id = ?`
+  ).run(hashPassword(next), user.id);
+
+  const fresh = db.prepare('SELECT * FROM users WHERE id = ?').get(user.id);
+  const agency = db.prepare('SELECT * FROM agencies WHERE id = ?').get(fresh.agency_id);
+  res.json({ user: publicUser(fresh, agency) });
 });
 
 /* GET /api/auth/me — used by the client to validate a stored token */

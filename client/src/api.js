@@ -50,6 +50,8 @@ export const api = {
   health: () => request('/health'),
   login: (body) => request('/auth/login', { method: 'POST', body: JSON.stringify(body) }),
   demoLogin: () => request('/auth/login', { method: 'POST', body: JSON.stringify({ demo: true }) }),
+  changePassword: (body) =>
+    request('/auth/change-password', { method: 'POST', body: JSON.stringify(body) }),
   signup: (body) => request('/auth/signup', { method: 'POST', body: JSON.stringify(body) }),
   me: () => request('/auth/me'),
   mode: () => request('/mode'),
