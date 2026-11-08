@@ -34,7 +34,7 @@ const BASENAME = import.meta.env.BASE_URL.replace(/\/$/, '') || '/';
 export class AppErrorBoundary extends React.Component {
   constructor(props) {
     super(props);
-    this.state = { error: null };
+    this.state = { error: null, info: null };
   }
 
   static getDerivedStateFromError(error) {
@@ -43,32 +43,99 @@ export class AppErrorBoundary extends React.Component {
 
   componentDidCatch(error, info) {
     console.error('[ui] page render failed:', error, info?.componentStack ?? '');
+    this.setState({ info });
   }
 
   render() {
     if (!this.state.error) return this.props.children;
+    const message = this.state.error?.message ?? String(this.state.error);
+    const stack = this.state.error?.stack ?? '';
+    const componentStack = this.state.info?.componentStack ?? '';
     return (
-      <section className="page" id="error-boundary">
-        <div className="alert error" role="alert">
-          <h2 style={{ marginTop: 0 }}>This page could not be displayed</h2>
-          <p>
-            A rendering error occurred, so only this page was stopped. The rest of the app is still
-            available from the navigation.
-          </p>
-          <p className="muted small mono" style={{ wordBreak: 'break-word' }}>
-            {this.state.error?.message ?? String(this.state.error)}
-          </p>
-          <div className="form-actions">
-            <button
-              className="btn primary"
-              onClick={() => this.setState({ error: null })}
-            >
-              Try again
-            </button>
-            <button className="btn" onClick={() => window.location.reload()}>
-              Reload app
-            </button>
-          </div>
+      <section
+        id="error-boundary"
+        style={{
+          margin: 16,
+          padding: 18,
+          border: '4px solid #b00020',
+          borderRadius: 12,
+          background: '#fff5f5',
+          color: '#8b0000',
+          fontFamily: '-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif',
+          overflow: 'auto',
+        }}
+      >
+        <h1 style={{ margin: '0 0 10px', fontSize: 24, lineHeight: 1.2 }}>
+          PAGE RENDER ERROR
+        </h1>
+        <p style={{ margin: '0 0 12px', fontSize: 16, fontWeight: 700 }}>
+          Please screenshot or copy this text and send it back.
+        </p>
+        <pre
+          style={{
+            margin: '0 0 12px',
+            padding: 12,
+            background: '#fee2e2',
+            borderRadius: 8,
+            whiteSpace: 'pre-wrap',
+            wordBreak: 'break-word',
+            fontSize: 14,
+            lineHeight: 1.4,
+            color: '#7f1d1d',
+            overflow: 'auto',
+          }}
+        >
+          {message}
+        </pre>
+        {stack ? (
+          <pre
+            style={{
+              margin: '0 0 12px',
+              padding: 12,
+              background: '#fef2f2',
+              borderRadius: 8,
+              whiteSpace: 'pre-wrap',
+              wordBreak: 'break-word',
+              fontSize: 11,
+              lineHeight: 1.4,
+              color: '#7f1d1d',
+              overflow: 'auto',
+            }}
+          >
+            {stack}
+          </pre>
+        ) : null}
+        {componentStack ? (
+          <pre
+            style={{
+              margin: '0 0 12px',
+              padding: 12,
+              background: '#fef2f2',
+              borderRadius: 8,
+              whiteSpace: 'pre-wrap',
+              wordBreak: 'break-word',
+              fontSize: 11,
+              lineHeight: 1.4,
+              color: '#7f1d1d',
+              overflow: 'auto',
+            }}
+          >
+            {componentStack}
+          </pre>
+        ) : null}
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          <button
+            style={{ minHeight: 44, padding: '0 16px', fontWeight: 700 }}
+            onClick={() => this.setState({ error: null, info: null })}
+          >
+            Try again
+          </button>
+          <button
+            style={{ minHeight: 44, padding: '0 16px', fontWeight: 700 }}
+            onClick={() => window.location.reload()}
+          >
+            Reload app
+          </button>
         </div>
       </section>
     );
@@ -122,6 +189,9 @@ export default function App() {
   const [demoMode, setDemoMode] = useState(false);
   const [authed, setAuthed] = useState(false);
   const [user, setUser] = useState(null);
+  useEffect(() => {
+    window.__BILLING_USER__ = user;
+  }, [user]);
   const [authChecked, setAuthChecked] = useState(false);
   const [bannerHeight, setBannerHeight] = useState(0);
   const bannerRef = useRef(null);

@@ -115,6 +115,21 @@ export default function Home() {
   const totals = data?.totals;
   const unassigned = data?.unassigned;
 
+  // DEBUG (temporary): print the exact state feeding this page. This is the
+  // fastest way to see which value is undefined on iOS Safari.
+  console.log('[HOME DEBUG]', {
+    user: window.__BILLING_USER__ ?? null,
+    data,
+    period,
+    caretakers,
+    totals,
+    unassigned,
+    recentRa,
+    recentClients,
+    denialAlert,
+    settings: window.__BILLING_SETTINGS__ ?? null,
+  });
+
   return (
     <div className="page wide home">
       <header className="home-top">
