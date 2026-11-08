@@ -35,18 +35,19 @@ router.get('/', (req, res) => {
            (SELECT COUNT(*) FROM agreements a WHERE a.client_id = c.id) AS agreement_count,
            (SELECT COUNT(*) FROM claims cl WHERE cl.client_id = c.id)    AS claim_count
     FROM clients c
-    ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
+    WHERE c.agency_id = @agency
+    ${where.length ? `AND ${where.join(' AND ')}` : ''}
     ORDER BY c.last_name COLLATE NOCASE, c.first_name COLLATE NOCASE
     LIMIT @limit
   `;
 
-  res.json({ clients: db.prepare(sql).all({ ...params, limit }) });
+  res.json({ clients: db.prepare(sql).all({ ...params, limit, agency: req.agencyId }) });
 });
 
 /** GET /api/clients/:id — profile payload: client + agreements + recent claims. */
 router.get('/:id', (req, res) => {
   const id = Number(req.params.id);
-  const client = db.prepare(`SELECT * FROM clients WHERE id = ?`).get(id);
+  const client = db.prepare(`SELECT * FROM clients WHERE id = ? AND agency_id = ?`).get(id, req.agencyId);
   if (!client) return res.status(404).json({ error: 'Client not found' });
 
   const agreements = db
@@ -141,14 +142,15 @@ router.get('/:id', (req, res) => {
   // Kept to the 8 newest rows.
   try {
     db.prepare(
-      `INSERT INTO recent_clients (client_id, viewed_at) VALUES (@id, @at)
+      `INSERT INTO recent_clients (client_id, viewed_at, agency_id) VALUES (@id, @at, @agency)
        ON CONFLICT(client_id) DO UPDATE SET viewed_at = excluded.viewed_at`
-    ).run({ id, at: new Date().toISOString() });
+    ).run({ id, at: new Date().toISOString(), agency: req.agencyId });
     db.prepare(
-      `DELETE FROM recent_clients WHERE id NOT IN (
-         SELECT id FROM recent_clients ORDER BY viewed_at DESC, id DESC LIMIT 8
+      `DELETE FROM recent_clients WHERE agency_id = @agency AND id NOT IN (
+         SELECT id FROM recent_clients WHERE agency_id = @agency
+         ORDER BY viewed_at DESC, id DESC LIMIT 8
        )`
-    ).run();
+    ).run({ agency: req.agencyId });
   } catch {
     /* tracking is best-effort; never fail a profile load over it */
   }
@@ -174,10 +176,10 @@ router.post('/', (req, res) => {
     .prepare(
       `INSERT INTO clients
          (first_name, last_name, middle_initial, dob, ma_number, notes, active,
-          case_manager_id, diagnosis_code)
+          case_manager_id, diagnosis_code, agency_id)
        VALUES
          (@first_name, @last_name, @middle_initial, @dob, @ma_number, @notes, @active,
-          @case_manager_id, @diagnosis_code)`
+          @case_manager_id, @diagnosis_code, @agency)`
     )
     .run({
       first_name: first,
@@ -189,9 +191,10 @@ router.post('/', (req, res) => {
       active: b.active === false || b.active === 0 ? 0 : 1,
       case_manager_id: assigned.id,
       diagnosis_code: dx.ok,
+      agency: req.agencyId,
     });
 
-  res.status(201).json(db.prepare(`SELECT * FROM clients WHERE id = ?`).get(info.lastInsertRowid));
+  res.status(201).json(db.prepare(`SELECT * FROM clients WHERE id = ? AND agency_id = ?`).get(info.lastInsertRowid, req.agencyId));
 });
 
 /**
@@ -200,7 +203,7 @@ router.post('/', (req, res) => {
  */
 function updateClient(req, res) {
   const id = Number(req.params.id);
-  const existing = db.prepare(`SELECT * FROM clients WHERE id = ?`).get(id);
+  const existing = db.prepare(`SELECT * FROM clients WHERE id = ? AND agency_id = ?`).get(id, req.agencyId);
   if (!existing) return res.status(404).json({ error: 'Client not found' });
 
   const fields = ['first_name', 'last_name', 'dob', 'ma_number', 'notes', 'active', 'archived'];
@@ -253,9 +256,9 @@ function updateClient(req, res) {
   if (!Object.keys(updates).length) return res.json(existing);
 
   const setSql = Object.keys(updates).map((k) => `${k} = @${k}`).join(', ');
-  db.prepare(`UPDATE clients SET ${setSql} WHERE id = @id`).run({ ...updates, id });
+  db.prepare(`UPDATE clients SET ${setSql} WHERE id = @id AND agency_id = @agency`).run({ ...updates, id, agency: req.agencyId });
 
-  res.json(db.prepare(`SELECT * FROM clients WHERE id = ?`).get(id));
+  res.json(db.prepare(`SELECT * FROM clients WHERE id = ? AND agency_id = ?`).get(id, req.agencyId));
 }
 
 router.patch('/:id', updateClient);
@@ -279,7 +282,7 @@ function deletionBlockers(id) {
 /** GET /api/clients/:id/delete-check — may this client be hard deleted? */
 router.get('/:id/delete-check', (req, res) => {
   const id = Number(req.params.id);
-  const client = db.prepare(`SELECT * FROM clients WHERE id = ?`).get(id);
+  const client = db.prepare(`SELECT * FROM clients WHERE id = ? AND agency_id = ?`).get(id, req.agencyId);
   if (!client) return res.status(404).json({ error: 'Client not found' });
 
   const { days, claims, blocked } = deletionBlockers(id);
@@ -301,7 +304,7 @@ router.get('/:id/delete-check', (req, res) => {
 
 router.delete('/:id', (req, res) => {
   const id = Number(req.params.id);
-  const client = db.prepare(`SELECT * FROM clients WHERE id = ?`).get(id);
+  const client = db.prepare(`SELECT * FROM clients WHERE id = ? AND agency_id = ?`).get(id, req.agencyId);
   if (!client) return res.status(404).json({ error: 'Client not found' });
 
   const { days, claims, blocked } = deletionBlockers(id);
@@ -321,7 +324,7 @@ router.delete('/:id', (req, res) => {
 
   // No day entries and no claims: nothing is cascaded away except the client's
   // own agreements, which belong to them.
-  db.prepare(`DELETE FROM clients WHERE id = ?`).run(id);
+  db.prepare(`DELETE FROM clients WHERE id = ? AND agency_id = ?`).run(id, req.agencyId);
   res.json({ deleted: true, id, client_name: `${client.first_name} ${client.last_name}`.trim() });
 });
 
@@ -444,7 +447,7 @@ router.post('/:clientId/service-agreement', upload.single('file'), async (req, r
   }
   if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
 
-  const client = db.prepare('SELECT id, first_name, last_name, ma_number, diagnosis_code FROM clients WHERE id = ?').get(clientId);
+  const client = db.prepare('SELECT id, first_name, last_name, ma_number, diagnosis_code FROM clients WHERE id = ? AND agency_id = ?').get(clientId, req.agencyId);
   if (!client) return res.status(404).json({ error: 'Client not found' });
 
   const buf = req.file.buffer;
@@ -671,7 +674,7 @@ router.post('/:clientId/service-agreement', upload.single('file'), async (req, r
   let diagnosisSet = null;
   if (!client.diagnosis_code && parsed.icd10_code) {
     diagnosisSet = parsed.icd10_code.replace(/\./g, '');
-    db.prepare('UPDATE clients SET diagnosis_code = ? WHERE id = ?').run(diagnosisSet, clientId);
+    db.prepare('UPDATE clients SET diagnosis_code = ? WHERE id = ? AND agency_id = ?').run(diagnosisSet, clientId, req.agencyId);
   }
 
   if (created === 0 && updated === 0) {

@@ -7,6 +7,7 @@
 import express from 'express';
 import multer from 'multer';
 import fs from 'node:fs';
+import path from 'node:path';
 import crypto from 'node:crypto';
 import { ZipArchive } from 'archiver';
 import { storeUpload, readStored, deleteUploadIfUnreferenced, storageUsed } from '../raStore.js';
@@ -220,16 +221,21 @@ const sha256 = (buf) => crypto.createHash('sha256').update(buf).digest('hex');
  * Keep a file that failed to parse, so it can be looked at later.
  * Marked 'parse_failed' so the audit can single it out.
  */
-function recordFailedParse(file, reason) {
+function recordFailedParse(file, reason, agencyId) {
   if (!file?.buffer) return;
   try {
     const stored = storeUpload(file.buffer);
     db.prepare(
       `INSERT INTO ra_imports
          (imported_at, num_clients, total_payment, file_name, file_hash, pdf_path,
-          claim_count, denial_count, status)
-       VALUES (datetime('now'), 0, 0, @file, @hash, @path, 0, 0, 'parse_failed')`
-    ).run({ file: file.originalname ?? 'unnamed.pdf', hash: stored.hash, path: stored.path });
+            claim_count, denial_count, status, agency_id)
+       VALUES (datetime('now'), 0, 0, @file, @hash, @path, 0, 0, 'parse_failed', @agency)`
+    ).run({
+      file: file.originalname ?? 'unnamed.pdf',
+      hash: stored.hash,
+      path: stored.path,
+      agency: agencyId ?? null,
+    });
     console.log(`[import-ra] parse failed (${reason}) — kept ${stored.path}`);
   } catch {
     /* never let bookkeeping mask the parse error */
@@ -244,7 +250,7 @@ const headerOf = (header) => ({
 });
 
 /** Any ACTIVE import with this exact content hash. */
-function importByHash(hash) {
+function importByHash(hash, agencyId) {
   if (!hash) return null;
   return (
     db
@@ -254,36 +260,42 @@ function importByHash(hash) {
 }
 
 /** Any ACTIVE import with all three header identifiers matching. */
-function importByHeader(header) {
+function importByHeader(header, agencyId) {
   const h = headerOf(header);
   if (!h.check_eft_number || !h.prod_date) return null;
   return (
     db
       .prepare(
         `SELECT * FROM ra_imports
-         WHERE status = 'active'
-           AND check_eft_number = @check AND prod_date = @prod
+         WHERE status = 'active' AND agency_id = @agency
+             AND check_eft_number = @check AND prod_date = @prod
            AND COALESCE(vendor_number, '') = COALESCE(@vendor, '')
          ORDER BY id DESC LIMIT 1`
       )
-      .get({ check: h.check_eft_number, prod: h.prod_date, vendor: h.vendor_number }) ?? null
+      .get({ check: h.check_eft_number, prod: h.prod_date, vendor: h.vendor_number, agency: agencyId }) ?? null
   );
 }
 
 /**
  * What a previous import produced — the numbers the warning modal quotes.
  */
-function importFootprint(importId) {
-  const claims = db
-    .prepare(`SELECT COUNT(*) AS n FROM claims WHERE ra_import_id = ?`)
-    .get(importId).n;
-  const entries = db
-    .prepare(`SELECT COUNT(*) AS n FROM day_entries WHERE ra_import_id = ? AND source = 'ra_import'`)
-    .get(importId).n;
-  const denials = db
-    .prepare(`SELECT COUNT(*) AS n FROM denied_claims WHERE ra_import_id = ?`)
-    .get(importId).n;
-  return { claims, day_entries: entries, denials };
+function importFootprint(importId, agencyId) {
+  const scoped = Number.isInteger(agencyId);
+  const and = scoped ? ' AND agency_id = ?' : '';
+  const args = (extra) => (scoped ? [...extra, agencyId] : extra);
+  const count = (sql, extra) => db.prepare(sql).get(...args(extra)).n;
+
+  return {
+    claims: count(`SELECT COUNT(*) AS n FROM claims WHERE ra_import_id = ?${and}`, [importId]),
+    day_entries: count(
+      `SELECT COUNT(*) AS n FROM day_entries WHERE ra_import_id = ? AND source = 'ra_import'${and}`,
+      [importId]
+    ),
+    denials: count(
+      `SELECT COUNT(*) AS n FROM denied_claims WHERE ra_import_id = ?${and}`,
+      [importId]
+    ),
+  };
 }
 
 /**
@@ -293,30 +305,32 @@ function importFootprint(importId) {
  * processed a claim, a denial was recovered, or a human edited an entry. The
  * overwrite is still allowed, but only behind a stronger confirmation.
  */
-function overwriteRisks(importId) {
-  const paidClaims = db
-    .prepare(
-      `SELECT COUNT(*) AS n FROM claims
-       WHERE ra_import_id = ? AND status = 'Paid' AND paid_date IS NOT NULL`
-    )
-    .get(importId).n;
+function overwriteRisks(importId, agencyId) {
+  const scoped = Number.isInteger(agencyId);
+  const and = scoped ? ' AND agency_id = ?' : '';
+  const args = (extra) => (scoped ? [...extra, agencyId] : extra);
+  const count = (sql, extra) => db.prepare(sql).get(...args(extra)).n;
 
-  const recoveredDenials = db
-    .prepare(
-      `SELECT COUNT(*) AS n FROM denied_claims
-       WHERE ra_import_id = ? AND recovery_status IN ('recovered', 'partial')`
-    )
-    .get(importId).n;
+  const paidClaims = count(
+    `SELECT COUNT(*) AS n FROM claims
+       WHERE ra_import_id = ? AND status = 'Paid' AND paid_date IS NOT NULL${and}`,
+    [importId]
+  );
+
+  const recoveredDenials = count(
+    `SELECT COUNT(*) AS n FROM denied_claims
+       WHERE ra_import_id = ? AND recovery_status IN ('recovered', 'partial')${and}`,
+    [importId]
+  );
 
   // An RA entry whose numbers no longer match what the import wrote is a sign
   // somebody edited it by hand afterwards.
-  const editedEntries = db
-    .prepare(
-      `SELECT COUNT(*) AS n FROM day_entries
+  const editedEntries = count(
+    `SELECT COUNT(*) AS n FROM day_entries
        WHERE ra_import_id = ? AND source = 'ra_import'
-         AND (notes IS NULL OR notes <> 'Imported from RA')`
-    )
-    .get(importId).n;
+         AND (notes IS NULL OR notes <> 'Imported from RA')${and}`,
+    [importId]
+  );
 
   return {
     paid_claims: paidClaims,
@@ -332,25 +346,33 @@ function overwriteRisks(importId) {
  * Order matters: rebill tasks cascade from line items which cascade from the
  * denials, but they are deleted explicitly so the counts are reportable.
  */
-function purgeImport(importId) {
-  const footprint = importFootprint(importId);
+function purgeImport(importId, agencyId) {
+  const scoped = Number.isInteger(agencyId);
+  const and = scoped ? ' AND agency_id = ?' : '';
+  const args = (extra) => (scoped ? [...extra, agencyId] : extra);
+  const footprint = importFootprint(importId, agencyId);
+
   db.prepare(
     `DELETE FROM rebill_tasks WHERE denied_line_item_id IN (
        SELECT i.id FROM denied_line_items i
        JOIN denied_claims c ON c.id = i.denied_claim_id
-       WHERE c.ra_import_id = ?)`
-  ).run(importId);
+       WHERE c.ra_import_id = ?${scoped ? ' AND c.agency_id = ?' : ''})`
+  ).run(...args([importId]));
   db.prepare(
     `DELETE FROM denied_line_items WHERE denied_claim_id IN (
-       SELECT id FROM denied_claims WHERE ra_import_id = ?)`
-  ).run(importId);
-  db.prepare(`DELETE FROM denied_claims WHERE ra_import_id = ?`).run(importId);
+       SELECT id FROM denied_claims WHERE ra_import_id = ?${and})`
+  ).run(...args([importId]));
+  db.prepare(`DELETE FROM denied_claims WHERE ra_import_id = ?${and}`).run(...args([importId]));
   // ONLY imported entries. A manual entry on the same day survives.
-  db.prepare(`DELETE FROM day_entries WHERE ra_import_id = ? AND source = 'ra_import'`).run(importId);
+  db.prepare(`DELETE FROM day_entries WHERE ra_import_id = ? AND source = 'ra_import'${and}`).run(
+    ...args([importId])
+  );
   // ONLY claims this import created. A manual claim survives.
-  db.prepare(`DELETE FROM claims WHERE ra_import_id = ?`).run(importId);
+  db.prepare(`DELETE FROM claims WHERE ra_import_id = ?${and}`).run(...args([importId]));
   // The log row stays, marked, so the audit trail survives.
-  db.prepare(`UPDATE ra_imports SET status = 'overwritten' WHERE id = ?`).run(importId);
+  db.prepare(`UPDATE ra_imports SET status = 'overwritten' WHERE id = ?${and}`).run(
+    ...args([importId])
+  );
   return footprint;
 }
 
@@ -407,7 +429,7 @@ async function parseRaBufferInner(buffer, stored) {
       suggested_caretaker: caretakerByNpi(c.rendered_provider_id),
       // Checked against the fuzzy match; the UI re-checks if the user picks
       // a different client or edits the dates.
-      ...existingForPeriod(suggestedClient?.id, c.dos_start, c.dos_end),
+      ...existingForPeriod(suggestedClient?.id, c.dos_start, c.dos_end, req.agencyId),
     };
   });
 
@@ -475,15 +497,16 @@ const ignoredBy = (name) =>
  * rather than hidden inside a batch. Test fixtures are listed separately.
  */
 // accepts: nothing  [X-Expects-Id: none]
-router.get('/audit', (_req, res) => {
+router.get('/audit', (req, res) => {
   const rows = db
     .prepare(
       `SELECT f.*, i.status AS import_status, i.pdf_path, i.updated_at AS import_updated_at
        FROM ra_import_files f
        LEFT JOIN ra_imports i ON i.id = f.ra_import_id
-       ORDER BY f.id`
-    )
-    .all();
+         WHERE f.agency_id = @agency
+         ORDER BY f.id`
+      )
+      .all({ agency: req.agencyId });
 
   const shape = (r) => ({
     id: r.id,
@@ -680,39 +703,43 @@ router.post('/bulk-delete', (req, res) => {
   db.transaction(() => {
     if (imports.length) {
       const q = imports.map(() => '?').join(',');
+      const scopedArgs = [...imports, req.agencyId];
       const deniedClaims = db
-        .prepare(`SELECT id FROM denied_claims WHERE ra_import_id IN (${q})`)
-        .all(...imports)
+        .prepare(`SELECT id FROM denied_claims WHERE ra_import_id IN (${q}) AND agency_id = ?`)
+        .all(...scopedArgs)
         .map((r) => r.id);
       if (deniedClaims.length) {
         const dq = deniedClaims.map(() => '?').join(',');
+        const dArgs = [...deniedClaims, req.agencyId];
         const lines = db
-          .prepare(`SELECT id FROM denied_line_items WHERE denied_claim_id IN (${dq})`)
-          .all(...deniedClaims)
+          .prepare(`SELECT id FROM denied_line_items WHERE denied_claim_id IN (${dq}) AND agency_id = ?`)
+          .all(...dArgs)
           .map((r) => r.id);
         if (lines.length) {
           const lq = lines.map(() => '?').join(',');
-          db.prepare(`DELETE FROM rebill_tasks WHERE denied_line_item_id IN (${lq})`).run(...lines);
-          db.prepare(`DELETE FROM denied_line_items WHERE id IN (${lq})`).run(...lines);
+          const lArgs = [...lines, req.agencyId];
+          db.prepare(`DELETE FROM rebill_tasks WHERE denied_line_item_id IN (${lq}) AND agency_id = ?`).run(...lArgs);
+          db.prepare(`DELETE FROM denied_line_items WHERE id IN (${lq}) AND agency_id = ?`).run(...lArgs);
         }
-        db.prepare(`DELETE FROM denied_claims WHERE id IN (${dq})`).run(...deniedClaims);
+        db.prepare(`DELETE FROM denied_claims WHERE id IN (${dq}) AND agency_id = ?`).run(...dArgs);
       }
-      db.prepare(`DELETE FROM day_entries WHERE ra_import_id IN (${q}) AND source = 'ra_import'`).run(...imports);
-      db.prepare(`DELETE FROM claims WHERE ra_import_id IN (${q})`).run(...imports);
+      db.prepare(`DELETE FROM day_entries WHERE ra_import_id IN (${q}) AND source = 'ra_import' AND agency_id = ?`).run(...scopedArgs);
+      db.prepare(`DELETE FROM claims WHERE ra_import_id IN (${q}) AND agency_id = ?`).run(...scopedArgs);
       // every file row of a purged import goes, not only the ticked one
-      for (const r of db.prepare(`SELECT pdf_path FROM ra_imports WHERE id IN (${q})`).all(...imports)) {
+      for (const r of db.prepare(`SELECT pdf_path FROM ra_imports WHERE id IN (${q}) AND agency_id = ?`).all(...scopedArgs)) {
         if (r.pdf_path) paths.push(r.pdf_path);
       }
-      db.prepare(`DELETE FROM ra_import_files WHERE ra_import_id IN (${q})`).run(...imports);
-      db.prepare(`DELETE FROM ra_imports WHERE id IN (${q})`).run(...imports);
+      db.prepare(`DELETE FROM ra_import_files WHERE ra_import_id IN (${q}) AND agency_id = ?`).run(...scopedArgs);
+      db.prepare(`DELETE FROM ra_imports WHERE id IN (${q}) AND agency_id = ?`).run(...scopedArgs);
     }
     // empty rows: nothing to purge, just the audit row
     if (emptyFileRows.length) {
       const eq = emptyFileRows.map(() => '?').join(',');
-      for (const r of db.prepare(`SELECT stored_path FROM ra_import_files WHERE id IN (${eq})`).all(...emptyFileRows)) {
+      const eArgs = [...emptyFileRows, req.agencyId];
+      for (const r of db.prepare(`SELECT stored_path FROM ra_import_files WHERE id IN (${eq}) AND agency_id = ?`).all(...eArgs)) {
         if (r.stored_path) paths.push(r.stored_path);
       }
-      db.prepare(`DELETE FROM ra_import_files WHERE id IN (${eq})`).run(...emptyFileRows);
+      db.prepare(`DELETE FROM ra_import_files WHERE id IN (${eq}) AND agency_id = ?`).run(...eArgs);
     }
 
     // A deletion record cannot point at a row that no longer exists.
@@ -862,12 +889,12 @@ router.delete('/file/:id', (req, res) => {
   if (!Number.isInteger(id) || id <= 0) {
     return res.status(400).json({ error: 'endpoint expects file-row, got a bad path id', got: req.params.id, expects: 'file-row' });
   }
-  const file = db.prepare(`SELECT * FROM ra_import_files WHERE id = ?`).get(id);
+  const file = db.prepare(`SELECT * FROM ra_import_files WHERE id = ? AND agency_id = ?`).get(id, req.agencyId);
   if (!file) return res.status(404).json({ error: 'Import file not found' });
 
   const importId = file.ra_import_id;
-  const claims = importId ? db.prepare(`SELECT COUNT(*) n FROM claims WHERE ra_import_id = ?`).get(importId).n : 0;
-  const denials = importId ? db.prepare(`SELECT COUNT(*) n FROM denied_claims WHERE ra_import_id = ?`).get(importId).n : 0;
+  const claims = importId ? db.prepare(`SELECT COUNT(*) n FROM claims WHERE ra_import_id = ? AND agency_id = ?`).get(importId, req.agencyId).n : 0;
+  const denials = importId ? db.prepare(`SELECT COUNT(*) n FROM denied_claims WHERE ra_import_id = ? AND agency_id = ?`).get(importId, req.agencyId).n : 0;
   if (claims || denials) {
     return res.status(409).json({
       error: `This row still has ${claims} claim(s) and ${denials} denial(s). Use Purge instead.`,
@@ -878,14 +905,14 @@ router.delete('/file/:id', (req, res) => {
   const paths = [];
   db.transaction(() => {
     if (file.stored_path) paths.push(file.stored_path);
-    db.prepare(`DELETE FROM ra_import_files WHERE id = ?`).run(id);
+    db.prepare(`DELETE FROM ra_import_files WHERE id = ? AND agency_id = ?`).run(id, req.agencyId);
     if (importId) {
-      const still = db.prepare(`SELECT COUNT(*) n FROM ra_import_files WHERE ra_import_id = ?`).get(importId).n;
+      const still = db.prepare(`SELECT COUNT(*) n FROM ra_import_files WHERE ra_import_id = ? AND agency_id = ?`).get(importId, req.agencyId).n;
       if (still === 0) {
-        const row = db.prepare(`SELECT pdf_path FROM ra_imports WHERE id = ?`).get(importId);
+        const row = db.prepare(`SELECT pdf_path FROM ra_imports WHERE id = ? AND agency_id = ?`).get(importId, req.agencyId);
         if (row?.pdf_path) paths.push(row.pdf_path);
-        db.prepare(`DELETE FROM ra_import_history WHERE ra_import_id = ?`).run(importId);
-        db.prepare(`DELETE FROM ra_imports WHERE id = ?`).run(importId);
+        db.prepare(`DELETE FROM ra_import_history WHERE ra_import_id = ? AND agency_id = ?`).run(importId, req.agencyId);
+        db.prepare(`DELETE FROM ra_imports WHERE id = ? AND agency_id = ?`).run(importId, req.agencyId);
       }
     }
   })();
@@ -918,16 +945,17 @@ router.delete('/file/:id', (req, res) => {
  * parsed but whose service rows did not. A denial that parsed real line items
  * is real money and is never in scope.
  */
-function cleanupScope() {
+function cleanupScope(agencyId) {
   const imports = db
     .prepare(
       `SELECT DISTINCT i.id, i.file_name, i.status
        FROM ra_imports i
-       WHERE i.status = 'layout_unrecognised'
+       WHERE i.agency_id = ?
+         AND (i.status = 'layout_unrecognised'
           OR EXISTS (SELECT 1 FROM ra_import_files f
-                     WHERE f.ra_import_id = i.id AND f.status = 'layout_unrecognised')`
+                     WHERE f.ra_import_id = i.id AND f.status = 'layout_unrecognised'))`
     )
-    .all();
+    .all(agencyId);
   const items = imports.map((imp) => {
     const denials = db
       .prepare(
@@ -987,7 +1015,7 @@ function cleanupScope() {
 
 // accepts: nothing  [X-Expects-Id: none]
 /** POST /api/import-ra/cleanup-preview — same scope, no writes. */
-router.post('/cleanup-preview', (_req, res) => res.json({ dry_run: true, ...cleanupScope() }));
+router.post('/cleanup-preview', (req, res) => res.json({ dry_run: true, ...cleanupScope(req.agencyId) }));
 
 // accepts: nothing  [X-Expects-Id: none]
 /**
@@ -1002,7 +1030,7 @@ router.post('/cleanup', (req, res) => {
     // case-sensitive on purpose: "delete" is a slip, not a decision
     return res.status(400).json({ error: 'confirmation required' });
   }
-  const scope = cleanupScope();
+  const scope = cleanupScope(req.agencyId);
   const denialIds = scope.items.flatMap((i) => i.denial_ids);
   const lineIds = scope.items.flatMap((i) => i.line_ids);
   const flagIds = scope.items.flatMap((i) => i.flag_ids);
@@ -1011,19 +1039,24 @@ router.post('/cleanup', (req, res) => {
   db.transaction(() => {
     if (lineIds.length) {
       const lq = lineIds.map(() => '?').join(',');
+      const lArgs = [...lineIds, req.agencyId];
       tasks = db
-        .prepare(`DELETE FROM rebill_tasks WHERE denied_line_item_id IN (${lq})`)
-        .run(...lineIds).changes;
-      db.prepare(`DELETE FROM denied_line_items WHERE id IN (${lq})`).run(...lineIds);
+        .prepare(`DELETE FROM rebill_tasks WHERE denied_line_item_id IN (${lq}) AND agency_id = ?`)
+        .run(...lArgs).changes;
+      db.prepare(`DELETE FROM denied_line_items WHERE id IN (${lq}) AND agency_id = ?`).run(...lArgs);
     }
     if (denialIds.length) {
-      db.prepare(`DELETE FROM denied_claims WHERE id IN (${denialIds.map(() => '?').join(',')})`).run(
-        ...denialIds
-      );
+      const dArgs = [...denialIds, req.agencyId];
+      db.prepare(
+        `DELETE FROM denied_claims WHERE id IN (${denialIds.map(() => '?').join(',')}) AND agency_id = ?`
+      ).run(...dArgs);
     }
     // idempotent: anything already stamped is skipped by the query itself
     for (const id of flagIds) {
-      db.prepare(`UPDATE claims SET parse_status = 'layout_incomplete' WHERE id = ?`).run(id);
+      db.prepare(`UPDATE claims SET parse_status = 'layout_incomplete' WHERE id = ? AND agency_id = ?`).run(
+        id,
+        req.agencyId
+      );
     }
   })();
 
@@ -1047,7 +1080,7 @@ router.post('/cleanup', (req, res) => {
  * Only zero-line-item denials are in scope: a claim that parsed its header is
  * real money and is flagged, never removed.
  */
-router.get('/cleanup-preview', (_req, res) => {
+router.get('/cleanup-preview', (req, res) => {
   /*
    * Scoped by flagged FILE, not by flagged import.
    *
@@ -1059,11 +1092,12 @@ router.get('/cleanup-preview', (_req, res) => {
     .prepare(
       `SELECT DISTINCT i.id, i.file_name, i.status
        FROM ra_imports i
-       WHERE i.status = 'layout_unrecognised'
+       WHERE i.agency_id = ?
+         AND (i.status = 'layout_unrecognised'
           OR EXISTS (SELECT 1 FROM ra_import_files f
-                     WHERE f.ra_import_id = i.id AND f.status = 'layout_unrecognised')`
+                     WHERE f.ra_import_id = i.id AND f.status = 'layout_unrecognised'))`
     )
-    .all();
+    .all(req.agencyId);
   const items = imports.map((imp) => {
     const denials = db
       .prepare(
@@ -1136,9 +1170,9 @@ router.post('/file/:id/reparse', async (req, res) => {
 
   const importId = row.ra_import_id;
   const touched = importId
-    ? overwriteRisks(importId)
+    ? overwriteRisks(importId, req.agencyId)
     : { paid_claims: 0, recovered_denials: 0, edited_entries: 0, risky: false };
-  const footprint = importId ? importFootprint(importId) : null;
+  const footprint = importId ? importFootprint(importId, req.agencyId) : null;
 
   // Anything already acted on needs an explicit confirmation before we proceed.
   if (touched.risky && req.body?.confirm !== true) {
@@ -1279,8 +1313,8 @@ router.delete('/import/:id', (req, res) => {
   const row = db.prepare(`SELECT * FROM ra_imports WHERE id = ?`).get(id);
   if (!row) return res.status(404).json({ error: 'Import not found' });
   if (req.body?.confirm !== 'DELETE' && req.query.confirm !== 'DELETE') {
-    const footprint = importFootprint(id);
-    const risks = overwriteRisks(id);
+    const footprint = importFootprint(id, req.agencyId);
+    const risks = overwriteRisks(id, req.agencyId);
     return res.status(409).json({
       error: 'Type DELETE to confirm. This removes the import record and its claims.',
       needs_confirmation: true,
@@ -1291,12 +1325,12 @@ router.delete('/import/:id', (req, res) => {
 
   const counts = { claims: 0, day_entries: 0, denials: 0 };
   db.transaction(() => {
-    const f = purgeImport(id);
+    const f = purgeImport(id, req.agencyId);
     counts.claims = f.claims;
     counts.day_entries = f.day_entries;
     counts.denials = f.denials;
-    db.prepare(`DELETE FROM ra_import_files WHERE ra_import_id = ?`).run(id);
-    db.prepare(`DELETE FROM ra_imports WHERE id = ?`).run(id);
+    db.prepare(`DELETE FROM ra_import_files WHERE ra_import_id = ? AND agency_id = ?`).run(id, req.agencyId);
+    db.prepare(`DELETE FROM ra_imports WHERE id = ? AND agency_id = ?`).run(id, req.agencyId);
   })();
 
   // Only unlink the file when nothing else references the same bytes.
@@ -1320,12 +1354,38 @@ router.delete('/import/:id', (req, res) => {
 // ra_imports.id. Superseded by DELETE /file/:id, which matches its name.
 
 // accepts: nothing  [X-Expects-Id: none]
-router.get('/storage', (_req, res) => {
-  const used = storageUsed();
+router.get('/storage', (req, res) => {
+  /*
+   * The uploads folder is shared by every agency, so a raw directory size
+   * would report other tenants' files. Count only rows this agency owns.
+   */
+  const rows = db
+    .prepare(
+      `SELECT stored_path FROM ra_import_files WHERE agency_id = ? AND stored_path IS NOT NULL
+       UNION
+       SELECT pdf_path AS stored_path FROM ra_imports WHERE agency_id = ? AND pdf_path IS NOT NULL`
+    )
+    .all(req.agencyId, req.agencyId);
+  /*
+   * Row paths are repo-relative ("data/ra_uploads/x.pdf"), and the two UNION
+   * arms can name the same file, so de-duplicate before summing.
+   */
+  const seen = new Set();
+  let bytes = 0;
+  for (const r of rows) {
+    const p = String(r.stored_path);
+    if (!p || seen.has(p)) continue;
+    seen.add(p);
+    try {
+      bytes += fs.statSync(path.isAbsolute(p) ? p : path.join(process.cwd(), p)).size;
+    } catch {
+      /* file pruned outside the app; ignore */
+    }
+  }
   res.json({
-    files: used.files,
-    bytes: used.bytes,
-    megabytes: Math.round((used.bytes / (1024 * 1024)) * 100) / 100,
+    files: seen.size,
+    bytes,
+    megabytes: Math.round((bytes / (1024 * 1024)) * 100) / 100,
   });
 });
 
@@ -1338,8 +1398,8 @@ router.get('/import/:id/overwrite-check', (req, res) => {
   if (!row) return res.status(404).json({ error: 'Import not found' });
   res.json({
     import: row,
-    footprint: importFootprint(id),
-    risks: overwriteRisks(id),
+    footprint: importFootprint(id, req.agencyId),
+    risks: overwriteRisks(id, req.agencyId),
   });
 });
 
@@ -1387,8 +1447,8 @@ router.post('/batch', (req, res) => {
         succeeded.push(name);
         // Layer 2: a regenerated copy of the same advice has a different hash
         // but the same header, so the identifiers are checked too.
-        const byHash = importByHash(parsed.file_hash);
-        const byHeader = byHash ? null : importByHeader(parsed.header);
+        const byHash = importByHash(parsed.file_hash, req.agencyId);
+        const byHeader = byHash ? null : importByHeader(parsed.header, req.agencyId);
         const match = byHash ?? byHeader ?? null;
         for (const c of parsed.clients) {
           clients.push({
@@ -1408,8 +1468,8 @@ router.post('/batch', (req, res) => {
                   imported_at: match.imported_at,
                   claim_count: match.claim_count ?? 0,
                   denial_count: match.denial_count ?? 0,
-                  footprint: importFootprint(match.id),
-                  risks: overwriteRisks(match.id),
+                  footprint: importFootprint(match.id, req.agencyId),
+                  risks: overwriteRisks(match.id, req.agencyId),
                 }
               : null,
           });
@@ -1422,9 +1482,9 @@ router.post('/batch', (req, res) => {
           db.prepare(
             `INSERT INTO ra_imports
                (imported_at, num_clients, total_payment, file_name, file_hash, pdf_path,
-                claim_count, denial_count, status)
-             VALUES (datetime('now'), 0, 0, @file, @hash, @path, 0, 0, 'parse_failed')`
-          ).run({ file: name, hash: stored.hash, path: stored.path });
+            claim_count, denial_count, status, agency_id)
+             VALUES (datetime('now'), 0, 0, @file, @hash, @path, 0, 0, 'parse_failed', @agency)`
+          ).run({ file: name, hash: stored.hash, path: stored.path, agency: req.agencyId });
         } catch {
           /* the failure report matters more than the record */
         }
@@ -1466,7 +1526,7 @@ router.post('/', (req, res) => {
         await parser.destroy?.();
       }
     } catch {
-      recordFailedParse(req.file, 'Could not extract any text from this PDF.');
+      recordFailedParse(req.file, 'Could not extract any text from this PDF.', req.agencyId);
       return res.status(400).json({ error: NOT_AN_RA });
     }
 
@@ -1485,7 +1545,7 @@ router.post('/', (req, res) => {
         suggested_caretaker: caretakerByNpi(c.rendered_provider_id),
         // Checked against the fuzzy match; the UI re-checks if the user picks
         // a different client or edits the dates.
-        ...existingForPeriod(suggestedClient?.id, c.dos_start, c.dos_end),
+        ...existingForPeriod(suggestedClient?.id, c.dos_start, c.dos_end, req.agencyId),
       };
     });
 
@@ -1527,7 +1587,7 @@ router.post('/', (req, res) => {
  * is never touched. Archived claims are ignored: they have already been dealt
  * with, so they should not prompt again.
  */
-export function existingForPeriod(clientId, dosStart, dosEnd) {
+export function existingForPeriod(clientId, dosStart, dosEnd, agencyId = null) {
   const empty = { existing_claim: null, manual_claim: null, ra_import_entries: 0 };
   if (!clientId || !dosStart || !dosEnd) return empty;
 
@@ -1541,10 +1601,11 @@ export function existingForPeriod(clientId, dosStart, dosEnd) {
         `SELECT id, claim_name, status, paid_amount, paid_date, period_start, period_end, source
          FROM claims
          WHERE client_id = @client AND COALESCE(archived, 0) = 0 AND ${overlap} AND ${clause}
+             ${Number.isInteger(agencyId) ? 'AND agency_id = @agency' : ''}
          ORDER BY period_start DESC, id DESC
          LIMIT 1`
       )
-      .get(params) ?? null;
+      .get(Number.isInteger(agencyId) ? { ...params, agency: agencyId } : params) ?? null;
 
   return {
     existing_claim: pick(`source = 'ra_import'`),
@@ -1553,16 +1614,17 @@ export function existingForPeriod(clientId, dosStart, dosEnd) {
       .prepare(
         `SELECT COUNT(*) AS n FROM day_entries
          WHERE client_id = @client AND source = 'ra_import'
-           AND work_date >= @start AND work_date <= @end`
+           AND work_date >= @start AND work_date <= @end
+           ${Number.isInteger(agencyId) ? 'AND agency_id = @agency' : ''}`
       )
-      .get(params).n,
+      .get(Number.isInteger(agencyId) ? { ...params, agency: agencyId } : params).n,
   };
 }
 
 /** POST /api/import-ra/existing  { client_id, dos_start, dos_end } */
 router.post('/existing', (req, res) => {
   const { client_id: clientId, dos_start: start, dos_end: end } = req.body ?? {};
-  res.json(existingForPeriod(Number(clientId) || null, start, end));
+  res.json(existingForPeriod(Number(clientId) || null, start, end, req.agencyId));
 });
 
 /** POST /api/import-ra/match  { client_name } */
@@ -1635,20 +1697,20 @@ function agreementFor(clientId, date) {
 const CLAIM_INSERT_SQL = `INSERT INTO claims
     (claim_name, client_id, agreement_id, period_start, period_end,
      total_units, total_dollars, status, paid_date, paid_amount, source, ra_import_id,
-     ra_claim_number)
+     ra_claim_number, agency_id)
   VALUES
     (@claim_name, @client_id, @agreement_id, @period_start, @period_end,
      @total_units, @total_dollars, 'Paid', @paid_date, @paid_amount, 'ra_import', @ra_import_id,
-     @ra_claim_number)`;
+     @ra_claim_number, @agency)`;
 
 const DAY_ENTRY_INSERT_SQL = `INSERT INTO day_entries
     (client_id, agreement_id, caretaker_id, work_date, minutes_worked, units,
      rate_per_unit, dollars, notes, claim_id, start_time, source, ra_import_id,
-     service_code, modifier)
+     service_code, modifier, agency_id)
   VALUES
     (@client_id, @agreement_id, @caretaker_id, @work_date, @minutes_worked, @units,
      @rate_per_unit, @dollars, @notes, @claim_id, @start_time, 'ra_import', @ra_import_id,
-     @service_code, @modifier)`;
+     @service_code, @modifier, @agency)`;
 
 /**
  * POST /api/import-ra/save
@@ -1698,13 +1760,14 @@ router.post('/save', (req, res) => {
     );
     const info = db
       .prepare(
-        `INSERT INTO ra_imports (imported_at, num_clients, total_payment, file_name)
-         VALUES (datetime('now'), @clients, @total, @file)`
+        `INSERT INTO ra_imports (imported_at, num_clients, total_payment, file_name, agency_id)
+           VALUES (datetime('now'), @clients, @total, @file, @agency)`
       )
       .run({
         clients: distinct.size,
         total: round2(rows.reduce((sum, r) => sum + (Number(r.total_payment) || 0), 0)),
         file: (req.body?.file_name ?? '').toString().trim() || null,
+          agency: req.agencyId,
       });
     raImportId = Number(info.lastInsertRowid);
   } catch {
@@ -1755,7 +1818,7 @@ router.post('/save', (req, res) => {
       const before = db
         .prepare(`SELECT claim_count FROM ra_imports WHERE id = ?`)
         .get(oldId)?.claim_count ?? 0;
-      const footprint = purgeImport(oldId);
+      const footprint = purgeImport(oldId, req.agencyId);
       summary.overwritten_imports += 1;
       summary.purged_claims += footprint.claims;
       summary.purged_day_entries += footprint.day_entries;
@@ -1824,14 +1887,15 @@ router.post('/save', (req, res) => {
           clientId: Number.isInteger(clientId) && clientId > 0 ? clientId : null,
           caretakerId: caretaker?.id ?? null,
           originalClaimId: original?.id ?? null,
+          agencyId: req.agencyId,
         });
 
         // A reversal flags the claim it reversed, but never alters it.
         if (original?.id) {
           db.prepare(
             `UPDATE claims SET reversal_flag = 1, denial_status = 'reversed'
-             WHERE id = ?`
-          ).run(original.id);
+               WHERE id = ? AND agency_id = ?`
+            ).run(original.id, req.agencyId);
           summary.reversed_claims += 1;
         }
         summary.denied_claims += 1;
@@ -1850,7 +1914,7 @@ router.post('/save', (req, res) => {
 
       /* ------------------------------------------ duplicate resolution */
       // Only ever touches records the import itself created.
-      const found = existingForPeriod(clientId, dosStart, dosEnd);
+      const found = existingForPeriod(clientId, dosStart, dosEnd, req.agencyId);
       const resolution = row.resolution ?? 'skip';
 
       if (found.manual_claim) {
@@ -1873,18 +1937,18 @@ router.post('/save', (req, res) => {
           .prepare(
             `DELETE FROM day_entries
              WHERE client_id = @client AND source = 'ra_import'
-               AND work_date >= @start AND work_date <= @end`
+                 AND work_date >= @start AND work_date <= @end AND agency_id = @agency`
           )
-          .run({ client: clientId, start: dosStart, end: dosEnd }).changes;
+            .run({ client: clientId, start: dosStart, end: dosEnd, agency: req.agencyId })
 
         if (resolution === 'archive_old') {
-          db.prepare(`UPDATE claims SET archived = 1 WHERE id = ?`).run(found.existing_claim.id);
+          db.prepare(`UPDATE claims SET archived = 1 WHERE id = ? AND agency_id = ?`).run(found.existing_claim.id, req.agencyId);
           summary.archived_claims += 1;
         } else if (resolution === 'overwrite') {
           const old = db
-            .prepare(`SELECT local_pdf_path, generated_pdf_path FROM claims WHERE id = ?`)
+            .prepare(`SELECT local_pdf_path, generated_pdf_path FROM claims WHERE id = ? AND agency_id = ?`)
             .get(found.existing_claim.id);
-          db.prepare(`DELETE FROM claims WHERE id = ?`).run(found.existing_claim.id);
+          db.prepare(`DELETE FROM claims WHERE id = ? AND agency_id = ?`).run(found.existing_claim.id, req.agencyId);
           // PDFs are files, so they are removed after the transaction commits.
           for (const path of [old?.local_pdf_path, old?.generated_pdf_path]) {
             if (path) orphanedPdfs.push(path);
@@ -1927,8 +1991,8 @@ router.post('/save', (req, res) => {
         if (existing) {
           // Name and submitted_date are deliberately preserved.
           db.prepare(
-            `UPDATE claims SET status = 'Paid', paid_date = ?, paid_amount = ? WHERE id = ?`
-          ).run(today, paidAmount, existing.id);
+            `UPDATE claims SET status = 'Paid', paid_date = ?, paid_amount = ? WHERE id = ? AND agency_id = ?`
+            ).run(today, paidAmount, existing.id, req.agencyId);
           claimId = existing.id;
           summary.updated_claims += 1;
         }
@@ -1958,6 +2022,7 @@ router.post('/save', (req, res) => {
           paid_amount: paidAmount,
           ra_import_id: raImportId,
           ra_claim_number: row.claim_number ?? null,
+            agency: req.agencyId,
         });
         logStatement('INSERT claim', CLAIM_INSERT_SQL, params);
 
@@ -2039,6 +2104,7 @@ router.post('/save', (req, res) => {
           // line that authorised its date, not just its stored agreement_id
           service_code: item.procedure_code ?? null,
           modifier: item.modifier ?? null,
+            agency: req.agencyId,
         });
         logStatement(
           `INSERT day_entry ${item.date} (${times.start_time}-${times.end_time})` +
@@ -2061,9 +2127,9 @@ router.post('/save', (req, res) => {
             .prepare(
               `UPDATE day_entries SET claim_id = ?
                WHERE client_id = ? AND claim_id IS NULL AND source = 'ra_import'
-                 AND work_date >= ? AND work_date <= ?`
+                   AND work_date >= ? AND work_date <= ? AND agency_id = ?`
             )
-            .run(claimId, clientId, claim.period_start, claim.period_end).changes;
+              .run(claimId, clientId, claim.period_start, claim.period_end, req.agencyId)
         }
       }
     }
@@ -2078,20 +2144,21 @@ router.post('/save', (req, res) => {
       `INSERT INTO ra_import_files
          (ra_import_id, file_name, stored_path, file_hash, check_date, prod_date,
           vendor_number, check_eft_number, payment_amount, forwarding_balance,
-          claim_count, denial_count, client_count, raw_char_count, status, note)
+          claim_count, denial_count, client_count, raw_char_count, status, note, agency_id)
        VALUES
          (@import_id, @file_name, @stored_path, @file_hash, @check_date, @prod_date,
           @vendor, @check_nbr, @amount, @fwd, @claims, @denials, @clients, @raw,
-          @status, @note)`
+          @status, @note, @agency)`
     );
     // Idempotent: re-importing the same batch must not duplicate file rows.
     const drop = db.prepare(
       `DELETE FROM ra_import_files
        WHERE ra_import_id = @id AND file_name = @name
-         AND COALESCE(file_hash, '') = COALESCE(@hash, '')`
+           AND COALESCE(file_hash, '') = COALESCE(@hash, '')
+           AND agency_id = @agency`
     );
     for (const f of files) {
-      drop.run({ id: raImportId, name: f.file_name ?? 'unnamed.pdf', hash: f.file_hash ?? null });
+      drop.run({ id: raImportId, name: f.file_name ?? 'unnamed.pdf', hash: f.file_hash ?? null, agency: req.agencyId });
       insert.run({
         import_id: raImportId,
         file_name: f.file_name ?? 'unnamed.pdf',
@@ -2141,19 +2208,20 @@ router.post('/save', (req, res) => {
      * kept, never dropped, because deleting them would remove real revenue.
      */
     if (flaggedFiles.size) {
-      db.prepare(`UPDATE ra_imports SET status = 'layout_unrecognised' WHERE id = ?`).run(raImportId);
+      db.prepare(`UPDATE ra_imports SET status = 'layout_unrecognised' WHERE id = ? AND agency_id = ?`).run(raImportId, req.agencyId);
       // No service lines means no day entries: the precise signature of a
       // half-parsed claim, and it leaves a mixed batch's good claims alone.
       db.prepare(
         `UPDATE claims SET parse_status = 'layout_incomplete'
          WHERE ra_import_id = ?
-           AND id NOT IN (SELECT DISTINCT claim_id FROM day_entries WHERE claim_id IS NOT NULL)`
-      ).run(raImportId);
+             AND id NOT IN (SELECT DISTINCT claim_id FROM day_entries WHERE claim_id IS NOT NULL)
+             AND agency_id = ?`
+        ).run(raImportId, req.agencyId);
       console.log(
         `[import-ra] layout_unrecognised on import ${raImportId} — ${[...flaggedFiles].join(', ')}`
       );
     }
-    markOrphanedImports();
+    markOrphanedImports(req.agencyId);
   } catch (e) {
     console.error('[import-ra] save failed:', e.message);
     return res.status(500).json({ error: `Import failed: ${e.message}` });
@@ -2171,8 +2239,8 @@ router.post('/save', (req, res) => {
   // A new paid import may be the rebill that clears an older denial, and a new
   // denial may already have been paid, so both directions are retried.
   try {
-    summary.recovered_denials = runRecovery();
-    ensureRebillTasks();
+    summary.recovered_denials = runRecovery(req.agencyId);
+    ensureRebillTasks(req.agencyId);
   } catch (e) {
     summary.warnings.push(`Recovery pass failed: ${e.message}`);
   }

@@ -25,8 +25,8 @@ function attach(res, filename) {
 }
 
 /** GET /api/exports/validation — pre-flight for the visit export. */
-router.get('/validation', (_req, res) => {
-  const result = validateVisitExport();
+router.get('/validation', (req, res) => {
+  const result = validateVisitExport(req.agencyId);
   res.json({
     ok: result.ok,
     row_count: result.row_count,
@@ -46,9 +46,10 @@ router.get('/caregivers.csv', (req, res) => {
   const caretakers = db
     .prepare(
       `SELECT * FROM caretakers
+       WHERE agency_id = @agency
        ORDER BY active DESC, last_name COLLATE NOCASE, first_name COLLATE NOCASE`
     )
-    .all();
+    .all({ agency: req.agencyId });
 
   const body = buildCaregiverCsv({ agencyTaxId: taxId, caretakers });
   const { ymd } = stamp();
@@ -64,7 +65,7 @@ router.get('/caregivers.csv', (req, res) => {
  * be produced in a state HHAeXchange would reject.
  */
 router.get('/visits.csv', (req, res) => {
-  const check = validateVisitExport();
+  const check = validateVisitExport(req.agencyId);
   if (!check.ok) {
     return res.status(422).json({
       error: 'The visit export did not pass validation.',
@@ -74,7 +75,7 @@ router.get('/visits.csv', (req, res) => {
   }
 
   const settings = check.settings;
-  const rows = visitSourceRows();
+  const rows = visitSourceRows(req.agencyId);
   const body = buildVisitCsv({ rows, settings });
   const { ymd, hms } = stamp();
 

@@ -111,9 +111,10 @@ router.get('/', (req, res) => {
               (SELECT COUNT(*) FROM task_checklist_items i WHERE i.task_id = t.id AND i.is_completed = 1) AS completed_items
          FROM tasks t
          LEFT JOIN caretakers c ON c.id = t.caretaker_id
+        WHERE t.agency_id = @agency
         ORDER BY (t.status = 'completed'), t.due_date IS NULL, t.due_date, t.id DESC`
     )
-    .all();
+    .all({ agency: req.agencyId });
 
   res.json({
     tasks: tasks.map((t) => ({

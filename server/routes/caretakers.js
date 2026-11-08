@@ -13,6 +13,7 @@ import {
   shiftPayPeriod,
   VALID_ENTRY_SQL,
   VALID_ENTRY_FROM,
+  entryFrom,
   monthBounds,
   yearBounds,
 } from '../payPeriod.js';
@@ -132,18 +133,19 @@ router.get('/', (req, res) => {
   const rows = db
     .prepare(
       `SELECT c.*,
-              (SELECT COUNT(*) FROM day_entries d WHERE d.caretaker_id = c.id) AS day_count
+              (SELECT COUNT(*) FROM day_entries d WHERE d.caretaker_id = c.id AND d.agency_id = c.agency_id) AS day_count
        FROM caretakers c
-       ${activeOnly ? 'WHERE c.active = 1' : ''}
+      WHERE c.agency_id = @agency
+       ${activeOnly ? 'AND c.active = 1' : ''}
        ORDER BY c.active DESC, c.last_name COLLATE NOCASE, c.first_name COLLATE NOCASE`
     )
-    .all();
+    .all({ agency: req.agencyId });
   res.json({ caretakers: rows });
 });
 
 /** GET /api/caretakers/:id */
 router.get('/:id', (req, res) => {
-  const row = db.prepare(`SELECT * FROM caretakers WHERE id = ?`).get(Number(req.params.id));
+  const row = db.prepare(`SELECT * FROM caretakers WHERE id = ? AND agency_id = ?`).get(Number(req.params.id), req.agencyId);
   if (!row) return res.status(404).json({ error: 'Caretaker not found' });
   res.json(row);
 });
@@ -161,11 +163,11 @@ router.post('/', (req, res) => {
       `INSERT INTO caretakers
          (first_name, last_name, npi_number, notes, active, ssn, gender, dob,
           street_address, city, state, zip, phone, hire_date, termination_date,
-          hourly_wage_rate, union_member, dues_deducted, seiu_voluntary_dues)
+          hourly_wage_rate, union_member, dues_deducted, seiu_voluntary_dues, agency_id)
        VALUES
          (@first_name, @last_name, @npi_number, @notes, @active, @ssn, @gender, @dob,
           @street_address, @city, @state, @zip, @phone, @hire_date, @termination_date,
-          @hourly_wage_rate, @union_member, @dues_deducted, @seiu_voluntary_dues)`
+          @hourly_wage_rate, @union_member, @dues_deducted, @seiu_voluntary_dues, @agency)`
     )
     .run({
       first_name: updates.first_name,
@@ -187,15 +189,16 @@ router.post('/', (req, res) => {
       union_member: updates.union_member ?? 0,
       dues_deducted: updates.dues_deducted ?? 0,
       seiu_voluntary_dues: updates.seiu_voluntary_dues ?? 0,
+      agency: req.agencyId,
     });
 
-  res.status(201).json(db.prepare(`SELECT * FROM caretakers WHERE id = ?`).get(info.lastInsertRowid));
+  res.status(201).json(db.prepare(`SELECT * FROM caretakers WHERE id = ? AND agency_id = ?`).get(info.lastInsertRowid, req.agencyId));
 });
 
 /** PUT and PATCH /api/caretakers/:id — both partial. */
 function updateCaretaker(req, res) {
   const id = Number(req.params.id);
-  const existing = db.prepare(`SELECT * FROM caretakers WHERE id = ?`).get(id);
+  const existing = db.prepare(`SELECT * FROM caretakers WHERE id = ? AND agency_id = ?`).get(id, req.agencyId);
   if (!existing) return res.status(404).json({ error: 'Caretaker not found' });
 
   const { updates, error } = normalise(req.body ?? {});
@@ -203,8 +206,8 @@ function updateCaretaker(req, res) {
   if (!Object.keys(updates).length) return res.json(existing);
 
   const setSql = Object.keys(updates).map((k) => `${k} = @${k}`).join(', ');
-  db.prepare(`UPDATE caretakers SET ${setSql} WHERE id = @id`).run({ ...updates, id });
-  res.json(db.prepare(`SELECT * FROM caretakers WHERE id = ?`).get(id));
+  db.prepare(`UPDATE caretakers SET ${setSql} WHERE id = @id AND agency_id = @agency`).run({ ...updates, id, agency: req.agencyId });
+  res.json(db.prepare(`SELECT * FROM caretakers WHERE id = ? AND agency_id = ?`).get(id, req.agencyId));
 }
 
 router.patch('/:id', updateCaretaker);
@@ -215,7 +218,7 @@ router.put('/:id', updateCaretaker);
 /** Confirm the caretaker exists, or answer 404. */
 function requireCaretaker(req, res) {
   const id = Number(req.params.id);
-  const caretaker = db.prepare(`SELECT * FROM caretakers WHERE id = ?`).get(id);
+  const caretaker = db.prepare(`SELECT * FROM caretakers WHERE id = ? AND agency_id = ?`).get(id, req.agencyId);
   if (!caretaker) {
     res.status(404).json({ error: 'Caretaker not found' });
     return null;
@@ -252,7 +255,7 @@ function totalsFor(caretakerId, start, end) {
               COUNT(DISTINCT d.client_id)       AS clients,
               COUNT(*)                          AS entries
        ${VALID_ENTRY_FROM}
-       WHERE ${where.join(' AND ')}`
+       AND ${where.join(' AND ')}`
     )
     .get(params);
   return {
@@ -269,9 +272,8 @@ function rankingFor(start, end) {
   return db
     .prepare(
       `SELECT d.caretaker_id AS id, SUM(d.minutes_worked) AS minutes
-       ${VALID_ENTRY_FROM}
-       JOIN caretakers t ON t.id = d.caretaker_id
-       WHERE d.work_date >= @start AND d.work_date <= @end
+       ${entryFrom({ caretaker: true })}
+       AND d.work_date >= @start AND d.work_date <= @end
          AND COALESCE(t.active, 1) = 1
          AND ${VALID_ENTRY_SQL}
        GROUP BY d.caretaker_id
@@ -392,7 +394,7 @@ router.get('/:id/client-splits', (req, res) => {
               SUM(d.minutes_worked)    AS minutes,
               ROUND(SUM(d.dollars), 2) AS dollars
        ${VALID_ENTRY_FROM}
-       WHERE ${where.join(' AND ')}
+       AND ${where.join(' AND ')}
        GROUP BY d.client_id
        ORDER BY dollars DESC, cu.last_name COLLATE NOCASE`
     )
@@ -439,8 +441,8 @@ router.get('/:id/work-history', (req, res) => {
 
   const perPage = Math.min(Math.max(Number(req.query.per_page) || 20, 1), 200);
   const total = db
-    .prepare(`SELECT COUNT(*) AS n ${VALID_ENTRY_FROM} WHERE ${where.join(' AND ')}`)
-    .get(params).n;
+    .prepare(`SELECT COUNT(*) AS n ${VALID_ENTRY_FROM} AND ${where.join(' AND ')}`)
+    .get({ ...params, agency: req.agencyId }).n;
   const pages = Math.max(Math.ceil(total / perPage), 1);
   const page = Math.min(Math.max(Number(req.query.page) || 1, 1), pages);
   const direction = req.query.sort === 'asc' ? 'ASC' : 'DESC';
@@ -452,13 +454,12 @@ router.get('/:id/work-history', (req, res) => {
               cu.first_name, cu.last_name,
               cl.status AS claim_status, cl.claim_name,
               COALESCE(cl.archived, 0) AS claim_archived
-       ${VALID_ENTRY_FROM}
-       LEFT JOIN claims cl ON cl.id = d.claim_id
-       WHERE ${where.join(' AND ')}
+       ${entryFrom({ claim: true })}
+       AND ${where.join(' AND ')}
        ORDER BY d.work_date ${direction}, d.id ${direction}
        LIMIT @limit OFFSET @offset`
     )
-    .all({ ...params, limit: perPage, offset: (page - 1) * perPage });
+    .all({ ...params, limit: perPage, offset: (page - 1) * perPage, agency: req.agencyId });
 
   res.json({
     page,
@@ -504,14 +505,13 @@ router.get('/:id/calendar', (req, res) => {
               cu.first_name, cu.last_name,
               cl.status AS claim_status,
               COALESCE(cl.archived, 0) AS claim_archived
-       ${VALID_ENTRY_FROM}
-       LEFT JOIN claims cl ON cl.id = d.claim_id
-       WHERE d.caretaker_id = @id
+       ${entryFrom({ claim: true })}
+       AND d.caretaker_id = @id
          AND ${VALID_ENTRY_SQL}
          AND d.work_date >= @first AND d.work_date <= @last
        ORDER BY d.work_date, d.id`
     )
-    .all({ id: caretaker.id, first: `${month}-01`, last: `${month}-31` });
+    .all({ id: caretaker.id, first: `${month}-01`, last: `${month}-31`, agency: req.agencyId });
 
   // one bucket per day worked, in date order
   const byDate = new Map();
@@ -562,10 +562,10 @@ router.get('/:id/calendar', (req, res) => {
  */
 router.delete('/:id', (req, res) => {
   const id = Number(req.params.id);
-  const existing = db.prepare(`SELECT * FROM caretakers WHERE id = ?`).get(id);
+  const existing = db.prepare(`SELECT * FROM caretakers WHERE id = ? AND agency_id = ?`).get(id, req.agencyId);
   if (!existing) return res.status(404).json({ error: 'Caretaker not found' });
 
-  const used = db.prepare(`SELECT COUNT(*) n FROM day_entries WHERE caretaker_id = ?`).get(id).n;
+  const used = db.prepare(`SELECT COUNT(*) n FROM day_entries WHERE caretaker_id = ? AND agency_id = ?`).get(id, req.agencyId).n;
   if (used > 0 && req.query.force !== '1') {
     return res.status(409).json({
       error: `${fullName(existing)} is recorded on ${used} day entr${used === 1 ? 'y' : 'ies'}.`,
@@ -574,8 +574,8 @@ router.delete('/:id', (req, res) => {
     });
   }
 
-  if (used > 0) db.prepare(`UPDATE day_entries SET caretaker_id = NULL WHERE caretaker_id = ?`).run(id);
-  db.prepare(`DELETE FROM caretakers WHERE id = ?`).run(id);
+  if (used > 0) db.prepare(`UPDATE day_entries SET caretaker_id = NULL WHERE caretaker_id = ? AND agency_id = ?`).run(id, req.agencyId);
+  db.prepare(`DELETE FROM caretakers WHERE id = ? AND agency_id = ?`).run(id, req.agencyId);
   res.json({ deleted: true, id, cleared_day_entries: used });
 });
 

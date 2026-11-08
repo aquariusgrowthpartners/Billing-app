@@ -29,6 +29,7 @@ export function saveDeniedBlock({
   caretakerId = null,
   originalClaimId = null,
   raImportId = null,
+  agencyId = null,
 }) {
   const status = classifyStatus(block.claim_status);
   const items = Array.isArray(block.line_items) ? block.line_items : [];
@@ -44,12 +45,12 @@ export function saveDeniedBlock({
          (ra_claim_number, client_id, client_name_raw, caretaker_id, caretaker_npi_raw,
           claim_status, dos_start, dos_end, total_charge, total_payment, ra_prod_date,
           source_filename, original_claim_id, recovery_status, ra_import_id,
-          adjustment_code)
+          adjustment_code, agency_id)
        VALUES
          (@claim_number, @client_id, @client_name_raw, @caretaker_id, @npi,
           @status, @dos_start, @dos_end, @charge, @payment, @prod,
           @file, @original, 'unrecovered', @ra_import_id,
-          @adjustment)`
+          @adjustment, @agency)`
     )
     .run({
       claim_number: block.claim_number ?? null,
@@ -67,14 +68,15 @@ export function saveDeniedBlock({
       original: originalClaimId,
       ra_import_id: raImportId,
       adjustment: claimAdjustment,
+      agency: agencyId ?? 1,
     });
 
   const deniedId = Number(info.lastInsertRowid);
   const insertItem = db.prepare(
     `INSERT INTO denied_line_items
        (denied_claim_id, client_id, dos, procedure_code, units, minutes_worked, billed,
-        adjustment_code)
-     VALUES (@denied, @client, @dos, @code, @units, @minutes, @billed, @adjustment)`
+        adjustment_code, agency_id)
+     VALUES (@denied, @client, @dos, @code, @units, @minutes, @billed, @adjustment, @agency)`
   );
   for (const li of items) {
     insertItem.run({
@@ -86,11 +88,12 @@ export function saveDeniedBlock({
       minutes: li.minutes_worked ?? null,
       billed: li.billed ?? null,
       adjustment: li.adjustment_code ?? null,
+      agency: agencyId ?? 1,
     });
   }
 
-  ensureRebillTasks();
-  updateRecoveryStatuses();
+  ensureRebillTasks(agencyId);
+  updateRecoveryStatuses(agencyId);
   return deniedId;
 }
 
@@ -98,7 +101,8 @@ export function saveDeniedBlock({
  * A rebill task exists for every unrecovered line item, so the work is visible
  * as a to-do rather than only as an archive row.
  */
-export function ensureRebillTasks() {
+export function ensureRebillTasks(agencyId) {
+  const scoped = Number.isInteger(agencyId);
   const missing = db
     .prepare(
       `SELECT i.id, i.client_id, i.dos, i.procedure_code, i.units, i.minutes_worked, i.billed,
@@ -107,15 +111,16 @@ export function ensureRebillTasks() {
        JOIN denied_claims c ON c.id = i.denied_claim_id
        WHERE i.recovered = 0
          AND COALESCE(i.recovery_status, '') <> 'written_off'
+         ${scoped ? 'AND c.agency_id = ?' : ''}
          AND NOT EXISTS (SELECT 1 FROM rebill_tasks t WHERE t.denied_line_item_id = i.id)`
     )
-    .all();
+    .all(...(scoped ? [agencyId] : []));
 
   const insert = db.prepare(
     `INSERT INTO rebill_tasks
        (denied_line_item_id, client_id, caretaker_id, dos, procedure_code, units,
-        minutes_worked, billed, status)
-     VALUES (@item, @client, @caretaker, @dos, @code, @units, @minutes, @billed, 'open')`
+        minutes_worked, billed, status, agency_id)
+     VALUES (@item, @client, @caretaker, @dos, @code, @units, @minutes, @billed, 'open', @agency)`
   );
   const run = db.transaction(() => {
     for (const m of missing) {
@@ -128,6 +133,7 @@ export function ensureRebillTasks() {
         units: m.units,
         minutes: m.minutes_worked,
         billed: m.billed,
+        agency: agencyId ?? 1,
       });
     }
   });
@@ -141,7 +147,8 @@ export function ensureRebillTasks() {
  * The claim check matters: an entry on a still-unpaid claim has not been
  * rebilled successfully, so it must not count as a recovery.
  */
-export function runRecovery() {
+export function runRecovery(agencyId) {
+  const scoped = Number.isInteger(agencyId);
   const open = db
     .prepare(
       `SELECT i.id, i.denied_claim_id, i.client_id, i.dos, i.procedure_code
@@ -149,9 +156,10 @@ export function runRecovery() {
        WHERE i.recovered = 0
          AND i.client_id IS NOT NULL
          AND i.dos IS NOT NULL
-         AND i.procedure_code IS NOT NULL`
+         AND i.procedure_code IS NOT NULL
+         ${scoped ? 'AND i.agency_id = ?' : ''}`
     )
-    .all();
+    .all(...(scoped ? [agencyId] : []));
 
   const find = db.prepare(
     `SELECT d.id, d.work_date
@@ -182,19 +190,22 @@ export function runRecovery() {
   let recovered = 0;
   db.transaction(() => {
     for (const item of open) {
-      const hit = find.get({ client: item.client_id, dos: item.dos });
+      const hit = find.get(scoped
+          ? { client: item.client_id, dos: item.dos, agency: agencyId }
+          : { client: item.client_id, dos: item.dos });
       if (!hit) continue;
       mark.run({ id: item.id, entry: hit.id, dos: hit.work_date });
       closeTask.run(item.id);
       recovered += 1;
     }
   })();
-  if (recovered) updateRecoveryStatuses();
+  if (recovered) updateRecoveryStatuses(agencyId);
   return recovered;
 }
 
 /** Roll each denied claim's status up from its line items. */
-export function updateRecoveryStatuses() {
+export function updateRecoveryStatuses(agencyId) {
+  const scoped = Number.isInteger(agencyId);
   const rows = db
     .prepare(
       `SELECT c.id,
@@ -202,9 +213,10 @@ export function updateRecoveryStatuses() {
               SUM(CASE WHEN i.recovered = 1 THEN 1 ELSE 0 END) AS done
        FROM denied_claims c
        LEFT JOIN denied_line_items i ON i.denied_claim_id = c.id
+       WHERE 1 = 1 ${scoped ? 'AND c.agency_id = ?' : ''}
        GROUP BY c.id`
     )
-    .all();
+    .all(...(scoped ? [agencyId] : []));
   const set = db.prepare(`UPDATE denied_claims SET recovery_status = ? WHERE id = ?`);
   db.transaction(() => {
     for (const r of rows) {
@@ -216,11 +228,15 @@ export function updateRecoveryStatuses() {
 
 /** Open rebill tasks — the badge count and the Home alert both use this. */
 /** Everything a denial delete removes, counted before it goes. */
-export function denialDeleteCounts(ids) {
+export function denialDeleteCounts(ids, agencyId) {
   const list = (Array.isArray(ids) ? ids : [ids]).map(Number).filter(Number.isInteger);
   if (!list.length) return { denials: 0, line_items: 0, rebill_tasks: 0, found_ids: [] };
   const ph = list.map(() => '?').join(',');
-  const denials = db.prepare(`SELECT id FROM denied_claims WHERE id IN (${ph})`).all(...list).map((r) => r.id);
+  const scoped = Number.isInteger(agencyId);
+  const denials = (scoped
+    ? db.prepare(`SELECT id FROM denied_claims WHERE id IN (${ph}) AND agency_id = ?`).all(...list, agencyId)
+    : db.prepare(`SELECT id FROM denied_claims WHERE id IN (${ph})`).all(...list)
+  ).map((r) => r.id);
   if (!denials.length) return { denials: 0, line_items: 0, rebill_tasks: 0, found_ids: [] };
   const dph = denials.map(() => '?').join(',');
   const items = db
@@ -244,11 +260,16 @@ export function denialDeleteCounts(ids) {
  * clears the archive. A line item that was recovered stays recovered on its day
  * entry; the link simply goes away with the record.
  */
-export function deleteDenials(ids) {
-  const counts = denialDeleteCounts(ids);
+export function deleteDenials(ids, agencyId) {
+  const counts = denialDeleteCounts(ids, agencyId);
   if (!counts.found_ids.length) return { ...counts, deleted: 0 };
   const ph = counts.found_ids.map(() => '?').join(',');
-  db.prepare(`DELETE FROM denied_claims WHERE id IN (${ph})`).run(...counts.found_ids);
+  const scoped = Number.isInteger(agencyId);
+  db.prepare(
+    scoped
+      ? `DELETE FROM denied_claims WHERE id IN (${ph}) AND agency_id = ?`
+      : `DELETE FROM denied_claims WHERE id IN (${ph})`
+  ).run(...(scoped ? [...counts.found_ids, agencyId] : counts.found_ids));
   // denied_line_items and rebill_tasks cascade from the parent row
   return {
     deleted_denial: counts.denials,
@@ -259,14 +280,20 @@ export function deleteDenials(ids) {
 }
 
 /** Clear one rebill task, marking its line item written off first. */
-export function deleteRebillTask(id) {
-  const task = db.prepare(`SELECT * FROM rebill_tasks WHERE id = ?`).get(Number(id));
+export function deleteRebillTask(id, agencyId) {
+  const scoped = Number.isInteger(agencyId);
+  const task = (scoped
+    ? db.prepare(`SELECT * FROM rebill_tasks WHERE id = ? AND agency_id = ?`).get(Number(id), agencyId)
+    : db.prepare(`SELECT * FROM rebill_tasks WHERE id = ?`).get(Number(id)));
   if (!task) return null;
   db.transaction(() => {
     db.prepare(
       `UPDATE denied_line_items SET recovery_status = 'written_off' WHERE id = ?`
     ).run(task.denied_line_item_id);
-    db.prepare(`DELETE FROM rebill_tasks WHERE id = ?`).run(task.id);
+    db.prepare(
+      scoped ? `DELETE FROM rebill_tasks WHERE id = ? AND agency_id = ?`
+             : `DELETE FROM rebill_tasks WHERE id = ?`
+    ).run(...(scoped ? [task.id, agencyId] : [task.id]));
   })();
   return { deleted_rebill_task: 1, denied_line_item_id: task.denied_line_item_id };
 }
@@ -279,16 +306,17 @@ export function deleteRebillTask(id) {
  * Only ACTIVE rows are touched: an import already marked overwritten keeps
  * that status, which carries more meaning.
  */
-export function markOrphanedImports() {
+export function markOrphanedImports(agencyId) {
+  const scoped = Number.isInteger(agencyId);
   const rows = db
     .prepare(
       `SELECT i.id,
               (SELECT COUNT(*) FROM claims c WHERE c.ra_import_id = i.id) AS claims,
               (SELECT COUNT(*) FROM denied_claims d WHERE d.ra_import_id = i.id) AS denials
        FROM ra_imports i
-       WHERE i.status = 'active'`
+       WHERE i.status = 'active'${scoped ? ' AND i.agency_id = ?' : ''}`
     )
-    .all();
+    .all(...(scoped ? [agencyId] : []));
   const orphan = rows.filter((r) => r.claims === 0 && r.denials === 0);
   if (!orphan.length) return [];
   const mark = db.prepare(`UPDATE ra_imports SET status = 'orphaned' WHERE id = ?`);
@@ -299,7 +327,12 @@ export function markOrphanedImports() {
   return orphan.map((r) => r.id);
 }
 
-export function openTaskCount() {
+export function openTaskCount(agencyId) {
+  if (Number.isInteger(agencyId)) {
+    return db
+      .prepare(`SELECT COUNT(*) AS n FROM rebill_tasks WHERE status = 'open' AND agency_id = ?`)
+      .get(agencyId).n;
+  }
   return db.prepare(`SELECT COUNT(*) AS n FROM rebill_tasks WHERE status = 'open'`).get().n;
 }
 

@@ -42,26 +42,27 @@ router.get('/', (req, res) => {
   const rows = db
     .prepare(
       `SELECT cm.*,
-              (SELECT COUNT(*) FROM clients c WHERE c.case_manager_id = cm.id) AS client_count
+              (SELECT COUNT(*) FROM clients c WHERE c.case_manager_id = cm.id AND c.agency_id = cm.agency_id) AS client_count
        FROM case_managers cm
-       ${activeOnly ? 'WHERE cm.active = 1' : ''}
+      WHERE cm.agency_id = @agency
+       ${activeOnly ? 'AND cm.active = 1' : ''}
        ORDER BY cm.active DESC, cm.last_name COLLATE NOCASE, cm.first_name COLLATE NOCASE`
     )
-    .all();
+    .all({ agency: req.agencyId });
   res.json({ case_managers: rows });
 });
 
 /** GET /api/case-managers/:id — includes the clients assigned to them. */
 router.get('/:id', (req, res) => {
   const id = Number(req.params.id);
-  const row = db.prepare(`SELECT * FROM case_managers WHERE id = ?`).get(id);
+  const row = db.prepare(`SELECT * FROM case_managers WHERE id = ? AND agency_id = ?`).get(id, req.agencyId);
   if (!row) return res.status(404).json({ error: 'Case manager not found' });
   const clients = db
     .prepare(
       `SELECT id, first_name, last_name, ma_number FROM clients
-       WHERE case_manager_id = ? ORDER BY last_name COLLATE NOCASE`
+          WHERE agency_id = @agency AND case_manager_id = @id ORDER BY last_name COLLATE NOCASE`
     )
-    .all(id);
+    .all({ id, agency: req.agencyId });
   res.json({ case_manager: row, clients });
 });
 
@@ -76,8 +77,8 @@ router.post('/', (req, res) => {
   const info = db
     .prepare(
       `INSERT INTO case_managers
-         (first_name, last_name, email, phone, organization, notes, active)
-       VALUES (@first_name, @last_name, @email, @phone, @organization, @notes, @active)`
+         (first_name, last_name, email, phone, organization, notes, active, agency_id)
+       VALUES (@first_name, @last_name, @email, @phone, @organization, @notes, @active, @agency)`
     )
     .run({
       first_name: updates.first_name,
@@ -87,17 +88,18 @@ router.post('/', (req, res) => {
       organization: updates.organization ?? null,
       notes: updates.notes ?? null,
       active: updates.active ?? 1,
+      agency: req.agencyId,
     });
 
   res
     .status(201)
-    .json(db.prepare(`SELECT * FROM case_managers WHERE id = ?`).get(info.lastInsertRowid));
+    .json(db.prepare(`SELECT * FROM case_managers WHERE id = ? AND agency_id = ?`).get(info.lastInsertRowid, req.agencyId));
 });
 
 /** PUT and PATCH /api/case-managers/:id */
 function updateCaseManager(req, res) {
   const id = Number(req.params.id);
-  const existing = db.prepare(`SELECT * FROM case_managers WHERE id = ?`).get(id);
+  const existing = db.prepare(`SELECT * FROM case_managers WHERE id = ? AND agency_id = ?`).get(id, req.agencyId);
   if (!existing) return res.status(404).json({ error: 'Case manager not found' });
 
   const { updates, error } = normalise(req.body ?? {});
@@ -105,8 +107,8 @@ function updateCaseManager(req, res) {
   if (!Object.keys(updates).length) return res.json(existing);
 
   const setSql = Object.keys(updates).map((k) => `${k} = @${k}`).join(', ');
-  db.prepare(`UPDATE case_managers SET ${setSql} WHERE id = @id`).run({ ...updates, id });
-  res.json(db.prepare(`SELECT * FROM case_managers WHERE id = ?`).get(id));
+  db.prepare(`UPDATE case_managers SET ${setSql} WHERE id = @id AND agency_id = @agency`).run({ ...updates, id, agency: req.agencyId });
+  res.json(db.prepare(`SELECT * FROM case_managers WHERE id = ? AND agency_id = ?`).get(id, req.agencyId));
 }
 
 router.patch('/:id', updateCaseManager);
@@ -119,10 +121,10 @@ router.put('/:id', updateCaseManager);
  */
 router.delete('/:id', (req, res) => {
   const id = Number(req.params.id);
-  const existing = db.prepare(`SELECT * FROM case_managers WHERE id = ?`).get(id);
+  const existing = db.prepare(`SELECT * FROM case_managers WHERE id = ? AND agency_id = ?`).get(id, req.agencyId);
   if (!existing) return res.status(404).json({ error: 'Case manager not found' });
 
-  const assigned = db.prepare(`SELECT COUNT(*) n FROM clients WHERE case_manager_id = ?`).get(id).n;
+  const assigned = db.prepare(`SELECT COUNT(*) n FROM clients WHERE case_manager_id = ? AND agency_id = ?`).get(id, req.agencyId).n;
   if (assigned > 0 && req.query.force !== '1') {
     return res.status(409).json({
       error: `${fullName(existing)} is assigned to ${assigned} client${assigned === 1 ? '' : 's'}.`,
@@ -131,8 +133,8 @@ router.delete('/:id', (req, res) => {
     });
   }
 
-  if (assigned > 0) db.prepare(`UPDATE clients SET case_manager_id = NULL WHERE case_manager_id = ?`).run(id);
-  db.prepare(`DELETE FROM case_managers WHERE id = ?`).run(id);
+  if (assigned > 0) db.prepare(`UPDATE clients SET case_manager_id = NULL WHERE case_manager_id = ? AND agency_id = ?`).run(id, req.agencyId);
+  db.prepare(`DELETE FROM case_managers WHERE id = ? AND agency_id = ?`).run(id, req.agencyId);
   res.json({ deleted: true, id, unassigned_clients: assigned });
 });
 

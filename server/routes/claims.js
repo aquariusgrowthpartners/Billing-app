@@ -99,16 +99,16 @@ export function buildClaimName(client, periodStart, periodEnd) {
  */
 let __factors = null;
 let __factorsAt = 0;
-function netPaidFactors() {
+function netPaidFactors(agencyId) {
   // Import totals change only on import, so a short cache is plenty.
   if (!__factors || Date.now() - __factorsAt > 5000) {
-    __factors = importFactors();
+    __factors = importFactors(agencyId);
     __factorsAt = Date.now();
   }
   return __factors;
 }
 
-function decorate(row) {
+function decorate(row, agencyId) {
   if (!row) return row;
   const paidLag =
     row.paid_date && row.submitted_date ? daysBetween(row.submitted_date, row.paid_date) : null;
@@ -127,7 +127,7 @@ function decorate(row) {
   return {
     ...row,
     // money actually received, so the Dashboard can SUM what Reports sums
-    net_paid_amount: netPaid(row, netPaidFactors()),
+    net_paid_amount: netPaid(row, netPaidFactors(agencyId)),
     paid_lag_days: paidLag,
     days_vs_expected: vsExpected,
     is_overdue: overdue,
@@ -245,17 +245,21 @@ router.get('/', (req, res) => {
        JOIN clients c ON c.id = cl.client_id
        LEFT JOIN agreements a ON a.id = cl.agreement_id
        LEFT JOIN payers p ON p.id = a.payer_id
-       ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
+       WHERE cl.agency_id = @agency
+       ${where.length ? `AND ${where.join(' AND ')}` : ''}
        ORDER BY COALESCE(cl.period_start, cl.created_at) DESC, cl.id DESC`
     )
-    .all(params);
+    .all({ ...params, agency: req.agencyId });
 
   // The dashboard counter needs the total regardless of the filter.
   const archivedTotal = db
-    .prepare(`SELECT COUNT(*) AS n FROM claims WHERE COALESCE(archived, 0) = 1`)
-    .get().n;
+    .prepare(
+      `SELECT COUNT(*) AS n FROM claims
+        WHERE COALESCE(archived, 0) = 1 AND agency_id = @agency`
+    )
+    .get({ agency: req.agencyId }).n;
 
-  res.json({ claims: rows.map(decorate), archived_count: archivedTotal });
+  res.json({ claims: rows.map((r) => decorate(r, req.agencyId)), archived_count: archivedTotal });
 });
 
 /**
@@ -366,7 +370,7 @@ router.get('/preview', (req, res) => {
  * Observed payer behaviour: how long they really take vs the configured terms.
  * Must stay above /:id.
  */
-router.get('/payer-stats', (_req, res) => {
+router.get('/payer-stats', (req, res) => {
   const rows = db
     .prepare(
       `SELECT p.id AS payer_id, p.name AS payer_name, p.typical_days_to_pay,
@@ -443,7 +447,7 @@ router.post('/', (req, res) => {
   try {
     const claimId = run();
     const row = db.prepare(`SELECT * FROM claims WHERE id = ?`).get(claimId);
-    res.status(201).json({ claim: decorate(row) });
+    res.status(201).json({ claim: decorate(row, req.agencyId) });
   } catch (err) {
     res.status(err.status ?? 500).json({ error: err.message });
   }
@@ -531,12 +535,12 @@ function updateClaim(req, res) {
     updates.variance_days = null;
   }
 
-  if (!Object.keys(updates).length) return res.json({ claim: decorate(existing) });
+  if (!Object.keys(updates).length) return res.json({ claim: decorate(existing, req.agencyId) });
 
   const setSql = Object.keys(updates).map((k) => `${k} = @${k}`).join(', ');
   db.prepare(`UPDATE claims SET ${setSql} WHERE id = @id`).run({ ...updates, id });
 
-  res.json({ claim: decorate(db.prepare(`SELECT * FROM claims WHERE id = ?`).get(id)) });
+  res.json({ claim: decorate(db.prepare(`SELECT * FROM claims WHERE id = ?`).get(id), req.agencyId) });
 }
 
 router.patch('/:id', updateClaim);
@@ -843,7 +847,7 @@ router.post('/bulk-delete', (req, res) => {
     removed = r.removed;
     unlinked = r.unlinked;
     db.prepare(`DELETE FROM claims WHERE id IN (${delPlaceholders})`).run(...deleteIds);
-    markOrphanedImports();
+    markOrphanedImports(req.agencyId);
     logRowsRemoved = reconcileRaImports(importIds).removed;
   })();
 
@@ -934,7 +938,7 @@ router.delete('/:id', (req, res) => {
     released.removed = r.removed;
     released.unlinked = r.unlinked;
     db.prepare(`DELETE FROM claims WHERE id = ?`).run(id);
-    markOrphanedImports();
+    markOrphanedImports(req.agencyId);
     if (existing.source === 'ra_import' && existing.ra_import_id) {
       Object.assign(reconcile, reconcileRaImports([existing.ra_import_id]));
     }
@@ -995,7 +999,7 @@ router.post('/:id/pdf/generate', async (req, res) => {
   try {
     const file = await writeClaimPdf(claim);
     const updated = db.prepare(`SELECT * FROM claims WHERE id = ?`).get(id);
-    res.status(201).json({ claim: decorate(updated), file });
+    res.status(201).json({ claim: decorate(updated, req.agencyId), file });
   } catch (e) {
     res.status(500).json({ error: `Could not build the claim PDF: ${e.message}` });
   }
@@ -1070,7 +1074,7 @@ router.post('/:id/regenerate', async (req, res) => {
   }
 
   res.json({
-    claim: decorate(db.prepare(`SELECT * FROM claims WHERE id = ?`).get(id)),
+    claim: decorate(db.prepare(`SELECT * FROM claims WHERE id = ?`).get(id), req.agencyId),
     aggregation: {
       day_count: mine.length,
       total_units: totalUnits,
@@ -1095,7 +1099,7 @@ router.post('/:id/revert', (req, res) => {
   const claim = db.prepare(`SELECT * FROM claims WHERE id = ?`).get(id);
   if (!claim) return res.status(404).json({ error: 'Claim not found' });
   if (claim.status === 'Draft') {
-    return res.json({ claim: decorate(claim), changed: false });
+    return res.json({ claim: decorate(claim, req.agencyId), changed: false });
   }
 
   db.prepare(
@@ -1105,7 +1109,7 @@ router.post('/:id/revert', (req, res) => {
   ).run(id);
 
   res.json({
-    claim: decorate(db.prepare(`SELECT * FROM claims WHERE id = ?`).get(id)),
+    claim: decorate(db.prepare(`SELECT * FROM claims WHERE id = ?`).get(id), req.agencyId),
     changed: true,
     kept_payment_record: claim.paid_date != null || claim.paid_amount != null,
   });
@@ -1153,7 +1157,7 @@ router.delete('/:id/pdf/generated', (req, res) => {
   const id = Number(req.params.id);
   const claim = db.prepare(`SELECT * FROM claims WHERE id = ?`).get(id);
   if (!claim) return res.status(404).json({ error: 'Claim not found' });
-  if (!claim.generated_pdf_path) return res.json({ removed: false, claim: decorate(claim) });
+  if (!claim.generated_pdf_path) return res.json({ removed: false, claim: decorate(claim, req.agencyId) });
 
   try {
     fs.unlinkSync(resolveStored(claim.generated_pdf_path));
@@ -1161,7 +1165,7 @@ router.delete('/:id/pdf/generated', (req, res) => {
     /* already gone */
   }
   db.prepare(`UPDATE claims SET generated_pdf_path = NULL WHERE id = ?`).run(id);
-  res.json({ removed: true, claim: decorate(db.prepare(`SELECT * FROM claims WHERE id = ?`).get(id)) });
+  res.json({ removed: true, claim: decorate(db.prepare(`SELECT * FROM claims WHERE id = ?`).get(id), req.agencyId) });
 });
 
 /**
@@ -1215,7 +1219,7 @@ router.post('/:id/pdf', (req, res) => {
     db.prepare(`UPDATE claims SET local_pdf_path = ? WHERE id = ?`).run(rel, id);
     const updated = db.prepare(`SELECT * FROM claims WHERE id = ?`).get(id);
     res.status(201).json({
-      claim: decorate(updated),
+      claim: decorate(updated, req.agencyId),
       file: { path: rel, name: path.basename(rel), bytes: req.file.size, replaced: Boolean(previous) },
     });
   });
@@ -1290,7 +1294,7 @@ router.delete('/:id/pdf', (req, res) => {
   const id = Number(req.params.id);
   const claim = db.prepare(`SELECT * FROM claims WHERE id = ?`).get(id);
   if (!claim) return res.status(404).json({ error: 'Claim not found' });
-  if (!claim.local_pdf_path) return res.json({ detached: false, claim: decorate(claim) });
+  if (!claim.local_pdf_path) return res.json({ detached: false, claim: decorate(claim, req.agencyId) });
 
   try {
     fs.unlinkSync(resolveStored(claim.local_pdf_path));
@@ -1298,7 +1302,7 @@ router.delete('/:id/pdf', (req, res) => {
     /* file already gone; still clear the reference */
   }
   db.prepare(`UPDATE claims SET local_pdf_path = NULL WHERE id = ?`).run(id);
-  res.json({ detached: true, claim: decorate(db.prepare(`SELECT * FROM claims WHERE id = ?`).get(id)) });
+  res.json({ detached: true, claim: decorate(db.prepare(`SELECT * FROM claims WHERE id = ?`).get(id), req.agencyId) });
 });
 
 /**
@@ -1386,7 +1390,7 @@ router.get('/:id', (req, res) => {
   const entries = db
     .prepare(`SELECT * FROM day_entries WHERE claim_id = ? ORDER BY work_date`)
     .all(row.id);
-  res.json({ claim: decorate(row), entries });
+  res.json({ claim: decorate(row, req.agencyId), entries });
 });
 
 /* ----------------------------------------------------------------- helpers */

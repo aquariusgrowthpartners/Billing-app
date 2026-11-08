@@ -14,10 +14,11 @@ router.get('/', (req, res) => {
        FROM agreements a
        LEFT JOIN payers p ON p.id = a.payer_id
        LEFT JOIN clients c ON c.id = a.client_id
-       ${clientId ? 'WHERE a.client_id = @clientId' : ''}
+       WHERE a.agency_id = @agency
+         ${clientId ? 'AND a.client_id = @clientId' : ''}
        ORDER BY a.client_id, a.start_date DESC, a.id DESC`
     )
-    .all(clientId ? { clientId } : {});
+    .all(clientId ? { clientId, agency: req.agencyId } : { agency: req.agencyId });
   res.json({ agreements: rows });
 });
 
@@ -27,9 +28,9 @@ router.get('/:id', (req, res) => {
     .prepare(
       `SELECT a.*, p.name AS payer_name, p.typical_days_to_pay
        FROM agreements a LEFT JOIN payers p ON p.id = a.payer_id
-       WHERE a.id = ?`
-    )
-    .get(Number(req.params.id));
+       WHERE a.id = ? AND a.agency_id = ?`
+      )
+      .get(Number(req.params.id), req.agencyId);
   if (!row) return res.status(404).json({ error: 'Agreement not found' });
   res.json(row);
 });
@@ -39,7 +40,7 @@ router.post('/', (req, res) => {
   const b = req.body ?? {};
   const clientId = Number(b.client_id);
   if (!clientId) return res.status(400).json({ error: 'client_id is required' });
-  if (!db.prepare(`SELECT 1 FROM clients WHERE id = ?`).get(clientId)) {
+  if (!db.prepare(`SELECT 1 FROM clients WHERE id = ? AND agency_id = ?`).get(clientId, req.agencyId)) {
     return res.status(400).json({ error: 'client_id does not exist' });
   }
 
@@ -48,11 +49,11 @@ router.post('/', (req, res) => {
       `INSERT INTO agreements (
          client_id, agreement_number, start_date, end_date,
          authorized_units_per_week, minutes_per_unit, rate_per_unit,
-         max_units_per_day, service_code, payer_id
+         max_units_per_day, service_code, payer_id, agency_id
        ) VALUES (
          @client_id, @agreement_number, @start_date, @end_date,
          @authorized_units_per_week, @minutes_per_unit, @rate_per_unit,
-         @max_units_per_day, @service_code, @payer_id
+         @max_units_per_day, @service_code, @payer_id, @agency
        )`
     )
     .run({
@@ -66,9 +67,10 @@ router.post('/', (req, res) => {
       max_units_per_day: num(b.max_units_per_day),
       service_code: b.service_code ?? null,
       payer_id: b.payer_id ? Number(b.payer_id) : null,
+        agency: req.agencyId,
     });
 
-  res.status(201).json(db.prepare(`SELECT * FROM agreements WHERE id = ?`).get(info.lastInsertRowid));
+  res.status(201).json(db.prepare(`SELECT * FROM agreements WHERE id = ? AND agency_id = ?`).get(info.lastInsertRowid, req.agencyId));
 });
 
 /**
@@ -79,7 +81,7 @@ router.post('/', (req, res) => {
  */
 function updateAgreement(req, res) {
   const id = Number(req.params.id);
-  const existing = db.prepare(`SELECT * FROM agreements WHERE id = ?`).get(id);
+  const existing = db.prepare(`SELECT * FROM agreements WHERE id = ? AND agency_id = ?`).get(id, req.agencyId);
   if (!existing) return res.status(404).json({ error: 'Agreement not found' });
 
   const fields = [
@@ -115,7 +117,7 @@ function updateAgreement(req, res) {
       updates.payer_id = null;
     } else {
       updates.payer_id = Number(updates.payer_id);
-      if (!db.prepare(`SELECT 1 FROM payers WHERE id = ?`).get(updates.payer_id)) {
+      if (!db.prepare(`SELECT 1 FROM payers WHERE id = ? AND agency_id = ?`).get(updates.payer_id, req.agencyId)) {
         return res.status(400).json({ error: 'payer_id does not exist' });
       }
     }
@@ -123,7 +125,7 @@ function updateAgreement(req, res) {
   if (!Object.keys(updates).length) return res.json(existing);
 
   const setSql = Object.keys(updates).map((k) => `${k} = @${k}`).join(', ');
-  db.prepare(`UPDATE agreements SET ${setSql} WHERE id = @id`).run({ ...updates, id });
+  db.prepare(`UPDATE agreements SET ${setSql} WHERE id = @id AND agency_id = @agency`).run({ ...updates, id, agency: req.agencyId });
   res.json(db.prepare(`SELECT * FROM agreements WHERE id = ?`).get(id));
 }
 
@@ -135,7 +137,7 @@ router.put('/:id', updateAgreement);
  * Live preview used by the calendar UI. Does not touch the database.
  */
 router.get('/:id/calc', (req, res) => {
-  const agreement = db.prepare(`SELECT * FROM agreements WHERE id = ?`).get(Number(req.params.id));
+  const agreement = db.prepare(`SELECT * FROM agreements WHERE id = ? AND agency_id = ?`).get(Number(req.params.id), req.agencyId);
   if (!agreement) return res.status(404).json({ error: 'Agreement not found' });
   res.json(
     computeEntry({

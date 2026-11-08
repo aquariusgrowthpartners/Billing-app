@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import api from '../api.js';
 import { toast } from '../components/Toast.jsx';
 import { MODES, PRESETS, getStored, setTheme, resolveHex, getContrastColor } from '../theme.js';
+import { clearToken } from '../api.js';
 import { download, renderTemplate, SAMPLE_PARTS } from '../download.js';
 import Modal from '../components/Modal.jsx';
 import { formatLongDate, formatMoney } from '../calc.js';
@@ -1977,6 +1978,16 @@ function AppearanceCard({ settings }) {
       <div className="form-actions" style={{ marginTop: 12 }}>
         <button className="btn" id="theme-save-default" disabled={saving} onClick={saveAsDefault}>
           {saving ? 'Saving…' : 'Save as default'}
+        </button>
+        <button
+          className="btn danger"
+          id="logout-button"
+          onClick={() => {
+            clearToken();
+            window.location.assign(`${import.meta.env.BASE_URL.replace(/\/$/, '')}/login`);
+          }}
+        >
+          Log out
         </button>
       </div>
     </section>

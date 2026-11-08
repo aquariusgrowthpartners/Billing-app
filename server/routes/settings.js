@@ -22,7 +22,7 @@ function redactedSettings() {
   return { ...all, ai_api_key: '', has_ai_key: Boolean(key) };
 }
 
-router.get('/', (_req, res) => {
+router.get('/', (req, res) => {
   res.json({ settings: redactedSettings(), template_tokens: TEMPLATE_TOKENS });
 });
 

@@ -2,6 +2,12 @@
 -- Generated from the live database. DDL only, no patient data.
 -- Regenerate with: node scripts/dump-schema.mjs
 
+CREATE TABLE agencies (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
 CREATE TABLE agreements (
     id                        INTEGER PRIMARY KEY AUTOINCREMENT,
     client_id                 INTEGER NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
@@ -14,7 +20,7 @@ CREATE TABLE agreements (
     max_units_per_day         INTEGER,
     service_code              TEXT,
     payer_id                  INTEGER REFERENCES payers(id) ON DELETE SET NULL
-  , hhaexchange_auth_number TEXT, dhs_service_agreement_num TEXT, service_code_with_modifier TEXT, service_agreement_pdf_path TEXT, authorized_total_amount NUMERIC, service_agreement_id INTEGER REFERENCES service_agreements(id), superseded_at TEXT);
+  , hhaexchange_auth_number TEXT, dhs_service_agreement_num TEXT, service_code_with_modifier TEXT, service_agreement_pdf_path TEXT, authorized_total_amount NUMERIC, service_agreement_id INTEGER REFERENCES service_agreements(id), superseded_at TEXT, agency_id INTEGER NOT NULL DEFAULT 1);
 
 CREATE TABLE caretakers (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -23,7 +29,7 @@ CREATE TABLE caretakers (
     npi_number TEXT,
     notes      TEXT,
     active     INTEGER NOT NULL DEFAULT 1
-  , ssn TEXT, gender TEXT, dob TEXT, street_address TEXT, city TEXT, state TEXT, zip TEXT, phone TEXT, hire_date TEXT, termination_date TEXT, hourly_wage_rate REAL, union_member INTEGER DEFAULT 0, dues_deducted REAL DEFAULT 0, seiu_voluntary_dues REAL DEFAULT 0, dl_number TEXT, status TEXT NOT NULL DEFAULT 'Active');
+  , ssn TEXT, gender TEXT, dob TEXT, street_address TEXT, city TEXT, state TEXT, zip TEXT, phone TEXT, hire_date TEXT, termination_date TEXT, hourly_wage_rate REAL, union_member INTEGER DEFAULT 0, dues_deducted REAL DEFAULT 0, seiu_voluntary_dues REAL DEFAULT 0, dl_number TEXT, status TEXT NOT NULL DEFAULT 'Active', agency_id INTEGER NOT NULL DEFAULT 1);
 
 CREATE TABLE case_managers (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -34,7 +40,7 @@ CREATE TABLE case_managers (
     organization TEXT,
     notes        TEXT,
     active       INTEGER NOT NULL DEFAULT 1
-  );
+  , agency_id INTEGER NOT NULL DEFAULT 1);
 
 CREATE TABLE claims (
     id                INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -53,7 +59,7 @@ CREATE TABLE claims (
     drive_file_id     TEXT,
     drive_link        TEXT,
     created_at        TEXT NOT NULL DEFAULT (datetime('now'))
-  , variance_days INTEGER, local_pdf_path TEXT, generated_pdf_path TEXT, last_regenerated_at TEXT, source TEXT NOT NULL DEFAULT 'manual', archived INTEGER NOT NULL DEFAULT 0, ra_import_id INTEGER, ra_claim_number TEXT, denial_status TEXT, reversal_flag INTEGER DEFAULT 0, parse_status TEXT NOT NULL DEFAULT 'complete');
+  , variance_days INTEGER, local_pdf_path TEXT, generated_pdf_path TEXT, last_regenerated_at TEXT, source TEXT NOT NULL DEFAULT 'manual', archived INTEGER NOT NULL DEFAULT 0, ra_import_id INTEGER, ra_claim_number TEXT, denial_status TEXT, reversal_flag INTEGER DEFAULT 0, parse_status TEXT NOT NULL DEFAULT 'complete', agency_id INTEGER NOT NULL DEFAULT 1);
 
 CREATE TABLE clients (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -63,7 +69,7 @@ CREATE TABLE clients (
     ma_number     TEXT,
     notes         TEXT,
     active        INTEGER NOT NULL DEFAULT 1
-  , case_manager_id INTEGER REFERENCES case_managers(id) ON DELETE SET NULL, diagnosis_code TEXT, archived INTEGER NOT NULL DEFAULT 0, middle_initial TEXT);
+  , case_manager_id INTEGER REFERENCES case_managers(id) ON DELETE SET NULL, diagnosis_code TEXT, archived INTEGER NOT NULL DEFAULT 0, middle_initial TEXT, agency_id INTEGER NOT NULL DEFAULT 1);
 
 CREATE TABLE day_entries (
     id             INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -75,7 +81,7 @@ CREATE TABLE day_entries (
     rate_per_unit  REAL    NOT NULL DEFAULT 0,
     dollars        REAL    NOT NULL DEFAULT 0,
     notes          TEXT,
-    claim_id       INTEGER REFERENCES claims(id) ON DELETE SET NULL, caretaker_id INTEGER REFERENCES caretakers(id) ON DELETE SET NULL, start_time TEXT, source TEXT NOT NULL DEFAULT 'manual', ra_import_id INTEGER, service_code TEXT, modifier TEXT,
+    claim_id       INTEGER REFERENCES claims(id) ON DELETE SET NULL, caretaker_id INTEGER REFERENCES caretakers(id) ON DELETE SET NULL, start_time TEXT, source TEXT NOT NULL DEFAULT 'manual', ra_import_id INTEGER, service_code TEXT, modifier TEXT, agency_id INTEGER NOT NULL DEFAULT 1,
     UNIQUE (client_id, work_date)
   );
 
@@ -96,7 +102,7 @@ CREATE TABLE denied_claims (
     original_claim_id  INTEGER REFERENCES claims(id) ON DELETE SET NULL,
     recovery_status    TEXT NOT NULL DEFAULT 'unrecovered',
     created_at         TEXT NOT NULL DEFAULT (datetime('now'))
-  , ra_import_id INTEGER, original_claim_number TEXT, adjustment_code TEXT);
+  , ra_import_id INTEGER, original_claim_number TEXT, adjustment_code TEXT, agency_id INTEGER NOT NULL DEFAULT 1);
 
 CREATE TABLE denied_line_items (
     id                        INTEGER PRIMARY KEY,
@@ -112,14 +118,14 @@ CREATE TABLE denied_line_items (
     recovered_by_day_entry_id INTEGER REFERENCES day_entries(id) ON DELETE SET NULL,
     recovered_dos             TEXT,
     created_at                TEXT NOT NULL DEFAULT (datetime('now'))
-  , recovery_status TEXT, adjustment_code TEXT);
+  , recovery_status TEXT, adjustment_code TEXT, agency_id INTEGER NOT NULL DEFAULT 1);
 
 CREATE TABLE payers (
     id                   INTEGER PRIMARY KEY AUTOINCREMENT,
     name                 TEXT NOT NULL,
     typical_days_to_pay  INTEGER,
     notes                TEXT
-  , hhaechange_payer_id TEXT);
+  , hhaechange_payer_id TEXT, agency_id INTEGER NOT NULL DEFAULT 1);
 
 CREATE TABLE ra_import_files (
     id                INTEGER PRIMARY KEY,
@@ -140,7 +146,7 @@ CREATE TABLE ra_import_files (
     status            TEXT NOT NULL DEFAULT 'active',
     note              TEXT,
     imported_at       TEXT NOT NULL DEFAULT (datetime('now'))
-  );
+  , agency_id INTEGER NOT NULL DEFAULT 1);
 
 CREATE TABLE ra_import_history (
     id              INTEGER PRIMARY KEY,
@@ -149,7 +155,7 @@ CREATE TABLE ra_import_history (
     old_claim_count INTEGER,
     new_claim_count INTEGER,
     notes           TEXT
-  , deleted_at TEXT, import_ids TEXT, claim_count_purged INTEGER DEFAULT 0, day_entry_count_purged INTEGER DEFAULT 0, denial_count_purged INTEGER DEFAULT 0);
+  , deleted_at TEXT, import_ids TEXT, claim_count_purged INTEGER DEFAULT 0, day_entry_count_purged INTEGER DEFAULT 0, denial_count_purged INTEGER DEFAULT 0, agency_id INTEGER NOT NULL DEFAULT 1);
 
 CREATE TABLE ra_imports (
     id            INTEGER PRIMARY KEY,
@@ -157,7 +163,7 @@ CREATE TABLE ra_imports (
     num_clients   INTEGER NOT NULL DEFAULT 0,
     total_payment REAL,
     file_name     TEXT
-  , file_hash TEXT, check_eft_number TEXT, prod_date TEXT, vendor_number TEXT, claim_count INTEGER DEFAULT 0, denial_count INTEGER DEFAULT 0, status TEXT NOT NULL DEFAULT 'active', pdf_path TEXT, updated_at TEXT);
+  , file_hash TEXT, check_eft_number TEXT, prod_date TEXT, vendor_number TEXT, claim_count INTEGER DEFAULT 0, denial_count INTEGER DEFAULT 0, status TEXT NOT NULL DEFAULT 'active', pdf_path TEXT, updated_at TEXT, agency_id INTEGER NOT NULL DEFAULT 1);
 
 CREATE TABLE rebill_tasks (
     id                   INTEGER PRIMARY KEY,
@@ -174,12 +180,12 @@ CREATE TABLE rebill_tasks (
     created_at           TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at           TEXT NOT NULL DEFAULT (datetime('now')),
     resolved_at          TEXT
-  );
+  , agency_id INTEGER NOT NULL DEFAULT 1);
 
 CREATE TABLE recent_clients (
     id        INTEGER PRIMARY KEY,
     client_id INTEGER NOT NULL,
-    viewed_at TEXT    NOT NULL,
+    viewed_at TEXT    NOT NULL, agency_id INTEGER NOT NULL DEFAULT 1,
     FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE CASCADE
   );
 
@@ -189,7 +195,7 @@ CREATE TABLE service_agreements (
   dhs_service_agreement_num TEXT NOT NULL,
   hhaexchange_auth_number TEXT,
   effective_date DATE, through_date DATE, icd10_code TEXT,
-  pdf_path TEXT, uploaded_at TEXT,
+  pdf_path TEXT, uploaded_at TEXT, agency_id INTEGER NOT NULL DEFAULT 1,
   UNIQUE(client_id, dhs_service_agreement_num));
 
 CREATE TABLE settings (
@@ -205,7 +211,7 @@ CREATE TABLE task_checklist_items (
   is_completed INTEGER NOT NULL DEFAULT 0,
   document_path TEXT,
   completed_at TEXT,
-  sort_order INTEGER NOT NULL DEFAULT 0);
+  sort_order INTEGER NOT NULL DEFAULT 0, agency_id INTEGER NOT NULL DEFAULT 1);
 
 CREATE TABLE tasks (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -215,7 +221,18 @@ CREATE TABLE tasks (
   due_date TEXT,
   caretaker_id INTEGER REFERENCES caretakers(id),
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  ai_summary TEXT);
+  ai_summary TEXT, agency_id INTEGER NOT NULL DEFAULT 1);
+
+CREATE TABLE users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    agency_id INTEGER NOT NULL REFERENCES agencies(id) ON DELETE CASCADE,
+    email TEXT NOT NULL UNIQUE,
+    password_hash TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT 'admin' CHECK (role IN ('admin','member')),
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+CREATE INDEX idx_agreements_agency ON agreements(agency_id);
 
 CREATE INDEX idx_agreements_client   ON agreements (client_id);
 
@@ -223,9 +240,15 @@ CREATE INDEX idx_agreements_dhs_num ON agreements(dhs_service_agreement_num);
 
 CREATE INDEX idx_agreements_service_agreement ON agreements(service_agreement_id);
 
+CREATE INDEX idx_caretakers_agency ON caretakers(agency_id);
+
 CREATE INDEX idx_caretakers_name ON caretakers (last_name, first_name);
 
+CREATE INDEX idx_case_managers_agency ON case_managers(agency_id);
+
 CREATE INDEX idx_case_managers_name ON case_managers (last_name, first_name);
+
+CREATE INDEX idx_claims_agency ON claims(agency_id);
 
 CREATE INDEX idx_claims_client       ON claims (client_id, period_start);
 
@@ -236,11 +259,15 @@ CREATE INDEX idx_claims_ra_import ON claims (ra_import_id);
 
 CREATE INDEX idx_claims_status       ON claims (status);
 
+CREATE INDEX idx_clients_agency ON clients(agency_id);
+
 CREATE INDEX idx_clients_case_manager ON clients (case_manager_id);
 
 CREATE INDEX idx_clients_ma          ON clients (ma_number);
 
 CREATE INDEX idx_clients_name        ON clients (last_name, first_name);
+
+CREATE INDEX idx_day_entries_agency ON day_entries(agency_id);
 
 CREATE INDEX idx_day_entries_caretaker ON day_entries (caretaker_id);
 
@@ -254,6 +281,8 @@ CREATE INDEX idx_day_entries_ra_import ON day_entries (ra_import_id);
 
 CREATE INDEX idx_day_entries_service_code ON day_entries(service_code);
 
+CREATE INDEX idx_denied_claims_agency ON denied_claims(agency_id);
+
 CREATE INDEX idx_denied_claims_claim_number
     ON denied_claims (ra_claim_number);
 
@@ -261,6 +290,8 @@ CREATE INDEX idx_denied_claims_ra_import ON denied_claims (ra_import_id);
 
 CREATE INDEX idx_denied_line_items_dos_client
     ON denied_line_items (dos, client_id);
+
+CREATE INDEX idx_payers_agency ON payers(agency_id);
 
 CREATE INDEX idx_ra_import_files_hash ON ra_import_files (file_hash);
 
@@ -273,13 +304,21 @@ CREATE INDEX idx_ra_imports_hash ON ra_imports (file_hash);
 CREATE INDEX idx_ra_imports_header
     ON ra_imports (check_eft_number, prod_date, vendor_number);
 
+CREATE INDEX idx_rebill_tasks_agency ON rebill_tasks(agency_id);
+
 CREATE INDEX idx_rebill_tasks_status_client
     ON rebill_tasks (status, client_id);
 
 CREATE UNIQUE INDEX idx_recent_clients_client ON recent_clients(client_id);
+
+CREATE INDEX idx_service_agreements_agency ON service_agreements(agency_id);
+
+CREATE INDEX idx_tasks_agency ON tasks(agency_id);
 
 CREATE INDEX idx_tasks_caretaker ON tasks(caretaker_id);
 
 CREATE INDEX idx_tasks_status ON tasks(status);
 
 CREATE INDEX idx_tci_task ON task_checklist_items(task_id);
+
+CREATE INDEX idx_users_agency ON users(agency_id);

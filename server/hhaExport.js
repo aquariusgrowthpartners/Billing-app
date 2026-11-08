@@ -232,7 +232,7 @@ export function scheduleId(row) {
  * The live question is "which authorised line covers this date?", so that is
  * what we ask. S5116 is a period budget, never a billable visit.
  */
-export function resolveProcedureCodeForVisit(db, clientId, visitDate, billedCode = null, billedModifier = null) {
+export function resolveProcedureCodeForVisit(db, clientId, visitDate, billedCode = null, billedModifier = null, agencyId = null) {
   const day = String(visitDate ?? '').slice(0, 10);
   if (!clientId || !day) return null;
 
@@ -249,7 +249,7 @@ export function resolveProcedureCodeForVisit(db, clientId, visitDate, billedCode
           AND (a.start_date IS NULL OR a.start_date <= @day)
           AND (a.end_date   IS NULL OR a.end_date   >= @day)`
     )
-    .all({ client: Number(clientId), day });
+    .all({ client: Number(clientId), day, agency: agencyId });
 
   if (!matches.length) return null;
 
@@ -302,7 +302,7 @@ export function resolveProcedureCodeForVisit(db, clientId, visitDate, billedCode
   };
 }
 
-export function visitSourceRows() {
+export function visitSourceRows(agencyId) {
   return db
     .prepare(
       `SELECT d.id, d.work_date, d.minutes_worked, d.units, d.dollars, d.rate_per_unit,
@@ -328,6 +328,7 @@ export function visitSourceRows() {
        -- Invoice Number no longer comes from a retired claim.
        LEFT JOIN claims cl ON cl.id = d.claim_id AND COALESCE(cl.archived, 0) = 0
        WHERE COALESCE(c.archived, 0) = 0
+         AND d.agency_id = @agency
          -- S5116 (Worker Training & Development) is a period BUDGET, not a
          -- billable visit. It is stored on agreements so the money is captured,
          -- but it must never reach HHAeXchange as a visit row.
@@ -336,7 +337,7 @@ export function visitSourceRows() {
          AND (a.superseded_at IS NULL)
        ORDER BY c.last_name COLLATE NOCASE, c.first_name COLLATE NOCASE, d.work_date, d.id`
     )
-    .all()
+    .all({ agency: agencyId })
     .map((r) => {
       // Date-of-service resolution wins; the stored FK is only a fallback for
       // visits that fall outside every agreement.
@@ -441,9 +442,9 @@ const nameOf = (first, last) => `${first ?? ''} ${last ?? ''}`.trim();
  * Returns a list of blocking issues; an empty list means the visit file is safe
  * to generate.
  */
-export function validateVisitExport() {
+export function validateVisitExport(agencyId) {
   const settings = allSettings();
-  const rows = visitSourceRows();
+  const rows = visitSourceRows(agencyId);
   const issues = [];
 
   // Only raise an issue when there is something to show. The agency-level checks

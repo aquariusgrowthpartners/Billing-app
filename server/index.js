@@ -9,6 +9,8 @@ import agreementsRouter from './routes/agreements.js';
 import serviceAgreementsRouter from './routes/serviceAgreements.js';
 import tasksRouter from './routes/tasks.js';
 import askRouter from './routes/ask.js';
+import authRouter from './routes/auth.js';
+import { tenant } from './middleware/tenant.js';
 import dayEntriesRouter from './routes/dayEntries.js';
 import claimsRouter from './routes/claims.js';
 import payersRouter from './routes/payers.js';
@@ -89,17 +91,26 @@ if (ALLOW_REMOTE) {
   });
 }
 
-app.get('/api/health', (_req, res) => {
-  res.json({
+/*
+ * Liveness probe. Public by design (Railway's healthcheck runs before any
+ * tenant context exists), so it reports no record counts: aggregate totals are
+ * tenant data too. Counts are shown only when a tenant context is present.
+ */
+app.get('/api/health', (req, res) => {
+  const body = {
     ok: true,
     today: todayISO(),
     week_start: weekStart(todayISO()),
-    db: DB_PATH,
-    clients: db.prepare(`SELECT COUNT(*) AS n FROM clients`).get().n,
-    agreements: db.prepare(`SELECT COUNT(*) AS n FROM agreements`).get().n,
-    day_entries: db.prepare(`SELECT COUNT(*) AS n FROM day_entries`).get().n,
-    claims: db.prepare(`SELECT COUNT(*) AS n FROM claims`).get().n,
-  });
+  };
+  const agencyId = req.agencyId;
+  if (Number.isInteger(agencyId)) {
+    const count = (t) => db.prepare(`SELECT COUNT(*) AS n FROM ${t} WHERE agency_id = ?`).get(agencyId).n;
+    body.clients = count('clients');
+    body.agreements = count('agreements');
+    body.day_entries = count('day_entries');
+    body.claims = count('claims');
+  }
+  res.json(body);
 });
 
 /**
@@ -129,6 +140,11 @@ app.get('/api/week', (req, res) => {
   });
 });
 
+app.use('/api/auth', authRouter);
+
+/* every route below is tenant-scoped */
+app.use('/api', tenant);
+
 app.use('/api/clients', clientsRouter);
 app.use('/api/agreements', agreementsRouter);
 app.use('/api/service-agreements', serviceAgreementsRouter);
@@ -157,7 +173,7 @@ app.use('/api/exports', mpsmiscRouter);
 app.use('/api/denials', denialsRouter);
 // DELETE /api/rebill-tasks/:id — the lighter, task-only removal
 app.delete('/api/rebill-tasks/:id', (req, res) => {
-  const r = deleteRebillTask(req.params.id);
+  const r = deleteRebillTask(req.params.id, req.agencyId);
   if (!r) return res.status(404).json({ error: 'Rebill task not found' });
   res.json(r);
 });
@@ -168,7 +184,7 @@ app.use('/api', (_req, res) => res.status(404).json({ error: 'Unknown API route'
 // rebill that landed while the server was down is still credited.
 try {
   const r = reconcileOnStartup();
-  markOrphanedImports();
+  markOrphanedImports(req.agencyId);
   if (r.recovered || r.open_tasks) {
     console.log(
       `  denials      ${r.recovered} recovered on startup, ${r.open_tasks} open rebill task(s)`

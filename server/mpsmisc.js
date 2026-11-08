@@ -15,7 +15,7 @@ import { fileURLToPath } from 'node:url';
 import ExcelJS from 'exceljs';
 import db from './db.js';
 import { round2 } from './calc.js';
-import { VALID_ENTRY_FROM, VALID_ENTRY_SQL } from './payPeriod.js';
+import { VALID_ENTRY_FROM, VALID_ENTRY_SQL, entryFrom } from './payPeriod.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const TEMPLATE = path.join(__dirname, 'templates', 'MPSMISC_template.xlsx');
@@ -50,7 +50,7 @@ const setText = (ws, coord, value) => {
  * client must exist and not be archived) so the spreadsheet agrees with every
  * other total in the app.
  */
-export function buildRows(workStart, workEnd) {
+export function buildRows(workStart, workEnd, agencyId) {
   const rows = db
     .prepare(
       `SELECT t.id, t.first_name, t.last_name, t.npi_number,
@@ -58,16 +58,15 @@ export function buildRows(workStart, workEnd) {
               t.hire_date, t.termination_date, t.hourly_wage_rate,
               t.union_member, t.dues_deducted, t.seiu_voluntary_dues,
               SUM(d.minutes_worked) AS minutes
-       ${VALID_ENTRY_FROM}
-       JOIN caretakers t ON t.id = d.caretaker_id
-       WHERE d.work_date >= @start AND d.work_date <= @end
+       ${entryFrom({ caretaker: true })}
+       AND d.work_date >= @start AND d.work_date <= @end
          AND COALESCE(t.active, 1) = 1
          AND ${VALID_ENTRY_SQL}
        GROUP BY t.id
        HAVING SUM(d.minutes_worked) > 0
        ORDER BY t.last_name COLLATE NOCASE, t.first_name COLLATE NOCASE`
     )
-    .all({ start: workStart, end: workEnd });
+    .all({ start: workStart, end: workEnd, agency: agencyId });
 
   return rows.map((r) => {
     const hours = round2((r.minutes || 0) / 60);
@@ -111,8 +110,8 @@ export function missingFields(row) {
   return missing;
 }
 
-export function previewRows(workStart, workEnd) {
-  return buildRows(workStart, workEnd).map((r) => ({ ...r, missing: missingFields(r) }));
+export function previewRows(workStart, workEnd, agencyId) {
+  return buildRows(workStart, workEnd, agencyId).map((r) => ({ ...r, missing: missingFields(r) }));
 }
 
 /** The agency block, read straight from settings. */
@@ -144,9 +143,9 @@ export const fileNameFor = (agencyUmpi, labelStart, labelEnd, today = new Date()
  * Build the workbook. Read-only: nothing here writes to the database.
  * Resolves to a Buffer ready to stream.
  */
-export async function buildWorkbook({ labelStart, labelEnd, workStart, workEnd }) {
+export async function buildWorkbook({ labelStart, labelEnd, workStart, workEnd, agencyId }) {
   const agency = agencyBlock();
-  const rows = buildRows(workStart, workEnd);
+  const rows = buildRows(workStart, workEnd, agencyId);
 
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.readFile(TEMPLATE);

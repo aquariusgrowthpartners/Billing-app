@@ -13,6 +13,8 @@ import Denials from './pages/Denials.jsx';
 import Tasks from './pages/Tasks.jsx';
 import AskDundas from './pages/AskDundas.jsx';
 import { ToastProvider } from './components/Toast.jsx';
+import Login from './pages/Login.jsx';
+import { getToken, clearToken } from './api.js';
 import api from './api.js';
 
 // recharts is heavy and only needed on one page, so Reports is split out.
@@ -58,6 +60,8 @@ export default function App() {
 
   const [navOpen, setNavOpen] = useState(false);
   const [demoMode, setDemoMode] = useState(false);
+  const [authed, setAuthed] = useState(() => Boolean(getToken()));
+  const [authChecked, setAuthChecked] = useState(false);
   const [bannerHeight, setBannerHeight] = useState(0);
   const bannerRef = useRef(null);
 
@@ -83,6 +87,20 @@ export default function App() {
     };
   }, [demoMode]);
 
+  /*
+   * Decide whether a login is required.
+   * Demo mode always skips it; otherwise a stored token decides.
+   */
+  useEffect(() => {
+    api
+      .mode()
+      .then((d) => {
+        if (d?.demo) setAuthed(true);
+      })
+      .catch(() => {})
+      .finally(() => setAuthChecked(true));
+  }, []);
+
   /* Demo mode is a server fact, so ask once on load. */
   useEffect(() => {
     let cancelled = false;
@@ -106,6 +124,13 @@ export default function App() {
 
   return (
     <ToastProvider>
+    {authChecked && !demoMode && !authed ? (
+      <Login
+        onAuthed={() => {
+          setAuthed(true);
+        }}
+      />
+    ) : (
     <BrowserRouter basename={BASENAME}>
       <div
         className={`app${demoMode ? ' demo-mode' : ''}`}
@@ -254,6 +279,7 @@ export default function App() {
         </main>
       </div>
     </BrowserRouter>
+    )}
     </ToastProvider>
   );
 }

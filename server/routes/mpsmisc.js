@@ -35,7 +35,7 @@ function rangesFrom(query) {
 /** GET /api/exports/mpsmisc/preview */
 router.get('/mpsmisc/preview', (req, res) => {
   const { labelStart, labelEnd, workStart, workEnd } = rangesFrom(req.query);
-  const rows = previewRows(workStart, workEnd);
+  const rows = previewRows(workStart, workEnd, req.agencyId);
   const agency = agencyBlock();
 
   const missingAgency = [];
@@ -65,6 +65,7 @@ router.get('/mpsmisc.xlsx', async (req, res) => {
       labelEnd,
       workStart,
       workEnd,
+      agencyId: req.agencyId,
     });
     const name = fileNameFor(agency.umpi || 'UMPI', labelStart, labelEnd);
     res.setHeader(

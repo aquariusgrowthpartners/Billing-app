@@ -5,8 +5,8 @@ import { digitsOnly } from '../hhaFields.js';
 const router = express.Router();
 
 /** GET /api/payers */
-router.get('/', (_req, res) => {
-  res.json({ payers: db.prepare(`SELECT * FROM payers ORDER BY name COLLATE NOCASE`).all() });
+router.get('/', (req, res) => {
+  res.json({ payers: db.prepare(`SELECT * FROM payers WHERE agency_id = ? ORDER BY name COLLATE NOCASE`).all(req.agencyId) });
 });
 
 /** POST /api/payers */
@@ -23,12 +23,12 @@ router.post('/', (req, res) => {
 
   const info = db
     .prepare(
-      `INSERT INTO payers (name, typical_days_to_pay, notes, hhaechange_payer_id)
+      `INSERT INTO payers (name, typical_days_to_pay, notes, hhaechange_payer_id, agency_id)
        VALUES (?, ?, ?, ?)`
     )
     .run(name, num(b.typical_days_to_pay), b.notes ?? null, payerId.ok);
 
-  res.status(201).json(db.prepare(`SELECT * FROM payers WHERE id = ?`).get(info.lastInsertRowid));
+  res.status(201).json(db.prepare(`SELECT * FROM payers WHERE id = ? AND agency_id = ?`).get(info.lastInsertRowid, req.agencyId));
 });
 
 /**
@@ -38,10 +38,10 @@ router.post('/', (req, res) => {
  */
 router.delete('/:id', (req, res) => {
   const id = Number(req.params.id);
-  const payer = db.prepare(`SELECT * FROM payers WHERE id = ?`).get(id);
+  const payer = db.prepare(`SELECT * FROM payers WHERE id = ? AND agency_id = ?`).get(id, req.agencyId);
   if (!payer) return res.status(404).json({ error: 'Payer not found' });
 
-  const inUse = db.prepare(`SELECT COUNT(*) n FROM agreements WHERE payer_id = ?`).get(id).n;
+  const inUse = db.prepare(`SELECT COUNT(*) n FROM agreements WHERE payer_id = ? AND agency_id = ?`).get(id, req.agencyId).n;
   if (inUse > 0 && req.query.force !== '1') {
     return res.status(409).json({
       error: `${payer.name} is used by ${inUse} agreement${inUse === 1 ? '' : 's'}.`,
@@ -50,14 +50,14 @@ router.delete('/:id', (req, res) => {
     });
   }
 
-  db.prepare(`DELETE FROM payers WHERE id = ?`).run(id);
+  db.prepare(`DELETE FROM payers WHERE id = ? AND agency_id = ?`).run(id, req.agencyId);
   res.json({ deleted: true, id, detached_from: inUse });
 });
 
 /** PUT and PATCH /api/payers/:id — both accepted, both partial. */
 function updatePayer(req, res) {
   const id = Number(req.params.id);
-  const existing = db.prepare(`SELECT * FROM payers WHERE id = ?`).get(id);
+  const existing = db.prepare(`SELECT * FROM payers WHERE id = ? AND agency_id = ?`).get(id, req.agencyId);
   if (!existing) return res.status(404).json({ error: 'Payer not found' });
 
   const updates = {};
@@ -87,8 +87,8 @@ function updatePayer(req, res) {
   }
 
   const setSql = Object.keys(updates).map((k) => `${k} = @${k}`).join(', ');
-  db.prepare(`UPDATE payers SET ${setSql} WHERE id = @id`).run({ ...updates, id });
-  res.json(db.prepare(`SELECT * FROM payers WHERE id = ?`).get(id));
+  db.prepare(`UPDATE payers SET ${setSql} WHERE id = @id AND agency_id = @agency`).run({ ...updates, id, agency: req.agencyId });
+  res.json(db.prepare(`SELECT * FROM payers WHERE id = ? AND agency_id = ?`).get(id, req.agencyId));
 }
 
 router.patch('/:id', updatePayer);

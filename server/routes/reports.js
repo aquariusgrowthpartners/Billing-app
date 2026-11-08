@@ -72,12 +72,13 @@ router.get('/', (req, res) => {
        -- Archived claims are superseded (an RA re-import replaced them), so
        -- counting them would double the same money.
        WHERE COALESCE(cl.archived, 0) = 0
+           AND cl.agency_id = @agency
        ORDER BY cl.id`
     )
-    .all();
+    .all({ agency: req.agencyId });
 
-  const factors = importFactors();
-  const receivedTotal = moneyReceived({ start, end });
+  const factors = importFactors(req.agencyId);
+  const receivedTotal = moneyReceived({ start, end, agencyId: req.agencyId });
   const claims = rows.map((c) => {
     const paid = c.status === 'Paid' || Boolean(c.paid_date);
     const receivable = c.status === 'Submitted' && !c.paid_date;
@@ -293,7 +294,7 @@ router.get('/', (req, res) => {
       const variances = paid.map((c) => c.variance_days).filter((v) => v != null);
       const outstanding = byPayer.filter((c) => c.is_receivable);
 
-      const payer = db.prepare(`SELECT * FROM payers WHERE id = ?`).get(pid) ?? {};
+      const payer = db.prepare(`SELECT * FROM payers WHERE id = ? AND agency_id = ?`).get(pid, req.agencyId) ?? {};
       return {
         payer_id: pid,
         payer_name: payer.name ?? 'Unknown payer',

@@ -168,10 +168,17 @@ function validatePlan(plan) {
 }
 
 /** Build the parameterised SQL for a validated plan. */
-function buildQuery({ table, aggregate, column, filters, group_by }) {
+function buildQuery({ table, aggregate, column, filters, group_by }, agencyId) {
   const spec = TABLES[table];
   const where = [];
   const params = {};
+
+  /*
+   * Every Ask Dundas plan is scoped to the asking agency. Pushed first so no
+   * later branch can build a cross-tenant query.
+   */
+  where.push('t.agency_id = @agency');
+  params.agency = agencyId;
 
   if (filters.date_from) {
     where.push(`t.${spec.date} >= @date_from`);
@@ -280,7 +287,7 @@ router.post('/', async (req, res) => {
     }
 
     /* Step B — parameterised SQL */
-    const { sql, params } = buildQuery(v.plan);
+    const { sql, params } = buildQuery(v.plan, req.agencyId);
     const rows = db.prepare(sql).all(params);
 
     const spec = TABLES[v.plan.table];
@@ -317,7 +324,7 @@ router.post('/', async (req, res) => {
        so "View record" points at something real. */
     let sourceRows = rows;
     if (v.plan.aggregate !== 'none' || grouped) {
-      const src = buildQuery({ ...v.plan, aggregate: 'none', group_by: null });
+      const src = buildQuery({ ...v.plan, aggregate: 'none', group_by: null }, req.agencyId);
       sourceRows = db.prepare(src.sql).all(src.params);
     }
 

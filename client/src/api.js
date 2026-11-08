@@ -1,6 +1,29 @@
 // Respect Vite's base path (e.g. /billing/) so subpath hosting works.
 const BASE = `${import.meta.env.BASE_URL.replace(/\/$/, '')}/api`;
 
+const TOKEN_KEY = 'billing_token';
+
+export function getToken() {
+  try {
+    return localStorage.getItem(TOKEN_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function setToken(token) {
+  try {
+    if (token) localStorage.setItem(TOKEN_KEY, token);
+    else localStorage.removeItem(TOKEN_KEY);
+  } catch {
+    /* private mode */
+  }
+}
+
+export function clearToken() {
+  setToken(null);
+}
+
 async function request(path, options = {}) {
   // FormData must NOT get a Content-Type header — the browser sets it, along
   // with the multipart boundary.
@@ -8,6 +31,9 @@ async function request(path, options = {}) {
   const headers = isFormData
     ? { ...(options.headers ?? {}) }
     : { 'Content-Type': 'application/json', ...(options.headers ?? {}) };
+
+  const token = getToken();
+  if (token) headers.Authorization = `Bearer ${token}`;
 
   const res = await fetch(`${BASE}${path}`, { ...options, headers });
   const text = await res.text();
@@ -22,6 +48,9 @@ async function request(path, options = {}) {
 
 export const api = {
   health: () => request('/health'),
+  login: (body) => request('/auth/login', { method: 'POST', body: JSON.stringify(body) }),
+  signup: (body) => request('/auth/signup', { method: 'POST', body: JSON.stringify(body) }),
+  me: () => request('/auth/me'),
   mode: () => request('/mode'),
   week: (start) => request(`/week${start ? `?start=${start}` : ''}`),
 

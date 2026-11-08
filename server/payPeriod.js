@@ -76,11 +76,27 @@ export const VALID_ENTRY_SQL = `
 `;
 
 /** The matching FROM clause. Keeping the two together prevents drift. */
-export const VALID_ENTRY_FROM = `
-  FROM day_entries d
-  JOIN clients cu ON cu.id = d.client_id
-  LEFT JOIN agreements a ON a.id = d.agreement_id
-`;
+/**
+ * Entry FROM clause, scoped to one agency.
+ *
+ * The extra joins some callers need are part of the fragment rather than
+ * appended after it: a `JOIN` cannot follow a `WHERE`, and the agency filter
+ * has to come last. Returns a clause that already contains
+ * `WHERE d.agency_id = @agency`, so callers must append `AND`, never `WHERE`.
+ */
+export function entryFrom({ caretaker = false, claim = false } = {}) {
+  const parts = [
+    'FROM day_entries d',
+    'JOIN clients cu ON cu.id = d.client_id',
+    'LEFT JOIN agreements a ON a.id = d.agreement_id',
+  ];
+  if (caretaker) parts.push('JOIN caretakers t ON t.id = d.caretaker_id');
+  if (claim) parts.push('LEFT JOIN claims cl ON cl.id = d.claim_id');
+  return `${parts.join('\n  ')}\n  WHERE d.agency_id = @agency`;
+}
+
+/** Backwards-compatible base clause (no extra joins). */
+export const VALID_ENTRY_FROM = entryFrom();
 
 /** Calendar-month bounds around a date, as ISO strings. */
 export function monthBounds(dateISO) {
@@ -97,8 +113,5 @@ export function yearBounds(dateISO) {
 }
 
 /** The FROM clause every counting query shares. */
-export const COUNTS_FROM = `
-  FROM day_entries d
-  JOIN clients cu ON cu.id = d.client_id
-  LEFT JOIN claims cl ON cl.id = d.claim_id
-`;
+/** Counting variant that joins claims instead of agreements. */
+export const COUNTS_FROM = entryFrom({ claim: true });

@@ -31,7 +31,7 @@ export function resolveCaretaker(value) {
   if (value === '' || value === null || value === undefined) return { id: null };
   const id = Number(value);
   if (!Number.isInteger(id) || id <= 0) return { error: 'caretaker_id must be a positive integer' };
-  if (!db.prepare(`SELECT 1 FROM caretakers WHERE id = ?`).get(id)) {
+  if (!db.prepare(`SELECT 1 FROM caretakers WHERE id = ? AND agency_id = ?`).get(id, req.agencyId)) {
     return { error: 'caretaker_id does not exist' };
   }
   return { id };
@@ -46,11 +46,12 @@ const ENTRY_SELECT = `
   FROM day_entries d
   LEFT JOIN caretakers t ON t.id = d.caretaker_id
   LEFT JOIN claims cl ON cl.id = d.claim_id
+  WHERE d.agency_id = @agency
 `;
 
 /** One entry, joined to its caretaker. */
 function readEntry(id) {
-  return db.prepare(`${ENTRY_SELECT} WHERE d.id = ?`).get(id);
+  return db.prepare(`${ENTRY_SELECT} AND d.id = ?`).get(id, req.agencyId);
 }
 
 /**
@@ -87,7 +88,7 @@ router.get('/', (req, res) => {
        ${where.length ? `WHERE ${where.map((w) => `d.${w}`).join(' AND ')}` : ''}
        ORDER BY d.work_date, d.client_id`
     )
-    .all(params);
+    .all({ ...params, agency: req.agencyId });
 
   res.json({ entries: rows, totals: sumEntries(rows) });
 });
@@ -105,13 +106,13 @@ router.post('/', (req, res) => {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(workDate)) {
     return res.status(400).json({ error: 'work_date must be YYYY-MM-DD' });
   }
-  if (!db.prepare(`SELECT 1 FROM clients WHERE id = ?`).get(clientId)) {
+  if (!db.prepare(`SELECT 1 FROM clients WHERE id = ? AND agency_id = ?`).get(clientId, req.agencyId)) {
     return res.status(400).json({ error: 'client_id does not exist' });
   }
 
   const agreementId = b.agreement_id ? Number(b.agreement_id) : null;
   const agreement = agreementId
-    ? db.prepare(`SELECT * FROM agreements WHERE id = ?`).get(agreementId)
+    ? db.prepare(`SELECT * FROM agreements WHERE id = ? AND agency_id = ?`).get(agreementId, req.agencyId)
     : null;
 
   if (agreementId && !agreement) return res.status(400).json({ error: 'agreement_id does not exist' });
@@ -135,12 +136,12 @@ router.post('/', (req, res) => {
   });
 
   const existing = db
-    .prepare(`SELECT * FROM day_entries WHERE client_id = ? AND work_date = ?`)
-    .get(clientId, workDate);
+    .prepare(`SELECT * FROM day_entries WHERE client_id = ? AND work_date = ? AND agency_id = ?`)
+    .get(clientId, workDate, req.agencyId);
 
   // Zero minutes = the day was cleared.
   if (minutes === 0 && !b.notes) {
-    if (existing) db.prepare(`DELETE FROM day_entries WHERE id = ?`).run(existing.id);
+    if (existing) db.prepare(`DELETE FROM day_entries WHERE id = ? AND agency_id = ?`).run(existing.id, req.agencyId);
     return res.json({ entry: null, deleted: Boolean(existing), calc: computed });
   }
 
@@ -176,9 +177,9 @@ router.post('/', (req, res) => {
     const info = db
       .prepare(
         `INSERT INTO day_entries
-           (client_id, agreement_id, caretaker_id, start_time, work_date, minutes_worked, units, rate_per_unit, dollars, notes)
+           (client_id, agreement_id, caretaker_id, start_time, work_date, minutes_worked, units, rate_per_unit, dollars, notes, agency_id)
          VALUES
-           (@client_id, @agreement_id, @caretaker_id, @start_time, @work_date, @minutes_worked, @units, @rate_per_unit, @dollars, @notes)`
+           (@client_id, @agreement_id, @caretaker_id, @start_time, @work_date, @minutes_worked, @units, @rate_per_unit, @dollars, @notes, @agency)`
       )
       .run(payload);
     entry = readEntry(info.lastInsertRowid);
@@ -209,14 +210,14 @@ router.post('/bulk', (req, res) => {
         continue;
       }
 
-      if (!db.prepare(`SELECT 1 FROM clients WHERE id = ?`).get(clientId)) {
+      if (!db.prepare(`SELECT 1 FROM clients WHERE id = ? AND agency_id = ?`).get(clientId, req.agencyId)) {
         results.push({ work_date: workDate, error: 'client_id does not exist' });
         continue;
       }
 
       const agreementId = row.agreement_id ? Number(row.agreement_id) : null;
       const agreement = agreementId
-        ? db.prepare(`SELECT * FROM agreements WHERE id = ?`).get(agreementId)
+        ? db.prepare(`SELECT * FROM agreements WHERE id = ? AND agency_id = ?`).get(agreementId, req.agencyId)
         : null;
 
       // Same ownership rule as the single-day endpoint — never bill one
@@ -250,11 +251,11 @@ router.post('/bulk', (req, res) => {
       });
 
       const existing = db
-        .prepare(`SELECT * FROM day_entries WHERE client_id = ? AND work_date = ?`)
-        .get(clientId, workDate);
+        .prepare(`SELECT * FROM day_entries WHERE client_id = ? AND work_date = ? AND agency_id = ?`)
+        .get(clientId, workDate, req.agencyId);
 
       if (computed.minutes_worked === 0 && !row.notes) {
-        if (existing) db.prepare(`DELETE FROM day_entries WHERE id = ?`).run(existing.id);
+        if (existing) db.prepare(`DELETE FROM day_entries WHERE id = ? AND agency_id = ?`).run(existing.id, req.agencyId);
         results.push({ work_date: workDate, entry: null, deleted: Boolean(existing) });
         continue;
       }
@@ -282,15 +283,15 @@ router.post('/bulk', (req, res) => {
       } else {
         db.prepare(
           `INSERT INTO day_entries
-             (client_id, agreement_id, caretaker_id, start_time, work_date, minutes_worked, units, rate_per_unit, dollars, notes)
+             (client_id, agreement_id, caretaker_id, start_time, work_date, minutes_worked, units, rate_per_unit, dollars, notes, agency_id)
            VALUES
-             (@client_id, @agreement_id, @caretaker_id, @start_time, @work_date, @minutes_worked, @units, @rate_per_unit, @dollars, @notes)`
+             (@client_id, @agreement_id, @caretaker_id, @start_time, @work_date, @minutes_worked, @units, @rate_per_unit, @dollars, @notes, @agency)`
         ).run(payload);
       }
 
       const saved = db
         .prepare(`${ENTRY_SELECT} WHERE d.client_id = ? AND d.work_date = ?`)
-        .get(clientId, workDate);
+        .get(clientId, workDate, req.agencyId);
       results.push({ work_date: workDate, entry: saved });
     }
   });
@@ -312,7 +313,7 @@ router.post('/bulk-delete', (req, res) => {
 
   if (!clientId) return res.status(400).json({ error: 'client_id is required' });
   if (!dates.length) return res.status(400).json({ error: 'dates[] is required' });
-  if (!db.prepare(`SELECT 1 FROM clients WHERE id = ?`).get(clientId)) {
+  if (!db.prepare(`SELECT 1 FROM clients WHERE id = ? AND agency_id = ?`).get(clientId, req.agencyId)) {
     return res.status(400).json({ error: 'client_id does not exist' });
   }
 
@@ -341,9 +342,9 @@ router.post('/bulk-delete', (req, res) => {
 /** DELETE /api/day-entries/:id */
 router.delete('/:id', (req, res) => {
   const id = Number(req.params.id);
-  const existing = db.prepare(`SELECT * FROM day_entries WHERE id = ?`).get(id);
+  const existing = db.prepare(`SELECT * FROM day_entries WHERE id = ? AND agency_id = ?`).get(id, req.agencyId);
   if (!existing) return res.status(404).json({ error: 'Entry not found' });
-  db.prepare(`DELETE FROM day_entries WHERE id = ?`).run(id);
+  db.prepare(`DELETE FROM day_entries WHERE id = ? AND agency_id = ?`).run(id, req.agencyId);
   res.json({ deleted: true, id });
 });
 

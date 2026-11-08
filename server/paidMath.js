@@ -19,15 +19,17 @@ import db from './db.js';
 import { round2 } from './calc.js';
 
 /** import id -> factor that scales per-claim paid_amount down to the check. */
-export function importFactors() {
+export function importFactors(agencyId) {
   const rows = db
     .prepare(
       `SELECT i.id,
               i.total_payment AS check_total,
-              (SELECT COALESCE(SUM(c.paid_amount), 0) FROM claims c WHERE c.ra_import_id = i.id) AS claim_total
-       FROM ra_imports i`
+              (SELECT COALESCE(SUM(c.paid_amount), 0) FROM claims c
+                WHERE c.ra_import_id = i.id AND c.agency_id = i.agency_id) AS claim_total
+       FROM ra_imports i
+       WHERE i.agency_id = ?`
     )
-    .all();
+    .all(agencyId);
   const factors = new Map();
   for (const r of rows) {
     const check = Number(r.check_total) || 0;
@@ -49,16 +51,17 @@ export function importFactors() {
  */
 let __map = null;
 let __mapAt = 0;
-export function netPaidMap() {
+export function netPaidMap(agencyId) {
   if (__map && Date.now() - __mapAt < 5000) return __map;
   const out = new Map();
-  for (const [importId, factor] of importFactors()) {
+  for (const [importId, factor] of importFactors(agencyId)) {
     const check = Number(
-      db.prepare(`SELECT total_payment FROM ra_imports WHERE id = ?`).get(importId)?.total_payment
+      db.prepare(`SELECT total_payment FROM ra_imports WHERE id = ? AND agency_id = ?`)
+        .get(importId, agencyId)?.total_payment
     ) || 0;
     const rows = db
-      .prepare(`SELECT id, paid_amount FROM claims WHERE ra_import_id = ? ORDER BY id`)
-      .all(importId);
+      .prepare(`SELECT id, paid_amount FROM claims WHERE ra_import_id = ? AND agency_id = ? ORDER BY id`)
+      .all(importId, agencyId);
     let running = 0;
     rows.forEach((r, i) => {
       const isLast = i === rows.length - 1;
@@ -76,7 +79,7 @@ export function netPaidMap() {
 export function netPaid(claim, _ignoredFactors) {
   const recorded = Number(claim.paid_amount) || 0;
   if (claim.ra_import_id == null) return round2(recorded);
-  const v = netPaidMap().get(claim.id);
+  const v = netPaidMap(claim.agency_id).get(claim.id);
   return v == null ? round2(recorded) : v;
 }
 
@@ -96,7 +99,7 @@ function localDay(value) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-export function moneyReceived({ start = null, end = null, factors = importFactors() } = {}) {
+export function moneyReceived({ start = null, end = null, factors = null, agencyId = null } = {}) {
   const inWindow = (d) => {
     const day = localDay(d);
     if (!day) return true;
@@ -106,9 +109,9 @@ export function moneyReceived({ start = null, end = null, factors = importFactor
   const ra = db
     .prepare(
       `SELECT id, total_payment, COALESCE(updated_at, imported_at) AS stamp
-       FROM ra_imports WHERE status = 'active'`
-    )
-    .all()
+       FROM ra_imports WHERE status = 'active' AND agency_id = ?`
+      )
+      .all(agencyId)
     .filter((r) => inWindow(r.stamp))
     .reduce((s, r) => s + (Number(r.total_payment) || 0), 0);
 
@@ -116,9 +119,9 @@ export function moneyReceived({ start = null, end = null, factors = importFactor
   const manual = db
     .prepare(
       `SELECT paid_amount FROM claims
-       WHERE ra_import_id IS NULL AND COALESCE(archived,0) = 0`
-    )
-    .all()
+       WHERE ra_import_id IS NULL AND COALESCE(archived,0) = 0 AND agency_id = ?`
+      )
+      .all(agencyId)
     .reduce((s, c) => s + (Number(c.paid_amount) || 0), 0);
 
   return round2(ra + manual);

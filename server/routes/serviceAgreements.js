@@ -31,16 +31,17 @@ router.patch('/:id', (req, res) => {
     });
   }
 
-  const existing = db.prepare('SELECT * FROM service_agreements WHERE id = ?').get(id);
+  const existing = db.prepare('SELECT * FROM service_agreements WHERE id = ? AND agency_id = ?').get(id, req.agencyId);
   if (!existing) return res.status(404).json({ error: 'Service agreement not found' });
 
   const value = body.hhaexchange_auth_number;
-  db.prepare('UPDATE service_agreements SET hhaexchange_auth_number = ? WHERE id = ?').run(
+  db.prepare('UPDATE service_agreements SET hhaexchange_auth_number = ? WHERE id = ? AND agency_id = ?').run(
     value == null || value === '' ? null : String(value).trim(),
-    id
+    id,
+    req.agencyId
   );
 
-  res.json(db.prepare('SELECT * FROM service_agreements WHERE id = ?').get(id));
+  res.json(db.prepare('SELECT * FROM service_agreements WHERE id = ? AND agency_id = ?').get(id, req.agencyId));
 });
 
 export default router;

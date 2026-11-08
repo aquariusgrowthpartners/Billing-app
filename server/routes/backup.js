@@ -1,4 +1,5 @@
 import express from 'express';
+import Database from 'better-sqlite3';
 import { ZipArchive } from 'archiver';
 import { RA_DIR } from '../raStore.js';
 import fs from 'node:fs';
@@ -25,6 +26,74 @@ const router = express.Router();
  * be missing recent commits that still live in the -wal file. backup() produces
  * a single self-contained file with everything committed so far.
  */
+
+/**
+ * Build an agency-scoped copy of the database.
+ *
+ * A plain `db.backup()` copies the whole file — every agency's data. That is a
+ * cross-tenant leak dressed up as a feature. Instead we clone the schema from
+ * sqlite_master and copy only rows whose agency_id matches, from the tenant
+ * tables only. `settings` is shared configuration, so it comes along whole.
+ */
+const SHARED_TABLES = new Set(['settings', 'agencies', 'users']);
+
+async function scopedSnapshot(targetPath, agencyId) {
+  const clone = new Database(targetPath);
+  try {
+    clone.pragma('journal_mode = DELETE');
+    clone.pragma('foreign_keys = OFF');
+
+    const schema = db
+      .prepare(
+        `SELECT name, sql FROM sqlite_master
+          WHERE sql IS NOT NULL AND type = 'table' AND name NOT LIKE 'sqlite_%'`
+      )
+      .all();
+
+    for (const { name, sql } of schema) clone.exec(sql);
+
+    const tenantTables = [];
+    for (const { name } of schema) {
+      const cols = db.prepare(`PRAGMA table_info(${name})`).all().map((c) => c.name);
+      const hasAgency = cols.includes('agency_id');
+
+      if (SHARED_TABLES.has(name) || !hasAgency) {
+        // global configuration: copy whole
+        const rows = db.prepare(`SELECT * FROM ${name}`).all();
+        const ins = cols.length
+          ? clone.prepare(
+              `INSERT INTO ${name} (${cols.join(',')}) VALUES (${cols.map(() => '?').join(',')})`
+            )
+          : null;
+        for (const r of rows) ins?.run(...cols.map((c) => r[c]));
+      } else {
+        tenantTables.push(name);
+        const cols2 = cols;
+        const rows = db.prepare(`SELECT * FROM ${name} WHERE agency_id = ?`).all(agencyId);
+        const ins = clone.prepare(
+          `INSERT INTO ${name} (${cols2.join(',')}) VALUES (${cols2.map(() => '?').join(',')})`
+        );
+        for (const r of rows) ins.run(...cols2.map((c) => r[c]));
+      }
+    }
+
+    // indexes for the copied tables
+    const indexes = db
+      .prepare(`SELECT sql FROM sqlite_master WHERE sql IS NOT NULL AND type = 'index' AND name NOT LIKE 'sqlite_%'`)
+      .all();
+    for (const { sql } of indexes) {
+      try {
+        clone.exec(sql);
+      } catch {
+        /* index may reference a table we did not copy */
+      }
+    }
+    return tenantTables.length;
+  } finally {
+    clone.close();
+  }
+}
+
 router.get('/', async (req, res) => {
   const stamp = todayISO();
   const tmpDir = path.join(TMP_ROOT, `backup-${Date.now()}`);
@@ -47,16 +116,34 @@ router.get('/', async (req, res) => {
 
     // 2. Counts for the manifest, so a backup can be sanity-checked later.
     const counts = {
-      clients: db.prepare(`SELECT COUNT(*) n FROM clients`).get().n,
-      payers: db.prepare(`SELECT COUNT(*) n FROM payers`).get().n,
-      agreements: db.prepare(`SELECT COUNT(*) n FROM agreements`).get().n,
-      day_entries: db.prepare(`SELECT COUNT(*) n FROM day_entries`).get().n,
-      claims: db.prepare(`SELECT COUNT(*) n FROM claims`).get().n,
+      clients: db.prepare(`SELECT COUNT(*) n FROM clients WHERE agency_id = ?`).get(req.agencyId).n,
+      payers: db.prepare(`SELECT COUNT(*) n FROM payers WHERE agency_id = ?`).get(req.agencyId).n,
+      agreements: db.prepare(`SELECT COUNT(*) n FROM agreements WHERE agency_id = ?`).get(req.agencyId).n,
+      day_entries: db.prepare(`SELECT COUNT(*) n FROM day_entries WHERE agency_id = ?`).get(req.agencyId).n,
+      claims: db.prepare(`SELECT COUNT(*) n FROM claims WHERE agency_id = ?`).get(req.agencyId).n,
     };
 
-    const pdfFiles = fs.existsSync(CLAIMS_DIR)
-      ? fs.readdirSync(CLAIMS_DIR).filter((f) => f.toLowerCase().endsWith('.pdf'))
-      : [];
+    /*
+     * Only this agency's documents travel with the backup. The folders are
+     * shared across tenants, so listing them wholesale would ship other
+     * agencies' claim PDFs and remittance advice.
+     */
+    const pdfFiles = db
+      .prepare(
+        `SELECT local_pdf_path AS p FROM claims
+          WHERE agency_id = ? AND local_pdf_path IS NOT NULL AND local_pdf_path <> ''
+         UNION
+         SELECT generated_pdf_path AS p FROM claims
+          WHERE agency_id = ? AND generated_pdf_path IS NOT NULL AND generated_pdf_path <> ''`
+      )
+      .all(req.agencyId, req.agencyId)
+      .map((r) => path.basename(r.p))
+      .filter((f) => f.toLowerCase().endsWith('.pdf'));
+
+    const raFiles = db
+      .prepare(`SELECT stored_path FROM ra_import_files WHERE agency_id = ? AND stored_path IS NOT NULL`)
+      .all(req.agencyId)
+      .map((r) => path.basename(r.stored_path));
 
     const manifest = {
       created_at: new Date().toISOString(),
@@ -93,9 +180,15 @@ router.get('/', async (req, res) => {
 
     archive.pipe(res);
     archive.file(snapshotPath, { name: 'billing.db' });
-    if (pdfFiles.length) archive.directory(CLAIMS_DIR, 'claims');
+      for (const f of pdfFiles) {
+        const full = path.join(CLAIMS_DIR, f);
+        if (fs.existsSync(full)) archive.file(full, { name: `claims/${f}` });
+      }
     // The uploaded RA PDFs travel with the backup, so a restore can re-parse.
-    if (fs.existsSync(RA_DIR)) archive.directory(RA_DIR, 'ra_uploads');
+      for (const f of raFiles) {
+        const full = path.join(RA_DIR, f);
+        if (fs.existsSync(full)) archive.file(full, { name: `ra_uploads/${f}` });
+      }
     archive.append(JSON.stringify(manifest, null, 2), { name: 'backup-info.json' });
     await archive.finalize();
   } catch (err) {

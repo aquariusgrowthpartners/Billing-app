@@ -83,7 +83,7 @@ router.get('/markers', (req, res) => {
   res.json({ markers: [...byDay.values()] });
 });
 
-router.get('/summary', (_req, res) => {
+router.get('/summary', (req, res) => {
   const totals = db
     .prepare(
       `SELECT COUNT(*) AS claims,
@@ -128,7 +128,7 @@ router.get('/summary', (_req, res) => {
     .all();
 
   res.json({
-    open_tasks: openTaskCount(),
+    open_tasks: openTaskCount(req.agencyId),
     unrecovered_days: unrecovered.days,
     unrecovered_dollars: round2(unrecovered.dollars),
     total_denied_claims: totals.claims,
@@ -173,11 +173,12 @@ router.get('/', (req, res) => {
        FROM denied_claims c
        LEFT JOIN clients cu ON cu.id = c.client_id
        LEFT JOIN caretakers t ON t.id = c.caretaker_id
-       ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
+       WHERE c.agency_id = @agency
+       ${where.length ? `AND ${where.join(' AND ')}` : ''}
        ORDER BY c.dos_start DESC, c.id DESC
        LIMIT 500`
     )
-    .all(params);
+    .all({ ...params, agency: req.agencyId });
 
   res.json({
     denials: rows.map((r) => ({
@@ -197,7 +198,7 @@ router.get('/delete-preview', (req, res) => {
     .split(',')
     .map(Number)
     .filter(Number.isInteger);
-  res.json(denialDeleteCounts(ids));
+  res.json(denialDeleteCounts(ids, req.agencyId));
 });
 
 const mmddyyyy = (iso) => {
@@ -501,7 +502,7 @@ router.post('/bulk-delete', (req, res) => {
   const ids = Array.isArray(req.body?.ids) ? req.body.ids.map(Number).filter(Number.isInteger) : [];
   if (!ids.length) return res.status(400).json({ error: 'ids[] is required' });
 
-  const preview = denialDeleteCounts(ids);
+  const preview = denialDeleteCounts(ids, req.agencyId);
   if (!preview.found_ids.length) return res.status(404).json({ error: 'No matching denials' });
 
   // One transaction: a partial archive delete would be worse than none.
@@ -521,7 +522,7 @@ router.post('/bulk-delete', (req, res) => {
 router.delete('/:id', (req, res) => {
   const id = Number(req.params.id);
   if (!Number.isInteger(id)) return res.status(400).json({ error: 'bad id' });
-  const result = deleteDenials([id]);
+  const result = deleteDenials([id], req.agencyId);
   if (!result.found_ids.length) return res.status(404).json({ error: 'Denied claim not found' });
   res.json({
     deleted_denial: result.deleted_denial,
@@ -559,7 +560,7 @@ router.patch('/rebill/tasks/:id', (req, res) => {
   const setSql = Object.keys(updates).map((k) => `${k} = @${k}`).join(', ');
   db.prepare(`UPDATE rebill_tasks SET ${setSql} WHERE id = @id`).run({ ...updates, id });
 
-  const open = openTaskCount();
+  const open = openTaskCount(req.agencyId);
   res.json({ task: db.prepare(`SELECT * FROM rebill_tasks WHERE id = ?`).get(id), open_tasks: open });
 });
 

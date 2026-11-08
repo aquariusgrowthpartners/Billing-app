@@ -186,6 +186,11 @@ const cmId = insertRow('case_managers', {
 
 const payerId = insertRow('payers', { name: 'Demo Health Plan', typical_days_to_pay: 21 });
 
+/* the demo workspace itself — every demo row belongs to agency 1 */
+db.prepare(
+  "INSERT INTO agencies (id, name) VALUES (1, 'Dundas Home Care LLC (DEMO)') ON CONFLICT(id) DO NOTHING"
+).run();
+
 for (const [k, v] of Object.entries({
   theme_mode: 'light',
   theme_color: 'blue',

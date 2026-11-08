@@ -162,7 +162,7 @@ router.get('/pay-period', (req, res) => {
 });
 
 /** GET /api/dashboard/recent-ra — the last 5 saved RA imports. */
-router.get('/recent-ra', (_req, res) => {
+router.get('/recent-ra', (req, res) => {
   const rows = db
     .prepare(`SELECT * FROM ra_imports ORDER BY id DESC LIMIT 5`)
     .all();
@@ -188,17 +188,18 @@ router.get('/recent-ra', (_req, res) => {
 });
 
 /** GET /api/dashboard/recent-clients — the last 8 profiles opened. */
-router.get('/recent-clients', (_req, res) => {
+router.get('/recent-clients', (req, res) => {
   const rows = db
     .prepare(
       `SELECT rc.client_id, rc.viewed_at,
               c.first_name, c.last_name, c.middle_initial, c.archived
        FROM recent_clients rc
        JOIN clients c ON c.id = rc.client_id
+       WHERE rc.agency_id = @agency
        ORDER BY rc.viewed_at DESC, rc.id DESC
        LIMIT 8`
     )
-    .all();
+    .all({ agency: req.agencyId });
   res.json({ clients: rows });
 });
 

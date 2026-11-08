@@ -32,6 +32,7 @@ const ORPHAN_QUERY = `
   WHERE cu.id IS NULL
      OR COALESCE(cu.archived, 0) = 1
      OR (d.claim_id IS NOT NULL AND cl.id IS NULL)
+      AND d.agency_id = @agency
   ORDER BY d.work_date, d.id
 `;
 
@@ -56,7 +57,7 @@ const decorate = (row) => ({ ...row, problems: problemsFor(row) });
  * Every claim, grouped for reconciliation. READ-ONLY: this endpoint never
  * writes, so it is safe to run against live data while diagnosing.
  */
-router.get('/claims-dump', (_req, res) => {
+router.get('/claims-dump', (req, res) => {
   const rows = db
     .prepare(
       `SELECT cl.id, cl.ra_claim_number, cl.claim_name, cl.status, cl.source,
@@ -68,9 +69,10 @@ router.get('/claims-dump', (_req, res) => {
        FROM claims cl
        LEFT JOIN clients c ON c.id = cl.client_id
        LEFT JOIN ra_imports i ON i.id = cl.ra_import_id
+           WHERE cl.agency_id = @agency
        ORDER BY cl.ra_import_id, cl.period_start, cl.id`
     )
-    .all();
+    .all({ agency: req.agencyId });
 
   const claims = rows.map((r) => ({
     id: r.id,
@@ -146,14 +148,14 @@ router.get('/claims-dump', (_req, res) => {
       negative_count: negative.length,
       // what the import records say the checks were worth
       import_recorded: Math.round(
-        db.prepare(`SELECT COALESCE(SUM(total_payment), 0) AS s FROM ra_imports`).get().s * 100
+        db.prepare(`SELECT COALESCE(SUM(total_payment), 0) AS s FROM ra_imports WHERE agency_id = ?`).get(req.agencyId).s * 100
       ) / 100,
     },
   });
 });
 
-router.get('/orphaned-entries', (_req, res) => {
-  const rows = db.prepare(ORPHAN_QUERY).all().map(decorate);
+router.get('/orphaned-entries', (req, res) => {
+  const rows = db.prepare(ORPHAN_QUERY).all({ agency: req.agencyId }).map(decorate);
   res.json({
     entries: rows,
     count: rows.length,
@@ -165,7 +167,7 @@ router.get('/orphaned-entries', (_req, res) => {
 });
 
 /** GET /api/admin/orphaned-entries/count — a cheap badge count. */
-router.get('/orphaned-entries/count', (_req, res) => {
+router.get('/orphaned-entries/count', (req, res) => {
   const n = db
     .prepare(
       `SELECT COUNT(*) AS n
@@ -174,9 +176,10 @@ router.get('/orphaned-entries/count', (_req, res) => {
        LEFT JOIN claims cl ON cl.id = d.claim_id
        WHERE cu.id IS NULL
           OR COALESCE(cu.archived, 0) = 1
-          OR (d.claim_id IS NOT NULL AND cl.id IS NULL)`
+          OR (d.claim_id IS NOT NULL AND cl.id IS NULL)
+              AND d.agency_id = @agency`
     )
-    .get().n;
+    .get({ agency: req.agencyId }).n;
   res.json({ count: n });
 });
 
@@ -193,13 +196,13 @@ router.post('/orphaned-entries/cleanup', (req, res) => {
     return res.status(400).json({ error: 'Type DELETE to confirm this cleanup.' });
   }
 
-  const before = db.prepare(`SELECT COUNT(*) AS n FROM day_entries`).get().n;
-  const doomed = db.prepare(ORPHAN_QUERY).all().map((r) => r.id);
+  const before = db.prepare(`SELECT COUNT(*) AS n FROM day_entries WHERE agency_id = ?`).get(req.agencyId).n;
+  const doomed = db.prepare(ORPHAN_QUERY).all({ agency: req.agencyId }).map((r) => r.id);
 
   let deleted = 0;
   db.transaction(() => {
-    const remove = db.prepare(`DELETE FROM day_entries WHERE id = ?`);
-    for (const id of doomed) deleted += remove.run(id).changes;
+    const remove = db.prepare(`DELETE FROM day_entries WHERE id = ? AND agency_id = ?`);
+    for (const id of doomed) deleted += remove.run(id, req.agencyId).changes;
   })();
 
   res.json({ deleted, preserved: before - deleted });
