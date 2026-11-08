@@ -1,0 +1,17 @@
+# Nixpacks detects pnpm from pnpm-lock.yaml and runs `pnpm install` in its
+# install phase, which failed on Railway. These phases pin npm explicitly.
+#
+# --include=dev is required: react, vite and esbuild are devDependencies, and
+# Railway sets NODE_ENV=production, which makes plain `npm install` omit them
+# and break the build. better-sqlite3 is native, so python3 + make are needed.
+[phases.setup]
+nixPkgs = ["nodejs_20", "python3", "gccStdenv", "gnumake"]
+
+[phases.install]
+cmds = ["npm install --include=dev --no-audit --no-fund"]
+
+[phases.build]
+cmds = ["npm run build"]
+
+[start]
+cmd = "node server/index.js"
