@@ -7,6 +7,20 @@ import { download, renderTemplate, SAMPLE_PARTS } from '../download.js';
 import Modal from '../components/Modal.jsx';
 import { formatLongDate, formatMoney } from '../calc.js';
 
+/**
+ * The cleanup preview has had two server shapes (`items` and `imports`).
+ * Normalise once so the render never dereferences a missing array.
+ */
+function shapeCleanup(payload) {
+  if (!payload || typeof payload !== 'object') return payload;
+  const imports = Array.isArray(payload.imports)
+    ? payload.imports
+    : Array.isArray(payload.items)
+      ? payload.items
+      : [];
+  return { ...payload, imports };
+}
+
 export default function Settings() {
   const [settings, setSettings] = useState(null);
   const [tokens, setTokens] = useState([]);
@@ -40,19 +54,20 @@ export default function Settings() {
   const load = useCallback(async () => {
     try {
       const d = await api.getSettings();
-      setSettings(d.settings);
-      setTokens(d.template_tokens);
-      setTemplate(d.settings.claim_name_template ?? '');
+      const s = d?.settings ?? {};
+      setSettings(s);
+      setTokens(d?.template_tokens ?? []);
+      setTemplate(s.claim_name_template ?? '');
       setAgency({
-        agency_name: d.settings.agency_name ?? '',
-        agency_street_address: d.settings.agency_street_address ?? '',
-        agency_city: d.settings.agency_city ?? '',
-        agency_state: d.settings.agency_state ?? '',
-        agency_zip: d.settings.agency_zip ?? '',
+        agency_name: s.agency_name ?? '',
+        agency_street_address: s.agency_street_address ?? '',
+        agency_city: s.agency_city ?? '',
+        agency_state: s.agency_state ?? '',
+        agency_zip: s.agency_zip ?? '',
       });
       setError(null);
       api.raAudit().then(setAudit).catch(() => {});
-      api.raCleanupPreview().then(setCleanup).catch(() => {});
+      api.raCleanupPreview().then((p) => setCleanup(shapeCleanup(p))).catch(() => {});
       api.raStorage().then(setRaStorage).catch(() => {});
     } catch (e) {
       setError(e.message);
@@ -76,8 +91,9 @@ export default function Settings() {
     setSavingTemplate(true);
     try {
       const d = await api.updateSettings({ claim_name_template: template });
-      setSettings(d.settings);
-      setTemplate(d.settings.claim_name_template);
+      const saved = d?.settings ?? {};
+      setSettings(saved);
+      setTemplate(saved.claim_name_template ?? template);
       note('Naming template saved');
     } catch (e) {
       setTemplateError(e.message);
@@ -102,7 +118,7 @@ export default function Settings() {
         agency_state: agency.agency_state ?? '',
         agency_zip: agency.agency_zip ?? '',
       });
-      setSettings(d.settings);
+      setSettings(d?.settings ?? {});
       setNotice('Agency information saved');
       setTimeout(() => setNotice(null), 2600);
     } catch (e) {
@@ -197,7 +213,7 @@ export default function Settings() {
 
   async function loadCleanup() {
     try {
-      setCleanup(await api.raCleanupPreview());
+      setCleanup(shapeCleanup(await api.raCleanupPreview()));
     } catch (e) {
       setError(e.message);
     }
@@ -590,7 +606,7 @@ export default function Settings() {
 
           {!cleanup ? (
             <button className="btn" id="cleanup-preview" onClick={loadCleanup}>Preview Cleanup</button>
-          ) : !cleanup.imports.length ? (
+          ) : !(cleanup.imports ?? []).length ? (
             <div className="ds-empty" id="cleanup-empty">
               <span className="ds-empty-icon">✓</span>
               <div className="ds-empty-head">No unparseable imports</div>
@@ -609,7 +625,7 @@ export default function Settings() {
                     </tr>
                   </thead>
                   <tbody>
-                    {cleanup.imports.map((i) => (
+                    {(cleanup.imports ?? []).map((i) => (
                       <tr key={i.ra_import_id} id={`cleanup-row-${i.ra_import_id}`}>
                         <td title={i.file_name}>{(i.file_name ?? '').slice(0, 60) || `import #${i.ra_import_id}`}</td>
                         <td className="ds-num">{i.denials}</td>
@@ -1254,8 +1270,8 @@ function AppSettingsCard({ settings, onSaved, onError }) {
     try {
       const d = await api.updateSettings({ agency_tax_id: taxId, office_npi: officeNpi });
       await onSaved?.({
-        agency_tax_id: d.settings.agency_tax_id,
-        office_npi: d.settings.office_npi,
+        agency_tax_id: d?.settings?.agency_tax_id ?? '',
+        office_npi: d?.settings?.office_npi ?? '',
       });
     } catch (e) {
       setLocalError(e.message);
@@ -1799,7 +1815,7 @@ function AiConfigCard({ settings, onSaved, onError }) {
     setSaving(true);
     try {
       const d = await api.updateSettings({ ai_provider: provider, ai_api_key: key.trim() });
-      await onSaved?.(d.settings);
+      await onSaved?.(d?.settings ?? {});
       setKey('');
       setChanging(false);
     } catch (e) {

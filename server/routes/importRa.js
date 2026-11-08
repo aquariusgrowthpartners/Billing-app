@@ -1029,9 +1029,21 @@ function cleanupScope(agencyId) {
   };
 }
 
+/**
+ * Stable preview payload.
+ *
+ * The UI calls this endpoint as `raCleanupPreview()` and reads `imports`.
+ * `cleanupScope()` names the same array `items` for the POST cleanup route.
+ * Return both keys so a server-side rename can never blank the Settings page.
+ */
+function cleanupPreviewPayload(agencyId) {
+  const scope = cleanupScope(agencyId);
+  return { dry_run: true, imports: scope.items, items: scope.items, totals: scope.totals };
+}
+
 // accepts: nothing  [X-Expects-Id: none]
 /** POST /api/import-ra/cleanup-preview — same scope, no writes. */
-router.post('/cleanup-preview', (req, res) => res.json({ dry_run: true, ...cleanupScope(req.agencyId) }));
+router.post('/cleanup-preview', (req, res) => res.json(cleanupPreviewPayload(req.agencyId)));
 
 // accepts: nothing  [X-Expects-Id: none]
 /**
@@ -1096,7 +1108,7 @@ router.post('/cleanup', (req, res) => {
  * Only zero-line-item denials are in scope: a claim that parsed its header is
  * real money and is flagged, never removed.
  */
-router.get('/cleanup-preview', (req, res) => res.json({ dry_run: true, ...cleanupScope(req.agencyId) }));
+router.get('/cleanup-preview', (req, res) => res.json(cleanupPreviewPayload(req.agencyId)));
 
 // accepts: file-row id (ra_import_files.id)  [X-Expects-Id: file-row]
 router.post('/file/:id/reparse', async (req, res) => {

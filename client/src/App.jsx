@@ -1,5 +1,5 @@
 import React, { lazy, Suspense, useEffect, useState, useRef } from 'react';
-import { BrowserRouter, Routes, Route, NavLink, Link } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, NavLink, Link, useLocation } from 'react-router-dom';
 import Home from './pages/Home.jsx';
 import ClientList from './pages/ClientList.jsx';
 import ClientProfile from './pages/ClientProfile.jsx';
@@ -22,6 +22,65 @@ const Reports = lazy(() => import('./pages/Reports.jsx'));
 
 // React Router must know about the path Vite is mounted under (/billing/).
 const BASENAME = import.meta.env.BASE_URL.replace(/\/$/, '') || '/';
+
+/**
+ * Last-resort UI boundary.
+ *
+ * A page render error used to unmount the whole React tree and leave a blank
+ * screen. This keeps the navigation and shows a readable message instead.
+ * Exported so the entrypoint can also guard the App itself.
+ */
+export class AppErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { error: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { error };
+  }
+
+  componentDidCatch(error, info) {
+    console.error('[ui] page render failed:', error, info?.componentStack ?? '');
+  }
+
+  render() {
+    if (!this.state.error) return this.props.children;
+    return (
+      <section className="page" id="error-boundary">
+        <div className="alert error" role="alert">
+          <h2 style={{ marginTop: 0 }}>This page could not be displayed</h2>
+          <p>
+            A rendering error occurred, so only this page was stopped. The rest of the app is still
+            available from the navigation.
+          </p>
+          <p className="muted small mono" style={{ wordBreak: 'break-word' }}>
+            {this.state.error?.message ?? String(this.state.error)}
+          </p>
+          <div className="form-actions">
+            <button
+              className="btn primary"
+              onClick={() => this.setState({ error: null })}
+            >
+              Try again
+            </button>
+            <button className="btn" onClick={() => window.location.reload()}>
+              Reload app
+            </button>
+          </div>
+        </div>
+      </section>
+    );
+  }
+}
+
+/** Remount the boundary when the route changes, so one bad page never sticks. */
+function RoutedPage({ children }) {
+  const location = useLocation();
+  return (
+    <AppErrorBoundary key={`${location.pathname}${location.search}`}>{children}</AppErrorBoundary>
+  );
+}
 
 export default function App() {
   // A small badge on the Settings tab when there is data to clean up.
@@ -254,6 +313,7 @@ export default function App() {
         </header>
 
         <main className="content">
+          <RoutedPage>
           <Routes>
             <Route path="/" element={<Home />} />
             <Route path="/clients" element={<ClientList />} />
@@ -276,6 +336,7 @@ export default function App() {
             <Route path="/ask" element={<AskDundas />} />
             <Route path="/settings" element={<Settings />} />
           </Routes>
+          </RoutedPage>
         </main>
       </div>
     </BrowserRouter>

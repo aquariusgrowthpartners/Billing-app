@@ -4,6 +4,6 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { act } from 'react';
-import App from '../client/src/App.jsx';
+import App, { AppErrorBoundary } from '../client/src/App.jsx';
 
-export { React, createRoot, act, App };
+export { React, createRoot, act, App, AppErrorBoundary };
