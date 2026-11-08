@@ -20,79 +20,96 @@ const ROOT = path.join(__dirname, '..', '..');
 const LIVE = path.join(ROOT, 'data', 'billing.db');
 const TARGET = path.resolve(process.env.DEMO_DB ?? path.join(ROOT, 'data', 'demo.db'));
 
-if (TARGET === LIVE) {
+/*
+ * Existing-database mode (used by the production startup check).
+ *
+ * Normal mode builds a standalone demo.db from scratch. In existing mode the
+ * database already holds the real tenant's schema; we only insert the synthetic
+ * rows into the chosen Demo Agency and never delete or recreate the file.
+ */
+const SEED_EXISTING = process.env.DEMO_SEED_EXISTING === '1';
+const AGENCY_ID = Number(process.env.DEMO_AGENCY_ID ?? 1);
+const AGENCY_NAME = process.env.DEMO_AGENCY_NAME ?? 'Demo Agency';
+
+if (TARGET === LIVE && !SEED_EXISTING) {
   console.error('  REFUSING: DEMO_DB points at the live database. Choose another path.');
   process.exit(1);
 }
 
-if (fs.existsSync(TARGET)) {
-  fs.rmSync(TARGET);
-  for (const suffix of ['-wal', '-shm']) fs.rmSync(TARGET + suffix, { force: true });
-  console.log(`  removed previous demo database`);
+if (!SEED_EXISTING) {
+  if (fs.existsSync(TARGET)) {
+    fs.rmSync(TARGET);
+    for (const suffix of ['-wal', '-shm']) fs.rmSync(TARGET + suffix, { force: true });
+    console.log(`  removed previous demo database`);
+  }
+  fs.mkdirSync(path.dirname(TARGET), { recursive: true });
 }
-fs.mkdirSync(path.dirname(TARGET), { recursive: true });
 
 const db = new Database(TARGET);
 db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
 
-/* ------------------------------------------------------------------ schema */
-/*
- * The schema is COPIED from the live database rather than hand-written.
- * A hand-maintained copy drifts the moment a migration lands, and the server
- * then crashes on a column the demo DB is missing. Copying guarantees the demo
- * is structurally identical to production.
- */
-/*
- * Where the schema comes from.
- *
- * Locally we read it straight from the live database, so it tracks migrations
- * automatically. In a container `data/` is excluded (it holds PHI), so we fall
- * back to the committed DDL snapshot in demo-schema.sql.
- */
-const SCHEMA_FILE = path.join(__dirname, 'demo-schema.sql');
-let schemaSql = [];
+if (!SEED_EXISTING) {
+  /* ---------------------------------------------------------------- schema */
+  /*
+   * The schema is COPIED from the live database rather than hand-written.
+   * A hand-maintained copy drifts the moment a migration lands, and the server
+   * then crashes on a column the demo DB is missing. Copying guarantees the demo
+   * is structurally identical to production.
+   */
+  /*
+   * Where the schema comes from.
+   *
+   * Locally we read it straight from the live database, so it tracks migrations
+   * automatically. In a container `data/` is excluded (it holds PHI), so we fall
+   * back to the committed DDL snapshot in demo-schema.sql.
+   */
+  const SCHEMA_FILE = path.join(__dirname, 'demo-schema.sql');
+  let schemaSql = [];
 
-if (fs.existsSync(LIVE)) {
-  const live = new Database(LIVE, { readonly: true });
-  schemaSql = live
-    .prepare(
-      `SELECT sql FROM sqlite_master
-        WHERE sql IS NOT NULL
-          AND type IN ('table','index')
-          AND name NOT LIKE 'sqlite_%'`
-    )
-    .all()
-    .map((r) => r.sql);
-  live.close();
-  console.log(`  copied ${schemaSql.length} schema objects from the live database`);
-} else if (fs.existsSync(SCHEMA_FILE)) {
-  // Strip comment LINES first: a comment containing a semicolon would
-  // otherwise split mid-statement and corrupt the schema.
-  const body = fs
-    .readFileSync(SCHEMA_FILE, 'utf8')
-    .split('\n')
-    .filter((line) => !line.trim().startsWith('--'))
-    .join('\n');
-  schemaSql = body
-    .split(';')
-    .map((s) => s.trim())
-    .filter(Boolean);
-  console.log(`  loaded ${schemaSql.length} schema objects from demo-schema.sql`);
-} else {
-  console.error('  REFUSING: no live database and no demo-schema.sql to seed from.');
-  process.exit(1);
-}
-
-db.pragma('foreign_keys = OFF');
-for (const sql of schemaSql) {
-  try {
-    db.exec(sql);
-  } catch (err) {
-    console.warn(`  skipped schema object: ${err.message}`);
+  if (fs.existsSync(LIVE)) {
+    const live = new Database(LIVE, { readonly: true });
+    schemaSql = live
+      .prepare(
+        `SELECT sql FROM sqlite_master
+          WHERE sql IS NOT NULL
+            AND type IN ('table','index')
+            AND name NOT LIKE 'sqlite_%'`
+      )
+      .all()
+      .map((r) => r.sql);
+    live.close();
+    console.log(`  copied ${schemaSql.length} schema objects from the live database`);
+  } else if (fs.existsSync(SCHEMA_FILE)) {
+    // Strip comment LINES first: a comment containing a semicolon would
+    // otherwise split mid-statement and corrupt the schema.
+    const body = fs
+      .readFileSync(SCHEMA_FILE, 'utf8')
+      .split('\n')
+      .filter((line) => !line.trim().startsWith('--'))
+      .join('\n');
+    schemaSql = body
+      .split(';')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    console.log(`  loaded ${schemaSql.length} schema objects from demo-schema.sql`);
+  } else {
+    console.error('  REFUSING: no live database and no demo-schema.sql to seed from.');
+    process.exit(1);
   }
+
+  db.pragma('foreign_keys = OFF');
+  for (const sql of schemaSql) {
+    try {
+      db.exec(sql);
+    } catch (err) {
+      console.warn(`  skipped schema object: ${err.message}`);
+    }
+  }
+  db.pragma('foreign_keys = ON');
+} else {
+  console.log(`  seeding existing database ${TARGET} as agency ${AGENCY_ID} (${AGENCY_NAME})`);
 }
-db.pragma('foreign_keys = ON');
 
 /* --------------------------------------------------------------- synthetic */
 
@@ -110,9 +127,11 @@ function columnsOf(table) {
 function insertRow(table, obj) {
   const cols = columnsOf(table);
   const keys = Object.keys(obj).filter((k) => cols.has(k));
+  if (cols.has('agency_id') && !keys.includes('agency_id')) keys.push('agency_id');
   if (!keys.length) throw new Error(`no matching columns for ${table}`);
+  const values = Object.fromEntries(keys.map((k) => [k, k === 'agency_id' ? AGENCY_ID : obj[k]]));
   const sql = `INSERT INTO ${table} (${keys.join(',')}) VALUES (${keys.map((k) => '@' + k).join(',')})`;
-  return Number(db.prepare(sql).run(Object.fromEntries(keys.map((k) => [k, obj[k]]))).lastInsertRowid);
+  return Number(db.prepare(sql).run(values).lastInsertRowid);
 }
 
 /* deterministic pseudo-random so a reseed looks the same */
@@ -186,21 +205,21 @@ const cmId = insertRow('case_managers', {
 
 const payerId = insertRow('payers', { name: 'Demo Health Plan', typical_days_to_pay: 21 });
 
-/* the demo workspace itself — every demo row belongs to agency 1 */
+/* the demo workspace itself */
 db.prepare(
-  "INSERT INTO agencies (id, name) VALUES (1, 'Dundas Home Care LLC (DEMO)') ON CONFLICT(id) DO NOTHING"
-).run();
+  'INSERT INTO agencies (id, name) VALUES (?, ?) ON CONFLICT(id) DO NOTHING'
+).run(AGENCY_ID, AGENCY_NAME);
 
 for (const [k, v] of Object.entries({
   theme_mode: 'light',
   theme_color: 'blue',
-  agency_name: 'Dundas Home Care LLC (DEMO)',
+  agency_name: AGENCY_NAME,
   agency_tax_id: '00-0000000',
   office_npi: '0000000000',
 })) {
   db.prepare(
-    "INSERT INTO settings (agency_id, key, value) VALUES (1, ?, ?) ON CONFLICT(agency_id, key) DO NOTHING"
-  ).run(k, v);
+    "INSERT INTO settings (agency_id, key, value) VALUES (?, ?, ?) ON CONFLICT(agency_id, key) DO NOTHING"
+  ).run(AGENCY_ID, k, v);
 }
 
 /* ------------------------------------------------- service agreements ---
@@ -242,9 +261,9 @@ for (let i = 0; i < clientIds.length; i++) {
 const insEntry = db.prepare(
   `INSERT INTO day_entries
      (client_id, work_date, minutes_worked, units, rate_per_unit, dollars,
-      caretaker_id, start_time, source, service_code, modifier)
+      caretaker_id, start_time, source, service_code, modifier, agency_id)
    VALUES (@client_id, @work_date, @minutes, @units, @rate, @dollars,
-           @caretaker_id, @start, 'demo', @code, @modifier)`
+           @caretaker_id, @start, 'demo', @code, @modifier, @agency)`
 );
 
 const dayRows = [];
@@ -281,7 +300,9 @@ for (let monthsBack = 11; monthsBack >= 0; monthsBack--) {
   }
 }
 
-const insertEntries = db.transaction((rows) => rows.forEach((r) => insEntry.run(r)));
+const insertEntries = db.transaction((rows) =>
+  rows.forEach((r) => insEntry.run({ ...r, agency: AGENCY_ID }))
+);
 insertEntries(dayRows);
 
 /* ---------------------------------------------------------- claims ----
@@ -322,8 +343,12 @@ for (const [key, rows] of claimsByPeriod) {
 }
 
 /* a few unpaid claims so Submitted / Draft pills render too */
-db.prepare("UPDATE claims SET status = 'Submitted', paid_amount = NULL, paid_date = NULL WHERE id IN (SELECT id FROM claims ORDER BY id DESC LIMIT 12)").run();
-db.prepare("UPDATE claims SET status = 'Draft', paid_amount = NULL, paid_date = NULL WHERE id IN (SELECT id FROM claims ORDER BY id ASC LIMIT 8)").run();
+db.prepare(
+  "UPDATE claims SET status = 'Submitted', paid_amount = NULL, paid_date = NULL WHERE agency_id = ? AND id IN (SELECT id FROM claims WHERE agency_id = ? ORDER BY id DESC LIMIT 12)"
+).run(AGENCY_ID, AGENCY_ID);
+db.prepare(
+  "UPDATE claims SET status = 'Draft', paid_amount = NULL, paid_date = NULL WHERE agency_id = ? AND id IN (SELECT id FROM claims WHERE agency_id = ? ORDER BY id ASC LIMIT 8)"
+).run(AGENCY_ID, AGENCY_ID);
 
 /* --------------------------------------------------------- denials ----
    Three denials with real adjustment codes so the explainer has material. */
@@ -393,14 +418,12 @@ insertRow('tasks', {
   due_date: '2026-05-30',
 });
 
-const counts = {
-  clients: db.prepare('SELECT COUNT(*) n FROM clients').get().n,
-  caretakers: db.prepare('SELECT COUNT(*) n FROM caretakers').get().n,
-  day_entries: db.prepare('SELECT COUNT(*) n FROM day_entries').get().n,
-  claims: db.prepare('SELECT COUNT(*) n FROM claims').get().n,
-  tasks: db.prepare('SELECT COUNT(*) n FROM tasks').get().n,
-  denied_claims: db.prepare('SELECT COUNT(*) n FROM denied_claims').get().n,
-};
+const counts = Object.fromEntries(
+  ['clients', 'caretakers', 'day_entries', 'claims', 'tasks', 'denied_claims'].map((t) => [
+    t,
+    db.prepare(`SELECT COUNT(*) n FROM ${t} WHERE agency_id = ?`).get(AGENCY_ID).n,
+  ])
+);
 db.close();
 
 console.log(`  demo database: ${TARGET}`);

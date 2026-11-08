@@ -17,6 +17,21 @@ export default function Login({ onAuthed }) {
 
   const isSignup = mode === 'signup';
 
+  async function enterDemo() {
+    if (busy) return;
+    setError(null);
+    setBusy(true);
+    try {
+      const res = await api.demoLogin();
+      setToken(res.token);
+      onAuthed?.(res.user);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function submit(e) {
     e.preventDefault();
     if (busy) return;
@@ -44,6 +59,23 @@ export default function Login({ onAuthed }) {
             ? 'Start a new agency workspace. You will be its administrator.'
             : 'Sign in to your billing workspace.'}
         </p>
+
+        {!isSignup && (
+          <>
+            <button
+              type="button"
+              className="btn primary login-submit login-demo"
+              id="login-demo"
+              onClick={enterDemo}
+              disabled={busy}
+            >
+              {busy ? 'Opening demo…' : 'Enter Demo Mode'}
+            </button>
+            <div className="login-divider" aria-hidden="true">
+              <span>or sign in with your account</span>
+            </div>
+          </>
+        )}
 
         {error && (
           <div className="alert error" id="login-error">

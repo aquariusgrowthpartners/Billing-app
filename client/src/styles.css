@@ -5903,6 +5903,29 @@ a,
   margin-top: 4px;
 }
 
+.login-demo {
+  min-height: 48px;
+  margin-bottom: 2px;
+  font-size: 15px;
+}
+
+.login-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 10px 0 2px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.login-divider::before,
+.login-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
 .login-toggle {
   background: none;
   border: 0;

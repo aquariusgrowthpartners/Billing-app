@@ -68,11 +68,33 @@ router.post('/signup', (req, res) => {
   }
 });
 
-/* POST /api/auth/login  { email, password } */
+const DEMO_EMAIL = 'demo@dundas.com';
+
+/* POST /api/auth/login  { email, password }  or  { demo: true } */
 router.post('/login', (req, res) => {
   const b = req.body ?? {};
   const email = String(b.email ?? '').trim().toLowerCase();
   const password = String(b.password ?? '');
+  const wantsDemo = b.demo === true || email === 'demo' || email === DEMO_EMAIL;
+
+  if (wantsDemo) {
+    /*
+     * The public demo is a real tenant with a real agency_id, but it has no
+     * password by design. Only this exact account is allowed through without
+     * one; every other login still takes the normal bcrypt path below.
+     */
+    const user = db
+      .prepare(`SELECT * FROM users WHERE lower(email) = ?`)
+      .get(DEMO_EMAIL);
+    if (!user) {
+      return res.status(503).json({
+        error: 'The demo account is still being prepared. Please try again in a moment.',
+      });
+    }
+    const agency = db.prepare('SELECT * FROM agencies WHERE id = ?').get(user.agency_id);
+    return res.json({ token: signToken(user), user: publicUser(user, agency) });
+  }
+
   if (!email || !password) return res.status(400).json({ error: 'Email and password are required.' });
 
   const user = db.prepare('SELECT * FROM users WHERE lower(email) = ?').get(email);

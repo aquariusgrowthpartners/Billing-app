@@ -49,6 +49,7 @@ async function request(path, options = {}) {
 export const api = {
   health: () => request('/health'),
   login: (body) => request('/auth/login', { method: 'POST', body: JSON.stringify(body) }),
+  demoLogin: () => request('/auth/login', { method: 'POST', body: JSON.stringify({ demo: true }) }),
   signup: (body) => request('/auth/signup', { method: 'POST', body: JSON.stringify(body) }),
   me: () => request('/auth/me'),
   mode: () => request('/mode'),
