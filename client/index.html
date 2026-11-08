@@ -9,6 +9,61 @@
     <title>Billing Calendar</title>
   </head>
   <body>
+    <script>
+      /*
+       * DEBUG: capture fatal errors before the React bundle loads.
+       *
+       * This is intentionally plain DOM and runs first, so it still works when
+       * the module bundle has a syntax error or React never mounts. It replaces
+       * the page with a readable red panel instead of leaving a blank screen.
+       */
+      (function () {
+        function show(title, message, meta) {
+          try {
+            var safe = function (value) {
+              return String(value == null ? '' : value)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;');
+            };
+            document.body.innerHTML =
+              '<div style="position:fixed;inset:0;z-index:2147483647;overflow:auto;padding:20px;' +
+              'color:#b00020;background:#fff;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;' +
+              'font-size:16px;line-height:1.5;-webkit-overflow-scrolling:touch;">' +
+              '<h2 style="margin:0 0 12px;font-size:22px;">' + safe(title) + '</h2>' +
+              '<p style="margin:0 0 8px;font-weight:700;">Please screenshot or copy this text and send it back.</p>' +
+              '<pre style="white-space:pre-wrap;word-break:break-word;background:#fee2e2;padding:12px;border-radius:8px;">' +
+              safe(message) + '</pre>' +
+              '<pre style="white-space:pre-wrap;word-break:break-word;">' + safe(meta) + '</pre>' +
+              '</div>';
+          } catch (_) {
+            /* last resort: nothing else we can do */
+          }
+        }
+
+        window.addEventListener('error', function (e) {
+          var message = e.message || 'Unknown error';
+          var meta = (e.filename || '') + ':' + (e.lineno || '') + ':' + (e.colno || '');
+          var stack = e.error && e.error.stack ? e.error.stack : '';
+          show('GLOBAL JS ERROR', message, meta + (stack ? '\n\n' + stack : ''));
+        });
+
+        window.addEventListener('unhandledrejection', function (e) {
+          var reason = e.reason;
+          var detail;
+          try {
+            detail = reason && reason.stack
+              ? reason.stack
+              : typeof reason === 'string'
+                ? reason
+                : JSON.stringify(reason);
+          } catch (_) {
+            detail = String(reason);
+          }
+          show('UNHANDLED PROMISE REJECTION', detail, '');
+        });
+      })();
+    </script>
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
   </body>
