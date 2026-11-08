@@ -2,8 +2,11 @@
 # install phase, which failed on Railway. These phases pin npm explicitly.
 #
 # --include=dev is required: react, vite and esbuild are devDependencies, and
-# Railway sets NODE_ENV=production, which makes plain `npm install` omit them
-# and break the build. better-sqlite3 is native, so python3 + make are needed.
+# Railway sets NODE_ENV=production, which makes plain `npm install` omit them.
+#
+# The build also copies client/dist to ./dist: Nixpacks' Node provider tries to
+# COPY /app/dist into the final image, and Vite writes to client/dist, so
+# without this the image build fails with "/app/dist: not found".
 [phases.setup]
 nixPkgs = ["nodejs_20", "python3", "gccStdenv", "gnumake"]
 
@@ -11,7 +14,7 @@ nixPkgs = ["nodejs_20", "python3", "gccStdenv", "gnumake"]
 cmds = ["npm install --include=dev --no-audit --no-fund"]
 
 [phases.build]
-cmds = ["npm run build"]
+cmds = ["npm run build", "mkdir -p dist && cp -r client/dist/. dist/"]
 
 [start]
 cmd = "node server/index.js"
