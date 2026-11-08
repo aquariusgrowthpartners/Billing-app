@@ -5801,3 +5801,50 @@ a,
 .ds-alert-card .btn.danger {
   color: #ffffff;
 }
+
+/* ==================================================================
+   DARK MODE — table row hover / selected
+   The light theme paints hover rows with near-white tints (#f5f8fc,
+   #eef4fd, #fafbfc). In dark mode those applied while the text stayed
+   white, so a hovered row became white-on-white. Hover now lifts with a
+   translucent white wash and the text stays at the theme text colour.
+   ================================================================== */
+
+[data-theme='dark'] .row-clickable:hover,
+[data-theme='dark'] .ds-table tbody tr:hover,
+[data-theme='dark'] .table tbody tr:hover,
+[data-theme='dark'] .week-table tbody tr:hover,
+[data-theme='dark'] .home #caretaker-ranking tbody tr:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+/* the sticky first column paints its own background, so it needs the same */
+[data-theme='dark'] .ds-sticky-first .ds-table tbody tr:hover td:first-child {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+/* cells must never inherit a light background on hover */
+[data-theme='dark'] tr:hover > td {
+  color: var(--text);
+  border-color: var(--border);
+}
+
+/* selected rows use the accent, not a pale blue */
+[data-theme='dark'] .row-selected,
+[data-theme='dark'] .row-selected td,
+[data-theme='dark'] .week-table tbody tr.row-selected td {
+  background: rgba(59, 130, 246, 0.18);
+  color: #ffffff;
+}
+
+[data-theme='dark'] .row-selected:hover,
+[data-theme='dark'] .row-selected:hover td {
+  background: rgba(59, 130, 246, 0.26);
+}
+
+/* the sticky first column is hardcoded white, so it needs a dark base too */
+[data-theme='dark'] .ds-sticky-first .ds-table thead th:first-child,
+[data-theme='dark'] .ds-sticky-first .ds-table tbody td:first-child {
+  background: var(--surface);
+  box-shadow: 1px 0 0 var(--border);
+}
