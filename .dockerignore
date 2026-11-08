@@ -1,0 +1,12 @@
+# Never bake patient data or local state into an image.
+data/
+node_modules/
+.git/
+.cache/
+.runtime/
+dist/
+client/dist/
+*.log
+.env
+.env.*
+!.env.example
