@@ -26,7 +26,7 @@ export default function Tasks() {
   const load = useCallback(async () => {
     try {
       const d = await api.tasks();
-      setData(d);
+      setData(d && Array.isArray(d.tasks) ? d : { tasks: [] });
       setError(null);
     } catch (e) {
       setError(e.message);

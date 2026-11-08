@@ -92,7 +92,7 @@ export default function App() {
     const check = () =>
       api
         .orphanedCount()
-        .then((r) => alive && setOrphanCount(r.count ?? 0))
+        .then((r) => alive && setOrphanCount(r?.count ?? 0))
         .catch(() => {});
     check();
     window.addEventListener('data-updated', check);
@@ -107,7 +107,7 @@ export default function App() {
     const check = () =>
       api
         .denialSummary()
-        .then((r) => alive && setOpenTasks(r.open_tasks ?? 0))
+        .then((r) => alive && setOpenTasks(r?.open_tasks ?? 0))
         .catch(() => {});
     check();
     window.addEventListener('data-updated', check);
@@ -119,7 +119,7 @@ export default function App() {
 
   const [navOpen, setNavOpen] = useState(false);
   const [demoMode, setDemoMode] = useState(false);
-  const [authed, setAuthed] = useState(() => Boolean(getToken()));
+  const [authed, setAuthed] = useState(false);
   const [authChecked, setAuthChecked] = useState(false);
   const [bannerHeight, setBannerHeight] = useState(0);
   const bannerRef = useRef(null);
@@ -151,13 +151,40 @@ export default function App() {
    * Demo mode always skips it; otherwise a stored token decides.
    */
   useEffect(() => {
-    api
-      .mode()
-      .then((d) => {
-        if (d?.demo) setAuthed(true);
-      })
-      .catch(() => {})
-      .finally(() => setAuthChecked(true));
+    let alive = true;
+    (async () => {
+      try {
+        const d = await api.mode();
+        if (!alive) return;
+        if (d?.demo) {
+          setAuthed(true);
+          return;
+        }
+        // A stored token may be from an older deployment (or a deleted user).
+        // Validate it before mounting the app; an invalid one shows Login
+        // instead of a page full of 401 errors.
+        if (getToken()) {
+          try {
+            await api.me();
+            if (alive) setAuthed(true);
+          } catch {
+            if (alive) {
+              clearToken();
+              setAuthed(false);
+            }
+          }
+        } else {
+          setAuthed(false);
+        }
+      } catch {
+        if (alive) setAuthed(false);
+      } finally {
+        if (alive) setAuthChecked(true);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
   }, []);
 
   /* Demo mode is a server fact, so ask once on load. */
@@ -183,7 +210,13 @@ export default function App() {
 
   return (
     <ToastProvider>
-    {authChecked && !demoMode && !authed ? (
+    {!authChecked ? (
+      <div className="login-page" id="auth-loading">
+        <div className="login-card">
+          <p className="muted">Loading your workspace…</p>
+        </div>
+      </div>
+    ) : !demoMode && !authed ? (
       <Login
         onAuthed={() => {
           setAuthed(true);

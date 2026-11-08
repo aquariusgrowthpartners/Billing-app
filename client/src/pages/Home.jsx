@@ -86,10 +86,10 @@ export default function Home() {
         api.denialSummary().catch(() => null),
       ]);
       setDenialAlert(dn);
-      setData(d);
-      setPeriodStart(d.period.start);
-      setRecentRa(ra.imports ?? []);
-      setRecentClients(rc.clients ?? []);
+      setData(d ?? null);
+      setPeriodStart(d?.period?.start ?? null);
+      setRecentRa(Array.isArray(ra?.imports) ? ra.imports : []);
+      setRecentClients(Array.isArray(rc?.clients) ? rc.clients : []);
     } catch (e) {
       setError(e.message);
     } finally {
@@ -111,7 +111,7 @@ export default function Home() {
   }, [load, periodStart]);
 
   const period = data?.period;
-  const caretakers = data?.caretakers ?? [];
+  const caretakers = Array.isArray(data?.caretakers) ? data.caretakers : [];
   const totals = data?.totals;
   const unassigned = data?.unassigned;
 

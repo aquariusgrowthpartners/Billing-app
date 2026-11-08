@@ -28,9 +28,9 @@ export default function ClaimsDashboard() {
         api.claims(showArchived ? { archived: '1' } : {}),
         api.payerStats(),
       ]);
-      setClaims(c.claims);
-      setArchivedCount(c.archived_count ?? 0);
-      setStats(s.payers.filter((p) => p.paid_claims > 0));
+      setClaims(Array.isArray(c?.claims) ? c.claims : []);
+      setArchivedCount(c?.archived_count ?? 0);
+      setStats((Array.isArray(s?.payers) ? s.payers : []).filter((p) => p.paid_claims > 0));
       setError(null);
     } catch (e) {
       setError(e.message);

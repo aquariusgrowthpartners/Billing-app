@@ -20,7 +20,7 @@ export default function Caretakers() {
     setLoading(true);
     try {
       const d = await api.caretakers({ active: showInactive ? '0' : '1' });
-      setCaretakers(d.caretakers);
+      setCaretakers(Array.isArray(d?.caretakers) ? d.caretakers : []);
       setError(null);
     } catch (e) {
       setError(e.message);

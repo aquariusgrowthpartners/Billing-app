@@ -29,7 +29,7 @@ export default function ClientList() {
     setLoading(true);
     try {
       const data = await api.searchClients('', { includeArchived: showArchived });
-      setClients(data.clients);
+      setClients(Array.isArray(data?.clients) ? data.clients : []);
       setError(null);
     } catch (e) {
       setError(e.message);
