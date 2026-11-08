@@ -27,9 +27,9 @@ ENV NODE_ENV=production
 ENV PORT=4000
 ENV HOST=0.0.0.0
 
-# the demo/data volume is mounted here at runtime
+# /app/data is supplied by a Railway Volume at runtime (Railway rejects a
+# Dockerfile VOLUME instruction), so just make sure the path exists.
 RUN mkdir -p /app/data
-VOLUME ["/app/data"]
 
 EXPOSE 4000
 
