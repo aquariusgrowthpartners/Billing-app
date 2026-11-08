@@ -463,11 +463,29 @@ router.post('/import-local', (req, res) => {
       maps.task_checklist_items.set(Number(r.id), id);
       counts.task_checklist_items = (counts.task_checklist_items ?? 0) + 1;
     }
+
+    // Settings are identity/preferences, not table rows with ids. Upsert them
+    // on top of the admin agency's existing config, never replacing the AI key.
+    for (const r of rows('settings')) {
+      const key = String(r.key ?? '').trim();
+      if (!key || key === 'ai_api_key' || key.startsWith('ra_')) continue;
+      db.prepare(
+        `INSERT INTO settings (agency_id, key, value, updated_at)
+         VALUES (?, ?, ?, COALESCE(?, datetime('now')))
+         ON CONFLICT(agency_id, key) DO UPDATE SET
+           value = excluded.value,
+           updated_at = excluded.updated_at`
+      ).run(req.agencyId, key, r.value ?? null, r.updated_at ?? null);
+      counts.settings = (counts.settings ?? 0) + 1;
+    }
   };
 
   if (dryRun) {
     const preview = {};
     for (const table of Object.keys(maps)) preview[table] = rows(table).length;
+    preview.settings = rows('settings').filter(
+      (r) => r.key && r.key !== 'ai_api_key' && !String(r.key).startsWith('ra_')
+    ).length;
     return res.json({ dry_run: true, target_agency: agency, mode, counts: preview });
   }
 

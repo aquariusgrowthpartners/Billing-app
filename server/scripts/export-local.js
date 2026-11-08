@@ -88,6 +88,18 @@ for (const table of TABLES) {
   counts[table] = rows.length;
 }
 
+// Agency identity and preferences, but never the AI secret or local migration
+// bookkeeping flags. These are upserted by the importer, not used as raw rows.
+const settings = db
+  .prepare(
+    `SELECT key, value, updated_at FROM settings
+      WHERE agency_id = 1 AND key <> 'ai_api_key' AND key NOT LIKE 'ra_%'
+      ORDER BY key`
+  )
+  .all();
+data.settings = settings;
+counts.settings = settings.length;
+
 db.close();
 
 const payload = {
