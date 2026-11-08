@@ -41,11 +41,16 @@ fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
 if (IS_DEMO && !fs.existsSync(DB_PATH)) {
   console.log(`  demo mode   no database at ${DB_PATH} — seeding`);
   try {
-    execFileSync(process.execPath, [path.join(__dirname, 'scripts', 'seed-demo.js')], {
+    const out = execFileSync(process.execPath, [path.join(__dirname, 'scripts', 'seed-demo.js')], {
       env: { ...process.env, DEMO_DB: DB_PATH },
-      stdio: 'inherit',
+      stdio: ['ignore', 'pipe', 'pipe'],
+      encoding: 'utf8',
     });
+    if (out) process.stdout.write(out);
   } catch (err) {
+    // Surface the child's own output: "Command failed" alone is undebuggable.
+    if (err.stdout) process.stdout.write(String(err.stdout));
+    if (err.stderr) process.stderr.write(String(err.stderr));
     console.error(`  demo mode   auto-seed FAILED: ${err.message}`);
     console.error('  demo mode   cannot continue without a database');
     process.exit(1);
