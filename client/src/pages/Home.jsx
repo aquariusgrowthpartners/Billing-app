@@ -110,10 +110,15 @@ export default function Home() {
     return () => window.removeEventListener('data-updated', refresh);
   }, [load, periodStart]);
 
-  const period = data?.period;
+  const period = data?.period && typeof data.period === 'object' ? data.period : null;
   const caretakers = Array.isArray(data?.caretakers) ? data.caretakers : [];
-  const totals = data?.totals;
-  const unassigned = data?.unassigned;
+  const totals = data?.totals && typeof data.totals === 'object' ? data.totals : {};
+  const unassigned =
+    data?.unassigned && typeof data.unassigned === 'object' ? data.unassigned : {};
+  const denial = denialAlert && typeof denialAlert === 'object' ? denialAlert : null;
+  const byClientCount = Array.isArray(denial?.by_client) ? denial.by_client.length : 0;
+  const recentRaList = Array.isArray(recentRa) ? recentRa : [];
+  const recentClientsList = Array.isArray(recentClients) ? recentClients : [];
 
   // DEBUG (temporary): print the exact state feeding this page. This is the
   // fastest way to see which value is undefined on iOS Safari.
@@ -124,9 +129,9 @@ export default function Home() {
     caretakers,
     totals,
     unassigned,
-    recentRa,
-    recentClients,
-    denialAlert,
+    recentRa: recentRaList,
+    recentClients: recentClientsList,
+    denialAlert: denial,
     settings: window.__BILLING_SETTINGS__ ?? null,
   });
 
@@ -143,15 +148,15 @@ export default function Home() {
       {error && <div className="alert error">{error}</div>}
 
       {/* Denials alert: shown only while there is unrecovered work. */}
-      {denialAlert && denialAlert.open_tasks > 0 && (
+      {denial && Number(denial.open_tasks) > 0 && (
         <div className="ds-alert-card" id="home-denial-alert">
           <span className="ds-alert-icon" aria-hidden="true">⚠</span>
           <span className="ds-alert-text">
-            <strong>{denialAlert.unrecovered_days}</strong> unrecovered day
-            {denialAlert.unrecovered_days === 1 ? '' : 's'} across{' '}
-            <strong>{denialAlert.by_client?.length ?? 0}</strong> client
-            {(denialAlert.by_client?.length ?? 0) === 1 ? '' : 's'} —{' '}
-            <strong>{formatMoney(denialAlert.unrecovered_dollars)}</strong> at risk.
+            <strong>{denial.unrecovered_days ?? 0}</strong> unrecovered day
+            {(denial.unrecovered_days ?? 0) === 1 ? '' : 's'} across{' '}
+            <strong>{byClientCount}</strong> client
+            {byClientCount === 1 ? '' : 's'} —{' '}
+            <strong>{formatMoney(denial.unrecovered_dollars)}</strong> at risk.
           </span>
           <Link className="btn danger" to="/denials" id="home-denial-link">
             View Denials →
@@ -171,7 +176,7 @@ export default function Home() {
         </button>
         <div className="period-label">
           <span className="period-range" id="period-range">
-            {period
+            {period?.start && period?.end
               ? `${formatLongDate(period.start)} – ${formatLongDate(period.end)}`
               : 'Loading…'}
           </span>
@@ -243,25 +248,27 @@ export default function Home() {
                 </tr>
               </thead>
               <tbody>
-                {caretakers.map((c) => (
-                  <tr
-                    key={c.id}
-                    className="row-clickable"
-                    id={`caretaker-row-${c.id}`}
-                    onClick={() => navigate('/caretakers')}
-                    title="Open the Caretakers tab"
-                  >
-                    <td className="num rank">{c.rank}</td>
-                    <td>
-                      <strong>
-                        {c.last_name}, {c.first_name}
-                      </strong>
-                    </td>
-                    <td className="num">{hours(c.hours)}</td>
-                    <td className="num dollars">{formatMoney(c.dollars)}</td>
-                    <td className="num">{c.clients}</td>
-                  </tr>
-                ))}
+                {caretakers.map((c, index) =>
+                  c ? (
+                    <tr
+                      key={c.id ?? `caretaker-${index}`}
+                      className="row-clickable"
+                      id={`caretaker-row-${c.id}`}
+                      onClick={() => navigate('/caretakers')}
+                      title="Open the Caretakers tab"
+                    >
+                      <td className="num rank">{c.rank ?? '—'}</td>
+                      <td>
+                        <strong>
+                          {c.last_name ?? ''}, {c.first_name ?? ''}
+                        </strong>
+                      </td>
+                      <td className="num">{hours(c.hours)}</td>
+                      <td className="num dollars">{formatMoney(c.dollars)}</td>
+                      <td className="num">{c.clients ?? 0}</td>
+                    </tr>
+                  ) : null
+                )}
               </tbody>
             </table>
           </div>
@@ -291,39 +298,45 @@ export default function Home() {
           title="Recent RA submissions"
           hint="The last 5 saved remittance advices."
         >
-          {recentRa.length === 0 ? (
+          {recentRaList.length === 0 ? (
             <p className="empty">No RA imports saved yet.</p>
           ) : (
             <ul className="rows" id="recent-ra-list">
-              {recentRa.map((r) => (
-                <li key={r.id} className="row-item" id={`recent-ra-${r.id}`}>
-                  <div className="row-main">
-                    <strong>{new Date(r.imported_at).toLocaleDateString()}</strong>
-                    <span className="muted small">
-                      {r.num_clients} client{r.num_clients === 1 ? '' : 's'}
-                      {r.file_name ? ` · ${r.file_name}` : ''}
-                    </span>
-                  </div>
-                  <div className="row-side">
-                    <span className="dollars">{formatMoney(r.total_payment)}</span>
-                    {r.claims?.length > 0 && (
+              {recentRaList.map((r, index) => {
+                if (!r) return null;
+                const claims = Array.isArray(r.claims) ? r.claims : [];
+                return (
+                  <li key={r.id ?? `ra-${index}`} className="row-item" id={`recent-ra-${r.id}`}>
+                    <div className="row-main">
+                      <strong>
+                        {r.imported_at ? new Date(r.imported_at).toLocaleDateString() : '—'}
+                      </strong>
                       <span className="muted small">
-                        {r.claims.slice(0, 2).map((c) => (
-                          <Link
-                            key={c.id}
-                            to="/claims"
-                            className="claim-link"
-                            title={`Open ${c.claim_name}`}
-                          >
-                            {c.claim_name}
-                          </Link>
-                        ))}
-                        {r.claims.length > 2 && ` +${r.claims.length - 2}`}
+                        {r.num_clients ?? 0} client{(r.num_clients ?? 0) === 1 ? '' : 's'}
+                        {r.file_name ? ` · ${r.file_name}` : ''}
                       </span>
-                    )}
-                  </div>
-                </li>
-              ))}
+                    </div>
+                    <div className="row-side">
+                      <span className="dollars">{formatMoney(r.total_payment)}</span>
+                      {claims.length > 0 && (
+                        <span className="muted small">
+                          {claims.slice(0, 2).map((c, claimIndex) => (
+                            <Link
+                              key={c?.id ?? `claim-${claimIndex}`}
+                              to="/claims"
+                              className="claim-link"
+                              title={`Open ${c?.claim_name ?? 'claim'}`}
+                            >
+                              {c?.claim_name ?? 'claim'}
+                            </Link>
+                          ))}
+                          {claims.length > 2 && ` +${claims.length - 2}`}
+                        </span>
+                      )}
+                    </div>
+                  </li>
+                );
+              })}
             </ul>
           )}
         </Card>
@@ -334,25 +347,28 @@ export default function Home() {
           title="Recently viewed clients"
           hint="The last 8 profiles you opened."
         >
-          {recentClients.length === 0 ? (
+          {recentClientsList.length === 0 ? (
             <p className="empty">No clients opened yet.</p>
           ) : (
             <ul className="rows" id="recent-clients-list">
-              {recentClients.map((c) => (
-                <li key={c.client_id} className="row-item">
-                  <Link
-                    to={`/clients/${c.client_id}`}
-                    id={`recent-client-${c.client_id}`}
-                    className="recent-client-link"
-                  >
-                    {formatClientName(c)}
-                    {c.archived ? ' (archived)' : ''}
-                  </Link>
-                  <span className="muted small">
-                    {new Date(c.viewed_at).toLocaleDateString()}
-                  </span>
-                </li>
-              ))}
+              {recentClientsList.map((c, index) => {
+                if (!c) return null;
+                return (
+                  <li key={c.client_id ?? `recent-${index}`} className="row-item">
+                    <Link
+                      to={`/clients/${c.client_id ?? ''}`}
+                      id={`recent-client-${c.client_id}`}
+                      className="recent-client-link"
+                    >
+                      {formatClientName(c)}
+                      {c.archived ? ' (archived)' : ''}
+                    </Link>
+                    <span className="muted small">
+                      {c.viewed_at ? new Date(c.viewed_at).toLocaleDateString() : '—'}
+                    </span>
+                  </li>
+                );
+              })}
             </ul>
           )}
         </Card>

@@ -72,7 +72,19 @@ window.addEventListener('unhandledrejection', (event) => {
 
 // Apply the saved theme before the first paint so there is no light flash.
 initTheme().finally(() => {
-  createRoot(document.getElementById('root')).render(
+  const root = createRoot(document.getElementById('root'), {
+    onUncaughtError: (error, errorInfo) => {
+      const detail = [error?.stack || error?.message || String(error), errorInfo?.componentStack]
+        .filter(Boolean)
+        .join('\n\n--- component stack ---\n');
+      console.error('[fatal] React uncaught:', detail);
+      showFatalOverlay('React uncaught', detail);
+    },
+    onRecoverableError: (error) => {
+      console.warn('[fatal] React recoverable:', error);
+    },
+  });
+  root.render(
     <React.StrictMode>
       <AppErrorBoundary>
         <App />

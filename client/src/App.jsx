@@ -239,8 +239,9 @@ export default function App() {
         if (getToken()) {
           try {
             const me = await api.me();
+            if (!me?.user) throw new Error('No user returned by /api/auth/me');
             if (alive) {
-              setUser(me?.user ?? null);
+              setUser(me.user);
               setAuthed(true);
             }
           } catch {
@@ -291,7 +292,7 @@ export default function App() {
 
   return (
     <ToastProvider>
-    {!authChecked ? (
+    {!authChecked || (authed && !demoMode && !user) ? (
       <div className="login-page" id="auth-loading">
         <div className="login-card">
           <p className="muted">Loading your workspace…</p>
