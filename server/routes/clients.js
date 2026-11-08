@@ -54,11 +54,11 @@ router.get('/:id', (req, res) => {
     .prepare(
       `SELECT a.*, p.name AS payer_name, p.typical_days_to_pay
        FROM agreements a
-       LEFT JOIN payers p ON p.id = a.payer_id
-       WHERE a.client_id = ?
+       LEFT JOIN payers p ON p.id = a.payer_id AND p.agency_id = a.agency_id
+       WHERE a.client_id = ? AND a.agency_id = ?
        ORDER BY (a.start_date IS NULL), a.start_date DESC, a.id DESC`
     )
-    .all(id);
+    .all(id, req.agencyId);
 
   // Archived claims are hidden unless explicitly asked for, matching the
   // dashboard's Show Archived toggle.
@@ -66,14 +66,17 @@ router.get('/:id', (req, res) => {
   const claims = db
     .prepare(
       `SELECT * FROM claims
-       WHERE client_id = ? ${includeArchived ? '' : 'AND COALESCE(archived, 0) = 0'}
+       WHERE client_id = ? AND agency_id = ?
+         ${includeArchived ? '' : 'AND COALESCE(archived, 0) = 0'}
        ORDER BY COALESCE(period_start, created_at) DESC, id DESC
        LIMIT 25`
     )
-    .all(id);
+    .all(id, req.agencyId);
 
   const case_manager = client.case_manager_id
-    ? db.prepare(`SELECT * FROM case_managers WHERE id = ?`).get(client.case_manager_id)
+    ? db
+        .prepare(`SELECT * FROM case_managers WHERE id = ? AND agency_id = ?`)
+        .get(client.case_manager_id, req.agencyId)
     : null;
 
   const totals = db
@@ -84,9 +87,9 @@ router.get('/:id', (req, res) => {
          COUNT(*)                  AS entry_count,
          MIN(work_date)            AS first_date,
          MAX(work_date)            AS last_date
-       FROM day_entries WHERE client_id = ?`
+       FROM day_entries WHERE client_id = ? AND agency_id = ?`
     )
-    .get(id);
+    .get(id, req.agencyId);
 
   totals.total_dollars = round2(totals.total_dollars);
 
@@ -99,15 +102,17 @@ router.get('/:id', (req, res) => {
    * still feeds visits is hidden from the user.
    */
   const parents = db
-    .prepare('SELECT * FROM service_agreements WHERE client_id = ? ORDER BY (effective_date IS NULL), effective_date DESC, id DESC')
-    .all(id);
+    .prepare(
+      'SELECT * FROM service_agreements WHERE client_id = ? AND agency_id = ? ORDER BY (effective_date IS NULL), effective_date DESC, id DESC'
+    )
+    .all(id, req.agencyId);
   const children = db
     .prepare(
       `SELECT * FROM agreements
-        WHERE client_id = ? AND service_agreement_id IS NOT NULL
+        WHERE client_id = ? AND service_agreement_id IS NOT NULL AND agency_id = ?
         ORDER BY (superseded_at IS NOT NULL), (start_date IS NULL), start_date, id`
     )
-    .all(id);
+    .all(id, req.agencyId);
   const grouped = parents.map((sa) => ({
     ...sa,
     legacy: false,
@@ -163,7 +168,7 @@ router.post('/', (req, res) => {
   const last = (b.last_name ?? '').toString().trim();
   if (!first || !last) return res.status(400).json({ error: 'first_name and last_name are required' });
 
-  const assigned = resolveCaseManager(b.case_manager_id);
+  const assigned = resolveCaseManager(b.case_manager_id, req.agencyId);
   if (assigned.error) return res.status(400).json({ error: assigned.error });
 
   const dx = diagnosisCodes(b.diagnosis_code);
@@ -232,7 +237,7 @@ function updateClient(req, res) {
 
   // Assigning (or clearing) the case manager.
   if ('case_manager_id' in (req.body ?? {})) {
-    const assigned = resolveCaseManager(req.body.case_manager_id);
+    const assigned = resolveCaseManager(req.body.case_manager_id, req.agencyId);
     if (assigned.error) return res.status(400).json({ error: assigned.error });
     updates.case_manager_id = assigned.id;
   }
@@ -333,10 +338,12 @@ router.get('/:id/agreements', (req, res) => {
   const rows = db
     .prepare(
       `SELECT a.*, p.name AS payer_name, p.typical_days_to_pay
-       FROM agreements a LEFT JOIN payers p ON p.id = a.payer_id
-       WHERE a.client_id = ? ORDER BY a.start_date DESC, a.id DESC`
+       FROM agreements a
+       LEFT JOIN payers p ON p.id = a.payer_id AND p.agency_id = a.agency_id
+       WHERE a.client_id = ? AND a.agency_id = ?
+       ORDER BY a.start_date DESC, a.id DESC`
     )
-    .all(Number(req.params.id));
+    .all(Number(req.params.id), req.agencyId);
   res.json({ agreements: rows });
 });
 
@@ -353,12 +360,13 @@ router.get('/:id/weeks', (req, res) => {
               cl.status AS claim_status, cl.claim_name AS claim_name,
               cl.archived AS claim_archived
        FROM day_entries d
-       LEFT JOIN caretakers t ON t.id = d.caretaker_id
-       LEFT JOIN claims cl ON cl.id = d.claim_id
-       WHERE d.client_id = ? AND d.work_date >= ? AND d.work_date < date(?, '+7 days')
+       LEFT JOIN caretakers t ON t.id = d.caretaker_id AND t.agency_id = d.agency_id
+       LEFT JOIN claims cl ON cl.id = d.claim_id AND cl.agency_id = d.agency_id
+       WHERE d.client_id = ? AND d.agency_id = ?
+         AND d.work_date >= ? AND d.work_date < date(?, '+7 days')
        ORDER BY d.work_date`
     )
-    .all(id, start, start);
+    .all(id, req.agencyId, start, start);
 
   // Claims overlapping this week that are already with the payer. The calendar
   // warns about edits inside them, but does not block them.
@@ -366,7 +374,7 @@ router.get('/:id/weeks', (req, res) => {
     .prepare(
       `SELECT id, claim_name, status, period_start, period_end, total_units, total_dollars
        FROM claims
-       WHERE client_id = ?
+       WHERE client_id = ? AND agency_id = ?
          AND COALESCE(archived, 0) = 0
          AND status IN ('Submitted', 'Paid')
          AND period_start IS NOT NULL AND period_end IS NOT NULL
@@ -374,7 +382,7 @@ router.get('/:id/weeks', (req, res) => {
          AND period_end >= ?
        ORDER BY period_start`
     )
-    .all(id, start, start);
+    .all(id, req.agencyId, start, start);
 
   res.json({ entries: rows, locked_claims: lockedClaims });
 });
@@ -397,11 +405,11 @@ function normaliseMiddleInitial(value) {
  * case_manager_id may be a number or null/empty to unassign.
  * Validated here so the API returns a readable error rather than an FK failure.
  */
-function resolveCaseManager(value) {
+function resolveCaseManager(value, agencyId) {
   if (value === '' || value === null || value === undefined) return { id: null };
   const id = Number(value);
   if (!Number.isInteger(id) || id <= 0) return { error: 'case_manager_id must be a positive integer' };
-  if (!db.prepare(`SELECT 1 FROM case_managers WHERE id = ?`).get(id)) {
+  if (!db.prepare(`SELECT 1 FROM case_managers WHERE id = ? AND agency_id = ?`).get(id, agencyId)) {
     return { error: 'case_manager_id does not exist' };
   }
   return { id };
@@ -510,7 +518,7 @@ router.post('/:clientId/service-agreement', upload.single('file'), async (req, r
    */
   const findExisting = db.prepare(
     `SELECT id FROM agreements
-      WHERE client_id = @client_id
+      WHERE client_id = @client_id AND agency_id = @agency
         AND COALESCE(dhs_service_agreement_num, '') = COALESCE(@dhs, '')
         AND COALESCE(start_date, '') = COALESCE(@start, '')
         AND COALESCE(end_date, '')   = COALESCE(@end, '')
@@ -521,12 +529,12 @@ router.post('/:clientId/service-agreement', upload.single('file'), async (req, r
        (client_id, agreement_number, start_date, end_date, authorized_units_per_week,
         minutes_per_unit, rate_per_unit, max_units_per_day, service_code, payer_id,
         dhs_service_agreement_num, service_code_with_modifier, service_agreement_pdf_path,
-        authorized_total_amount, service_agreement_id, superseded_at)
+        authorized_total_amount, service_agreement_id, superseded_at, agency_id)
      VALUES
        (@client_id, @agreement_number, @start, @end, @units_per_week,
         15, @rate, NULL, @code, @payer_id,
         @dhs, @code_with_mod, @pdf,
-        @total, @parentId, NULL)`
+        @total, @parentId, NULL, @agency)`
   );
   const update = db.prepare(
     `UPDATE agreements
@@ -538,13 +546,15 @@ router.post('/:clientId/service-agreement', upload.single('file'), async (req, r
             authorized_total_amount = @total,
             service_agreement_id = @parentId,
             superseded_at = NULL
-      WHERE id = @id`
+      WHERE id = @id AND agency_id = @agency`
   );
 
   // Fall back to the client's current payer when the PDF does not name one.
   const defaultPayer = db
-    .prepare('SELECT payer_id FROM agreements WHERE client_id = ? AND payer_id IS NOT NULL ORDER BY id DESC LIMIT 1')
-    .get(clientId)?.payer_id ?? null;
+    .prepare(
+      'SELECT payer_id FROM agreements WHERE client_id = ? AND agency_id = ? AND payer_id IS NOT NULL ORDER BY id DESC LIMIT 1'
+    )
+    .get(clientId, req.agencyId)?.payer_id ?? null;
 
   const warnings = [];
   let created = 0;
@@ -553,27 +563,30 @@ router.post('/:clientId/service-agreement', upload.single('file'), async (req, r
 
   /* ------------------------------------------------ parent (Part 2a) */
   const findParent = db.prepare(
-    'SELECT id FROM service_agreements WHERE client_id = ? AND dhs_service_agreement_num = ?'
+    'SELECT id FROM service_agreements WHERE client_id = ? AND agency_id = ? AND dhs_service_agreement_num = ?'
   );
   const updateParent = db.prepare(
     `UPDATE service_agreements
         SET effective_date = @effective, through_date = @through, icd10_code = @icd,
             pdf_path = @pdf, uploaded_at = @now
-      WHERE id = @id`
+      WHERE id = @id AND agency_id = @agency`
   );
   const insertParent = db.prepare(
     `INSERT INTO service_agreements
        (client_id, dhs_service_agreement_num, hhaexchange_auth_number,
-        effective_date, through_date, icd10_code, pdf_path, uploaded_at)
-     VALUES (@client_id, @dhs, NULL, @effective, @through, @icd, @pdf, @now)`
+        effective_date, through_date, icd10_code, pdf_path, uploaded_at, agency_id)
+     VALUES (@client_id, @dhs, NULL, @effective, @through, @icd, @pdf, @now, @agency)`
   );
   /* ------------------------------------------ lines removed by a revision */
   const liveChildren = db.prepare(
     `SELECT id, COALESCE(service_code_with_modifier, '') AS sc, COALESCE(start_date, '') AS sd,
             COALESCE(end_date, '') AS ed
-       FROM agreements WHERE service_agreement_id = ? AND superseded_at IS NULL`
+       FROM agreements
+       WHERE service_agreement_id = ? AND agency_id = ? AND superseded_at IS NULL`
   );
-  const supersede = db.prepare("UPDATE agreements SET superseded_at = datetime('now') WHERE id = ?");
+  const supersede = db.prepare(
+    "UPDATE agreements SET superseded_at = datetime('now') WHERE id = ? AND agency_id = ?"
+  );
 
   let parentId = null;
   let superseded = 0;
@@ -589,8 +602,13 @@ router.post('/:clientId/service-agreement', upload.single('file'), async (req, r
       icd: parsed.icd10_code ?? null,
       pdf: storedPath,
       now: new Date().toISOString(),
+      agency: req.agencyId,
     };
-    const foundParent = findParent.get(clientId, parsed.dhs_service_agreement_num ?? null);
+    const foundParent = findParent.get(
+      clientId,
+      req.agencyId,
+      parsed.dhs_service_agreement_num ?? null
+    );
     if (foundParent) {
       parentId = foundParent.id;
       updateParent.run({ ...parentParams, id: parentId });
@@ -608,6 +626,7 @@ router.post('/:clientId/service-agreement', upload.single('file'), async (req, r
 
       const match = findExisting.get({
         client_id: clientId,
+        agency: req.agencyId,
         dhs: parsed.dhs_service_agreement_num ?? null,
         start,
         end,
@@ -637,6 +656,7 @@ router.post('/:clientId/service-agreement', upload.single('file'), async (req, r
         payer_id: defaultPayer,
         dhs: parsed.dhs_service_agreement_num ?? null,
         pdf: storedPath,
+        agency: req.agencyId,
       };
       if (match) {
         update.run({ ...params, id: match.id, parentId });
@@ -654,9 +674,9 @@ router.post('/:clientId/service-agreement', upload.single('file'), async (req, r
     /* 2c — a line the PDF no longer carries is RETIRED, never deleted: old
        billing history may still reference it. Rows with no parent (legacy
        hand-created agreements) are deliberately out of scope. */
-    for (const child of liveChildren.all(parentId)) {
+    for (const child of liveChildren.all(parentId, req.agencyId)) {
       if (!keep.has(`${child.sc}|${child.sd}|${child.ed}`)) {
-        supersede.run(child.id);
+        supersede.run(child.id, req.agencyId);
         superseded += 1;
       }
     }

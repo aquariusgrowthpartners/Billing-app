@@ -48,11 +48,11 @@ router.get('/markers', (req, res) => {
               c.last_name, c.first_name
        FROM denied_line_items i
        JOIN denied_claims d ON d.id = i.denied_claim_id
-       LEFT JOIN clients c ON c.id = i.client_id
-       WHERE i.client_id = ? AND i.dos >= ? AND i.dos <= ?`
+       LEFT JOIN clients c ON c.id = i.client_id AND c.agency_id = i.agency_id
+       WHERE i.client_id = ? AND i.agency_id = ? AND i.dos >= ? AND i.dos <= ?`
 
     )
-    .all(clientId, from, to);
+    .all(clientId, req.agencyId, from, to);
 
   const today = new Date();
   const byDay = new Map();
@@ -88,16 +88,16 @@ router.get('/summary', (req, res) => {
     .prepare(
       `SELECT COUNT(*) AS claims,
               COALESCE(SUM(total_charge), 0) AS charge
-       FROM denied_claims`
+       FROM denied_claims WHERE agency_id = ?`
     )
-    .get();
+    .get(req.agencyId);
 
   const unrecovered = db
     .prepare(
       `SELECT COUNT(*) AS days, COALESCE(SUM(billed), 0) AS dollars
-       FROM denied_line_items WHERE recovered = 0`
+       FROM denied_line_items WHERE recovered = 0 AND agency_id = ?`
     )
-    .get();
+    .get(req.agencyId);
 
   const byClient = db
     .prepare(
@@ -107,12 +107,12 @@ router.get('/summary', (req, res) => {
               ROUND(COALESCE(SUM(i.billed), 0), 2) AS dollars
        FROM denied_line_items i
        JOIN denied_claims c ON c.id = i.denied_claim_id
-       LEFT JOIN clients cu ON cu.id = i.client_id
-       WHERE i.recovered = 0
+       LEFT JOIN clients cu ON cu.id = i.client_id AND cu.agency_id = i.agency_id
+       WHERE i.recovered = 0 AND i.agency_id = ?
        GROUP BY i.client_id
        ORDER BY dollars DESC`
     )
-    .all()
+    .all(req.agencyId)
     .map((r) => ({ ...r, client_name: r.client_name || '—' }));
 
   const byMonth = db
@@ -121,11 +121,11 @@ router.get('/summary', (req, res) => {
               COUNT(*) AS days,
               ROUND(COALESCE(SUM(i.billed), 0), 2) AS dollars
        FROM denied_line_items i
-       WHERE i.recovered = 0 AND i.dos IS NOT NULL
+       WHERE i.recovered = 0 AND i.dos IS NOT NULL AND i.agency_id = ?
        GROUP BY month
        ORDER BY month DESC`
     )
-    .all();
+    .all(req.agencyId);
 
   res.json({
     open_tasks: openTaskCount(req.agencyId),
@@ -168,11 +168,14 @@ router.get('/', (req, res) => {
       `SELECT c.*,
               cu.first_name, cu.last_name,
               t.first_name AS caretaker_first, t.last_name AS caretaker_last,
-              (SELECT COUNT(*) FROM denied_line_items i WHERE i.denied_claim_id = c.id) AS items,
-              (SELECT COUNT(*) FROM denied_line_items i WHERE i.denied_claim_id = c.id AND i.recovered = 1) AS recovered
+              (SELECT COUNT(*) FROM denied_line_items i
+                WHERE i.denied_claim_id = c.id AND i.agency_id = c.agency_id) AS items,
+              (SELECT COUNT(*) FROM denied_line_items i
+                WHERE i.denied_claim_id = c.id AND i.recovered = 1
+                  AND i.agency_id = c.agency_id) AS recovered
        FROM denied_claims c
-       LEFT JOIN clients cu ON cu.id = c.client_id
-       LEFT JOIN caretakers t ON t.id = c.caretaker_id
+       LEFT JOIN clients cu ON cu.id = c.client_id AND cu.agency_id = c.agency_id
+       LEFT JOIN caretakers t ON t.id = c.caretaker_id AND t.agency_id = c.agency_id
        WHERE c.agency_id = @agency
        ${where.length ? `AND ${where.join(' AND ')}` : ''}
        ORDER BY c.dos_start DESC, c.id DESC
@@ -215,33 +218,34 @@ const recoveryLabel = (status) =>
   status === 'recovered' ? 'Fully Recovered' : status === 'partial' ? 'Partial' : 'Unrecovered';
 
 /** Everything one denial needs for a PDF or a CSV row. */
-function denialDetail(id) {
+function denialDetail(id, agencyId) {
   const denial = db
     .prepare(
       `SELECT c.*, cu.first_name, cu.last_name, cu.ma_number,
               t.first_name AS caretaker_first, t.last_name AS caretaker_last
        FROM denied_claims c
-       LEFT JOIN clients cu ON cu.id = c.client_id
-       LEFT JOIN caretakers t ON t.id = c.caretaker_id
-       WHERE c.id = ?`
+       LEFT JOIN clients cu ON cu.id = c.client_id AND cu.agency_id = c.agency_id
+       LEFT JOIN caretakers t ON t.id = c.caretaker_id AND t.agency_id = c.agency_id
+       WHERE c.id = ? AND c.agency_id = ?`
     )
-    .get(Number(id));
+    .get(Number(id), agencyId);
   if (!denial) return null;
   const line_items = db
     .prepare(
       `SELECT i.*, d.work_date AS entry_dos
        FROM denied_line_items i
        LEFT JOIN day_entries d ON d.id = i.recovered_by_day_entry_id
-       WHERE i.denied_claim_id = ?
+                             AND d.agency_id = i.agency_id
+       WHERE i.denied_claim_id = ? AND i.agency_id = ?
        ORDER BY i.dos, i.id`
     )
-    .all(denial.id);
+    .all(denial.id, agencyId);
   return { denial, line_items };
 }
 
 /** GET /api/denials/:id/pdf — one denial as a PDF record. */
 router.get('/:id/pdf', async (req, res) => {
-  const detail = denialDetail(req.params.id);
+  const detail = denialDetail(req.params.id, req.agencyId);
   if (!detail) return res.status(404).json({ error: 'Denied claim not found' });
   const { denial, line_items } = detail;
 
@@ -335,13 +339,13 @@ router.get('/:id/pdf', async (req, res) => {
  * One row per line item, so a denial with eight items produces eight rows.
  */
 router.get('/export.csv', (req, res) => {
-  const params = {};
-  const where = [];
+  const params = { agency: req.agencyId };
+  const where = ['c.agency_id = @agency'];
   if (req.query.ids) {
     const ids = String(req.query.ids).split(',').map(Number).filter(Number.isInteger);
     if (!ids.length) return res.status(400).json({ error: 'ids must be a list of numbers' });
-    where.push(`c.id IN (${ids.map(() => '?').join(',')})`);
-    params.ids = ids;
+    where.push(`c.id IN (${ids.map((_, i) => `@id${i}`).join(',')})`);
+    ids.forEach((id, i) => { params[`id${i}`] = id; });
   } else {
     if (req.query.client_id) {
       where.push('c.client_id = @client');
@@ -373,13 +377,12 @@ router.get('/export.csv', (req, res) => {
                       i.dos AS item_dos, i.procedure_code, i.units, i.minutes_worked,
                       i.billed, i.recovered, i.recovery_status AS item_status
                FROM denied_claims c
-               LEFT JOIN clients cu ON cu.id = c.client_id
+               LEFT JOIN clients cu ON cu.id = c.client_id AND cu.agency_id = c.agency_id
                LEFT JOIN denied_line_items i ON i.denied_claim_id = c.id
-               ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
+                                            AND i.agency_id = c.agency_id
+               WHERE ${where.join(' AND ')}
                ORDER BY c.dos_start DESC, c.id, i.dos, i.id`;
-  const rows = params.ids
-    ? db.prepare(sql).all(...params.ids)
-    : db.prepare(sql).all(params);
+  const rows = db.prepare(sql).all(params);
 
   const header = [
     'RA Claim #', 'Client', 'Caretaker', 'Status', 'DOS Start', 'DOS End', 'Total Charge',
@@ -426,10 +429,11 @@ router.get('/:id', (req, res) => {
   const claim = db
     .prepare(
       `SELECT c.*, cu.first_name, cu.last_name
-       FROM denied_claims c LEFT JOIN clients cu ON cu.id = c.client_id
-       WHERE c.id = ?`
+       FROM denied_claims c
+       LEFT JOIN clients cu ON cu.id = c.client_id AND cu.agency_id = c.agency_id
+       WHERE c.id = ? AND c.agency_id = ?`
     )
-    .get(id);
+    .get(id, req.agencyId);
   if (!claim) return res.status(404).json({ error: 'Denied claim not found' });
 
   const items = db
@@ -438,19 +442,21 @@ router.get('/:id', (req, res) => {
               d.work_date AS entry_dos, d.minutes_worked AS entry_minutes
        FROM denied_line_items i
        LEFT JOIN rebill_tasks t ON t.denied_line_item_id = i.id
+                              AND t.agency_id = i.agency_id
        LEFT JOIN day_entries d ON d.id = i.recovered_by_day_entry_id
-       WHERE i.denied_claim_id = ?
+                             AND d.agency_id = i.agency_id
+       WHERE i.denied_claim_id = ? AND i.agency_id = ?
        ORDER BY i.dos, i.id`
     )
-    .all(id);
+    .all(id, req.agencyId);
 
   res.json({ denial: { ...claim, client_label: clientName(claim) }, line_items: items });
 });
 
 /** GET /api/rebill-tasks — the working list. */
 router.get('/rebill/tasks', (req, res) => {
-  const where = [];
-  const params = {};
+  const where = ['t.agency_id = @agency'];
+  const params = { agency: req.agencyId };
   if (req.query.client_id) {
     where.push('t.client_id = @client');
     params.client = Number(req.query.client_id);
@@ -479,9 +485,9 @@ router.get('/rebill/tasks', (req, res) => {
               k.first_name AS caretaker_first, k.last_name AS caretaker_last,
               CAST(julianday('now') - julianday(t.created_at) AS INTEGER) AS days_open
        FROM rebill_tasks t
-       LEFT JOIN clients cu ON cu.id = t.client_id
-       LEFT JOIN caretakers k ON k.id = t.caretaker_id
-       ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
+       LEFT JOIN clients cu ON cu.id = t.client_id AND cu.agency_id = t.agency_id
+       LEFT JOIN caretakers k ON k.id = t.caretaker_id AND k.agency_id = t.agency_id
+       WHERE ${where.join(' AND ')}
        ORDER BY t.dos DESC, t.id DESC
        LIMIT 1000`
     )
@@ -508,7 +514,10 @@ router.post('/bulk-delete', (req, res) => {
   // One transaction: a partial archive delete would be worse than none.
   db.transaction(() => {
     const ph = preview.found_ids.map(() => '?').join(',');
-    db.prepare(`DELETE FROM denied_claims WHERE id IN (${ph})`).run(...preview.found_ids);
+    db.prepare(`DELETE FROM denied_claims WHERE id IN (${ph}) AND agency_id = ?`).run(
+      ...preview.found_ids,
+      req.agencyId
+    );
   })();
 
   res.json({
@@ -534,7 +543,9 @@ router.delete('/:id', (req, res) => {
 /** PATCH /api/rebill-tasks/:id — status, notes, resolved_at. */
 router.patch('/rebill/tasks/:id', (req, res) => {
   const id = Number(req.params.id);
-  const existing = db.prepare(`SELECT * FROM rebill_tasks WHERE id = ?`).get(id);
+  const existing = db
+    .prepare(`SELECT * FROM rebill_tasks WHERE id = ? AND agency_id = ?`)
+    .get(id, req.agencyId);
   if (!existing) return res.status(404).json({ error: 'Rebill task not found' });
 
   const STATUSES = ['open', 'submitted', 'paid', 'written_off'];
@@ -558,10 +569,19 @@ router.patch('/rebill/tasks/:id', (req, res) => {
     : null;
 
   const setSql = Object.keys(updates).map((k) => `${k} = @${k}`).join(', ');
-  db.prepare(`UPDATE rebill_tasks SET ${setSql} WHERE id = @id`).run({ ...updates, id });
+  db.prepare(`UPDATE rebill_tasks SET ${setSql} WHERE id = @id AND agency_id = @agency`).run({
+    ...updates,
+    id,
+    agency: req.agencyId,
+  });
 
   const open = openTaskCount(req.agencyId);
-  res.json({ task: db.prepare(`SELECT * FROM rebill_tasks WHERE id = ?`).get(id), open_tasks: open });
+  res.json({
+    task: db
+      .prepare(`SELECT * FROM rebill_tasks WHERE id = ? AND agency_id = ?`)
+      .get(id, req.agencyId),
+    open_tasks: open,
+  });
 });
 
 
@@ -581,25 +601,30 @@ router.post('/:id/explain', async (req, res) => {
     return res.status(400).json({ error: 'A valid denial id is required' });
   }
 
-  const denial = db.prepare('SELECT * FROM denied_claims WHERE id = ?').get(id);
+  const denial = db
+    .prepare('SELECT * FROM denied_claims WHERE id = ? AND agency_id = ?')
+    .get(id, req.agencyId);
   if (!denial) return res.status(404).json({ error: 'Denial not found' });
 
   const client = denial.client_id
-    ? db.prepare('SELECT first_name, last_name, ma_number FROM clients WHERE id = ?').get(denial.client_id)
+    ? db
+        .prepare('SELECT first_name, last_name, ma_number FROM clients WHERE id = ? AND agency_id = ?')
+        .get(denial.client_id, req.agencyId)
     : null;
   const items = db
     .prepare(
       `SELECT procedure_code, units, billed, dos, recovery_status, adjustment_code
-         FROM denied_line_items WHERE denied_claim_id = ? ORDER BY dos, id`
+         FROM denied_line_items WHERE denied_claim_id = ? AND agency_id = ?
+         ORDER BY dos, id`
     )
-    .all(id);
+    .all(id, req.agencyId);
   const claim = denial.original_claim_id
     ? db
         .prepare(
           `SELECT claim_name, period_start, period_end, status, total_dollars, submitted_date
-             FROM claims WHERE id = ?`
+             FROM claims WHERE id = ? AND agency_id = ?`
         )
-        .get(denial.original_claim_id)
+        .get(denial.original_claim_id, req.agencyId)
     : null;
 
   const money = (n) => (n == null ? 'unknown' : `$${Number(n).toFixed(2)}`);

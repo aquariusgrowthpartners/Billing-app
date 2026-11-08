@@ -240,9 +240,9 @@ function clockFrom(startTime, minutes) {
  * Totals for one caretaker over a date window (inclusive), using the same
  * validity rule as the Home Dashboard. `null` bounds mean "no limit".
  */
-function totalsFor(caretakerId, start, end) {
+function totalsFor(caretakerId, start, end, agencyId) {
   const where = ['d.caretaker_id = @id', VALID_ENTRY_SQL];
-  const params = { id: caretakerId };
+  const params = { id: caretakerId, agency: agencyId };
   if (start && end) {
     where.push('d.work_date >= @start AND d.work_date <= @end');
     params.start = start;
@@ -268,7 +268,7 @@ function totalsFor(caretakerId, start, end) {
 }
 
 /** Every active caretaker's hours for a period, ranked — the dashboard's ranking. */
-function rankingFor(start, end) {
+function rankingFor(start, end, agencyId) {
   return db
     .prepare(
       `SELECT d.caretaker_id AS id, SUM(d.minutes_worked) AS minutes
@@ -280,7 +280,7 @@ function rankingFor(start, end) {
        HAVING SUM(d.minutes_worked) > 0
        ORDER BY minutes DESC, id ASC`
     )
-    .all({ start, end });
+    .all({ start, end, agency: agencyId });
 }
 
 /**
@@ -329,8 +329,8 @@ router.get('/:id/summary', (req, res) => {
   const month = monthBounds(today);
   const year = yearBounds(today);
 
-  const inPeriod = totalsFor(caretaker.id, period.start, period.end);
-  const ranking = rankingFor(period.start, period.end);
+  const inPeriod = totalsFor(caretaker.id, period.start, period.end, req.agencyId);
+  const ranking = rankingFor(period.start, period.end, req.agencyId);
   const index = ranking.findIndex((r) => r.id === caretaker.id);
 
   res.json({
@@ -349,8 +349,8 @@ router.get('/:id/summary', (req, res) => {
     },
     earnings: {
       period: inPeriod.dollars,
-      mtd: totalsFor(caretaker.id, month.start, month.end).dollars,
-      ytd: totalsFor(caretaker.id, year.start, year.end).dollars,
+      mtd: totalsFor(caretaker.id, month.start, month.end, req.agencyId).dollars,
+      ytd: totalsFor(caretaker.id, year.start, year.end, req.agencyId).dollars,
       anticipated: claimMoney(caretaker.id, 'Submitted'),
       confirmed: claimMoney(caretaker.id, 'Paid'),
     },
@@ -380,7 +380,7 @@ router.get('/:id/client-splits', (req, res) => {
   }
 
   const where = ['d.caretaker_id = @id', VALID_ENTRY_SQL];
-  const params = { id: caretaker.id };
+  const params = { id: caretaker.id, agency: req.agencyId };
   if (start && end) {
     where.push('d.work_date >= @start AND d.work_date <= @end');
     params.start = start;

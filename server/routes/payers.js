@@ -24,9 +24,9 @@ router.post('/', (req, res) => {
   const info = db
     .prepare(
       `INSERT INTO payers (name, typical_days_to_pay, notes, hhaechange_payer_id, agency_id)
-       VALUES (?, ?, ?, ?)`
+       VALUES (?, ?, ?, ?, ?)`
     )
-    .run(name, num(b.typical_days_to_pay), b.notes ?? null, payerId.ok);
+    .run(name, num(b.typical_days_to_pay), b.notes ?? null, payerId.ok, req.agencyId);
 
   res.status(201).json(db.prepare(`SELECT * FROM payers WHERE id = ? AND agency_id = ?`).get(info.lastInsertRowid, req.agencyId));
 });

@@ -36,13 +36,13 @@ function compactDate(iso) {
  * Derived from the highest suffix already used, so deleting a claim never
  * causes a name collision.
  */
-function nextSeq(clientId, periodStart, periodEnd) {
+function nextSeq(clientId, periodStart, periodEnd, agencyId) {
   const rows = db
     .prepare(
       `SELECT claim_name FROM claims
-       WHERE client_id = ? AND period_start = ? AND period_end = ?`
+       WHERE client_id = ? AND period_start = ? AND period_end = ? AND agency_id = ?`
     )
-    .all(clientId, periodStart, periodEnd);
+    .all(clientId, periodStart, periodEnd, agencyId);
 
   let max = 0;
   for (const r of rows) {
@@ -69,7 +69,7 @@ export function renderClaimName(template, parts) {
  * convention this route uses — one implementation, one convention.
  */
 export function buildClaimName(client, periodStart, periodEnd) {
-  const { seq, label } = nextSeq(client.id, periodStart, periodEnd);
+  const { seq, label } = nextSeq(client.id, periodStart, periodEnd, client.agency_id);
   const template = getSetting('claim_name_template') || '{last}_{ma}_{dos_start}_{dos_end}_{seq}';
 
   const name = renderClaimName(template, {
@@ -97,15 +97,15 @@ export function buildClaimName(client, periodStart, periodEnd) {
  * Summing `paid_amount` here was the bug: it is the billed-adjacent per-claim
  * header figure, not money received, and it does not net a forwarding balance.
  */
-let __factors = null;
-let __factorsAt = 0;
+const __factorsCache = new Map();
 function netPaidFactors(agencyId) {
-  // Import totals change only on import, so a short cache is plenty.
-  if (!__factors || Date.now() - __factorsAt > 5000) {
-    __factors = importFactors(agencyId);
-    __factorsAt = Date.now();
-  }
-  return __factors;
+  // Import totals change only on import, so a short cache is plenty. The cache
+  // must be per agency — a shared one served agency A's factors to agency B.
+  const hit = __factorsCache.get(agencyId);
+  if (hit && Date.now() - hit.at <= 5000) return hit.factors;
+  const factors = importFactors(agencyId);
+  __factorsCache.set(agencyId, { factors, at: Date.now() });
+  return factors;
 }
 
 function decorate(row, agencyId) {
@@ -168,24 +168,27 @@ function storedPdfPath(claim, kind) {
   const clash = db
     .prepare(
       `SELECT id FROM claims
-       WHERE (local_pdf_path = @p OR generated_pdf_path = @p) AND id <> @id`
+       WHERE (local_pdf_path = @p OR generated_pdf_path = @p) AND id <> @id
+         AND agency_id = @agency`
     )
-    .get({ p: rel, id: claim.id });
+    .get({ p: rel, id: claim.id, agency: claim.agency_id });
   if (clash) rel = relativePathFor(`${base}${suffix}_${claim.id}.pdf`);
   return rel;
 }
 
 /** Load everything the PDF generator needs for one claim. */
 function claimPdfContext(claim) {
-  const client = db.prepare(`SELECT * FROM clients WHERE id = ?`).get(claim.client_id);
+  const client = db
+    .prepare(`SELECT * FROM clients WHERE id = ? AND agency_id = ?`)
+    .get(claim.client_id, claim.agency_id);
   const agreement = claim.agreement_id
     ? db
         .prepare(
           `SELECT a.*, p.name AS payer_name
            FROM agreements a LEFT JOIN payers p ON p.id = a.payer_id
-           WHERE a.id = ?`
+           WHERE a.id = ? AND a.agency_id = ?`
         )
-        .get(claim.agreement_id)
+        .get(claim.agreement_id, claim.agency_id)
     : null;
   const entries = db
     .prepare(
@@ -193,13 +196,15 @@ function claimPdfContext(claim) {
               t.npi_number AS caretaker_npi
        FROM day_entries d
        LEFT JOIN caretakers t ON t.id = d.caretaker_id
-       WHERE d.claim_id = ?
+       WHERE d.claim_id = ? AND d.agency_id = ?
        ORDER BY d.work_date`
     )
-    .all(claim.id);
+    .all(claim.id, claim.agency_id);
   const caseManager =
     client?.case_manager_id
-      ? db.prepare(`SELECT * FROM case_managers WHERE id = ?`).get(client.case_manager_id)
+      ? db
+          .prepare(`SELECT * FROM case_managers WHERE id = ? AND agency_id = ?`)
+          .get(client.case_manager_id, claim.agency_id)
       : null;
   return { client, agreement, caseManager, entries };
 }
@@ -212,7 +217,9 @@ function claimPdfContext(claim) {
  * destroying the link, so its days become claimable again.
  */
 export const AVAILABLE_ENTRY_SQL =
-  `(claim_id IS NULL OR claim_id IN (SELECT id FROM claims WHERE COALESCE(archived, 0) = 1))`;
+  `(claim_id IS NULL OR claim_id IN (
+     SELECT id FROM claims
+     WHERE COALESCE(archived, 0) = 1 AND agency_id = day_entries.agency_id))`;
 
 /** GET /api/claims?client_id=&status=&overdue=1 */
 router.get('/', (req, res) => {
@@ -271,7 +278,9 @@ router.get('/preview', (req, res) => {
   const clientId = Number(req.query.client_id);
   if (!clientId) return res.status(400).json({ error: 'client_id is required' });
 
-  const client = db.prepare(`SELECT * FROM clients WHERE id = ?`).get(clientId);
+  const client = db
+    .prepare(`SELECT * FROM clients WHERE id = ? AND agency_id = ?`)
+    .get(clientId, req.agencyId);
   if (!client) return res.status(404).json({ error: 'Client not found' });
 
   // Every unclaimed day this client has, regardless of any chosen window. This
@@ -280,10 +289,10 @@ router.get('/preview', (req, res) => {
   const allUnclaimed = db
     .prepare(
       `SELECT work_date, units, dollars FROM day_entries
-       WHERE client_id = ? AND ${AVAILABLE_ENTRY_SQL}
+       WHERE client_id = ? AND agency_id = ? AND ${AVAILABLE_ENTRY_SQL}
        ORDER BY work_date`
     )
-    .all(clientId);
+    .all(clientId, req.agencyId);
 
   const overall = {
     day_count: allUnclaimed.length,
@@ -329,10 +338,10 @@ router.get('/preview', (req, res) => {
   const entries = db
     .prepare(
       `SELECT * FROM day_entries
-       WHERE client_id = ? AND work_date >= ? AND work_date <= ?
+       WHERE client_id = ? AND agency_id = ? AND work_date >= ? AND work_date <= ?
        ORDER BY work_date`
     )
-    .all(clientId, start, end);
+    .all(clientId, req.agencyId, start, end);
 
   const unclaimed = entries.filter((e) => !e.claim_id);
   const alreadyClaimed = entries.length - unclaimed.length;
@@ -379,12 +388,14 @@ router.get('/payer-stats', (req, res) => {
               ROUND(AVG(cl.variance_days), 1) AS avg_variance_days,
               COALESCE(SUM(cl.paid_amount), 0) AS total_paid
        FROM payers p
-       LEFT JOIN agreements a ON a.payer_id = p.id
-       LEFT JOIN claims cl ON cl.agreement_id = a.id AND cl.paid_date IS NOT NULL
+       LEFT JOIN agreements a ON a.payer_id = p.id AND a.agency_id = p.agency_id
+       LEFT JOIN claims cl ON cl.agreement_id = a.id AND cl.agency_id = p.agency_id
+                             AND cl.paid_date IS NOT NULL
+       WHERE p.agency_id = ?
        GROUP BY p.id
        ORDER BY p.name COLLATE NOCASE`
     )
-    .all();
+    .all(req.agencyId);
 
   res.json({ payers: rows.map((r) => ({ ...r, total_paid: round2(r.total_paid) })) });
 });
@@ -405,17 +416,20 @@ router.post('/', (req, res) => {
   }
   if (end < start) return res.status(400).json({ error: 'period_end cannot be before period_start' });
 
-  const client = db.prepare(`SELECT * FROM clients WHERE id = ?`).get(clientId);
+  const client = db
+    .prepare(`SELECT * FROM clients WHERE id = ? AND agency_id = ?`)
+    .get(clientId, req.agencyId);
   if (!client) return res.status(404).json({ error: 'Client not found' });
 
   const run = db.transaction(() => {
     const entries = db
       .prepare(
         `SELECT * FROM day_entries
-         WHERE client_id = ? AND work_date >= ? AND work_date <= ? AND ${AVAILABLE_ENTRY_SQL}
+         WHERE client_id = ? AND agency_id = ? AND work_date >= ? AND work_date <= ?
+           AND ${AVAILABLE_ENTRY_SQL}
          ORDER BY work_date`
       )
-      .all(clientId, start, end);
+      .all(clientId, req.agencyId, start, end);
 
     if (!entries.length) {
       const err = new Error('No unclaimed day entries in that period.');
@@ -432,21 +446,21 @@ router.post('/', (req, res) => {
       .prepare(
         `INSERT INTO claims
            (claim_name, client_id, agreement_id, period_start, period_end,
-            total_units, total_dollars, status)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 'Draft')`
+            total_units, total_dollars, status, agency_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'Draft', ?)`
       )
-      .run(claim_name, clientId, agreementId, start, end, totalUnits, totalDollars);
+      .run(claim_name, clientId, agreementId, start, end, totalUnits, totalDollars, req.agencyId);
 
     const claimId = info.lastInsertRowid;
-    const link = db.prepare(`UPDATE day_entries SET claim_id = ? WHERE id = ?`);
-    for (const e of entries) link.run(claimId, e.id);
+    const link = db.prepare(`UPDATE day_entries SET claim_id = ? WHERE id = ? AND agency_id = ?`);
+    for (const e of entries) link.run(claimId, e.id, req.agencyId);
 
     return claimId;
   });
 
   try {
     const claimId = run();
-    const row = db.prepare(`SELECT * FROM claims WHERE id = ?`).get(claimId);
+    const row = db.prepare(`SELECT * FROM claims WHERE id = ? AND agency_id = ?`).get(claimId, req.agencyId);
     res.status(201).json({ claim: decorate(row, req.agencyId) });
   } catch (err) {
     res.status(err.status ?? 500).json({ error: err.message });
@@ -459,7 +473,7 @@ router.post('/', (req, res) => {
  */
 function updateClaim(req, res) {
   const id = Number(req.params.id);
-  const existing = db.prepare(`SELECT * FROM claims WHERE id = ?`).get(id);
+  const existing = db.prepare(`SELECT * FROM claims WHERE id = ? AND agency_id = ?`).get(id, req.agencyId);
   if (!existing) return res.status(404).json({ error: 'Claim not found' });
 
   const b = req.body ?? {};
@@ -538,9 +552,13 @@ function updateClaim(req, res) {
   if (!Object.keys(updates).length) return res.json({ claim: decorate(existing, req.agencyId) });
 
   const setSql = Object.keys(updates).map((k) => `${k} = @${k}`).join(', ');
-  db.prepare(`UPDATE claims SET ${setSql} WHERE id = @id`).run({ ...updates, id });
+  db.prepare(`UPDATE claims SET ${setSql} WHERE id = @id AND agency_id = @agency`).run({
+    ...updates,
+    id,
+    agency: req.agencyId,
+  });
 
-  res.json({ claim: decorate(db.prepare(`SELECT * FROM claims WHERE id = ?`).get(id), req.agencyId) });
+  res.json({ claim: decorate(db.prepare(`SELECT * FROM claims WHERE id = ? AND agency_id = ?`).get(id, req.agencyId), req.agencyId) });
 }
 
 router.patch('/:id', updateClaim);
@@ -551,8 +569,10 @@ router.put('/:id', updateClaim);
  * removes any attached PDF, so deleting a claim never orphans a file on disk.
  */
 /** How many day entries still point at a claim. */
-function linkedEntryCount(id) {
-  return db.prepare(`SELECT COUNT(*) AS n FROM day_entries WHERE claim_id = ?`).get(id).n;
+function linkedEntryCount(id, agencyId) {
+  return db
+    .prepare(`SELECT COUNT(*) AS n FROM day_entries WHERE claim_id = ? AND agency_id = ?`)
+    .get(id, agencyId).n;
 }
 
 /**
@@ -562,7 +582,7 @@ function linkedEntryCount(id) {
  * are import artefact and go with the claim, while anything a human typed is
  * never deleted.
  */
-function linkedEntryBreakdown(ids) {
+function linkedEntryBreakdown(ids, agencyId) {
   const list = Array.isArray(ids) ? ids : [ids];
   if (!list.length) return { ra_import_entries: 0, manual_entries: 0, linked_entries: 0 };
   const placeholders = list.map(() => '?').join(',');
@@ -570,10 +590,10 @@ function linkedEntryBreakdown(ids) {
     .prepare(
       `SELECT CASE WHEN source = 'ra_import' THEN 'ra_import' ELSE 'manual' END AS kind,
               COUNT(*) AS n
-       FROM day_entries WHERE claim_id IN (${placeholders})
+       FROM day_entries WHERE claim_id IN (${placeholders}) AND agency_id = ?
        GROUP BY kind`
     )
-    .all(...list);
+    .all(...list, agencyId);
   const ra = rows.find((r) => r.kind === 'ra_import')?.n ?? 0;
   const manual = rows.find((r) => r.kind === 'manual')?.n ?? 0;
   return { ra_import_entries: ra, manual_entries: manual, linked_entries: ra + manual };
@@ -586,7 +606,7 @@ function linkedEntryBreakdown(ids) {
  * stops showing on the Home Dashboard. One that still has claims keeps its
  * place, but its client count drops to the survivors.
  */
-function reconcileRaImports(importIds) {
+function reconcileRaImports(importIds, agencyId) {
   const ids = [...new Set(importIds.filter((n) => Number.isInteger(n) && n > 0))];
   let removed = 0;
   let updated = 0;
@@ -594,14 +614,18 @@ function reconcileRaImports(importIds) {
     const survivors = db
       .prepare(
         `SELECT COUNT(*) AS claims, COUNT(DISTINCT client_id) AS clients
-         FROM claims WHERE ra_import_id = ?`
+         FROM claims WHERE ra_import_id = ? AND agency_id = ?`
       )
-      .get(id);
+      .get(id, agencyId);
     if (!survivors.claims) {
-      db.prepare(`DELETE FROM ra_imports WHERE id = ?`).run(id);
+      db.prepare(`DELETE FROM ra_imports WHERE id = ? AND agency_id = ?`).run(id, agencyId);
       removed += 1;
     } else {
-      db.prepare(`UPDATE ra_imports SET num_clients = ? WHERE id = ?`).run(survivors.clients, id);
+      db.prepare(`UPDATE ra_imports SET num_clients = ? WHERE id = ? AND agency_id = ?`).run(
+        survivors.clients,
+        id,
+        agencyId
+      );
       updated += 1;
     }
   }
@@ -616,19 +640,22 @@ function reconcileRaImports(importIds) {
  * calendar and the caretaker totals. Manually-entered entries are PRESERVED and
  * merely unlinked, so no hand-typed work is ever lost.
  */
-function releaseLinkedEntries(claimIds) {
+function releaseLinkedEntries(claimIds, agencyId) {
   const list = Array.isArray(claimIds) ? claimIds : [claimIds];
   if (!list.length) return { removed: 0, unlinked: 0 };
   const placeholders = list.map(() => '?').join(',');
   const removed = db
-    .prepare(`DELETE FROM day_entries WHERE claim_id IN (${placeholders}) AND source = 'ra_import'`)
-    .run(...list).changes;
+    .prepare(
+      `DELETE FROM day_entries WHERE claim_id IN (${placeholders}) AND source = 'ra_import' AND agency_id = ?`
+    )
+    .run(...list, agencyId).changes;
   const unlinked = db
     .prepare(
       `UPDATE day_entries SET claim_id = NULL
-       WHERE claim_id IN (${placeholders}) AND COALESCE(source, 'manual') <> 'ra_import'`
+       WHERE claim_id IN (${placeholders}) AND COALESCE(source, 'manual') <> 'ra_import'
+         AND agency_id = ?`
     )
-    .run(...list).changes;
+    .run(...list, agencyId).changes;
   return { removed, unlinked };
 }
 
@@ -644,15 +671,18 @@ router.post('/bulk-archive', (req, res) => {
 
   const placeholders = ids.map(() => '?').join(',');
   const rows = db
-    .prepare(`SELECT id, archived FROM claims WHERE id IN (${placeholders})`)
-    .all(...ids);
+    .prepare(`SELECT id, archived FROM claims WHERE id IN (${placeholders}) AND agency_id = ?`)
+    .all(...ids, req.agencyId);
 
   const toArchive = rows.filter((r) => !r.archived).map((r) => r.id);
   const alreadyArchived = rows.length - toArchive.length;
 
   if (toArchive.length) {
     const set = toArchive.map(() => '?').join(',');
-    db.prepare(`UPDATE claims SET archived = 1 WHERE id IN (${set})`).run(...toArchive);
+    db.prepare(`UPDATE claims SET archived = 1 WHERE id IN (${set}) AND agency_id = ?`).run(
+      ...toArchive,
+      req.agencyId
+    );
   }
 
   res.json({
@@ -671,10 +701,11 @@ router.post('/bulk-delete-check', (req, res) => {
   const rows = db
     .prepare(
       `SELECT c.id, COALESCE(c.archived, 0) AS archived,
-              (SELECT COUNT(*) FROM day_entries d WHERE d.claim_id = c.id) AS linked
-       FROM claims c WHERE c.id IN (${placeholders})`
+              (SELECT COUNT(*) FROM day_entries d
+                WHERE d.claim_id = c.id AND d.agency_id = c.agency_id) AS linked
+       FROM claims c WHERE c.id IN (${placeholders}) AND c.agency_id = ?`
     )
-    .all(...ids);
+    .all(...ids, req.agencyId);
 
   // Only a LIVE claim with days attached is undeletable; archived claims are
   // always removable.
@@ -689,7 +720,7 @@ router.post('/bulk-delete-check', (req, res) => {
     blocked_ids: blocked,
     total: ids.length,
     // What the delete will actually do to the entries it frees.
-    ...linkedEntryBreakdown(deletableIds),
+    ...linkedEntryBreakdown(deletableIds, req.agencyId),
   });
 });
 
@@ -698,15 +729,15 @@ router.post('/bulk-delete-check', (req, res) => {
  * claim. That is what makes unarchiving risky: the days were unlocked when the
  * claim was archived, and a new claim may have been generated over them.
  */
-function unarchiveConflicts(claimIds) {
+function unarchiveConflicts(claimIds, agencyId) {
   if (!claimIds.length) return new Map();
   const placeholders = claimIds.map(() => '?').join(',');
   const claims = db
     .prepare(
       `SELECT id, claim_name, client_id, period_start, period_end
-       FROM claims WHERE id IN (${placeholders})`
+       FROM claims WHERE id IN (${placeholders}) AND agency_id = ?`
     )
-    .all(...claimIds);
+    .all(...claimIds, agencyId);
 
   const count = db.prepare(
     `SELECT COUNT(*) AS n
@@ -715,6 +746,7 @@ function unarchiveConflicts(claimIds) {
      WHERE other.client_id = @client
        AND d.claim_id <> @self
        AND COALESCE(other.archived, 0) = 0
+       AND d.agency_id = @agency AND other.agency_id = @agency
        AND d.work_date >= @start AND d.work_date <= @end`
   );
 
@@ -726,7 +758,13 @@ function unarchiveConflicts(claimIds) {
     }
     out.set(
       c.id,
-      count.get({ self: c.id, client: c.client_id, start: c.period_start, end: c.period_end }).n
+      count.get({
+        self: c.id,
+        client: c.client_id,
+        start: c.period_start,
+        end: c.period_end,
+        agency: agencyId,
+      }).n
     );
   }
   return out;
@@ -739,11 +777,14 @@ router.post('/bulk-unarchive-check', (req, res) => {
 
   const placeholders = ids.map(() => '?').join(',');
   const rows = db
-    .prepare(`SELECT id, claim_name, archived FROM claims WHERE id IN (${placeholders})`)
-    .all(...ids);
+    .prepare(
+      `SELECT id, claim_name, archived FROM claims
+       WHERE id IN (${placeholders}) AND agency_id = ?`
+    )
+    .all(...ids, req.agencyId);
 
   const archived = rows.filter((r) => r.archived);
-  const conflicts = unarchiveConflicts(archived.map((r) => r.id));
+  const conflicts = unarchiveConflicts(archived.map((r) => r.id), req.agencyId);
   const conflicting = archived
     .map((r) => ({ id: r.id, claim_name: r.claim_name, entries: conflicts.get(r.id) ?? 0 }))
     .filter((r) => r.entries > 0);
@@ -770,14 +811,17 @@ router.post('/bulk-unarchive', (req, res) => {
 
   const placeholders = ids.map(() => '?').join(',');
   const rows = db
-    .prepare(`SELECT id, archived FROM claims WHERE id IN (${placeholders})`)
-    .all(...ids);
+    .prepare(`SELECT id, archived FROM claims WHERE id IN (${placeholders}) AND agency_id = ?`)
+    .all(...ids, req.agencyId);
 
   const toRestore = rows.filter((r) => r.archived).map((r) => r.id);
 
   if (toRestore.length) {
     const set = toRestore.map(() => '?').join(',');
-    db.prepare(`UPDATE claims SET archived = 0 WHERE id IN (${set})`).run(...toRestore);
+    db.prepare(`UPDATE claims SET archived = 0 WHERE id IN (${set}) AND agency_id = ?`).run(
+      ...toRestore,
+      req.agencyId
+    );
   }
 
   res.json({
@@ -804,10 +848,11 @@ router.post('/bulk-delete', (req, res) => {
       `SELECT c.id, c.claim_name, COALESCE(c.archived, 0) AS archived,
               c.source, c.ra_import_id,
               c.local_pdf_path, c.generated_pdf_path,
-              (SELECT COUNT(*) FROM day_entries d WHERE d.claim_id = c.id) AS linked
-       FROM claims c WHERE c.id IN (${placeholders})`
+              (SELECT COUNT(*) FROM day_entries d
+                WHERE d.claim_id = c.id AND d.agency_id = c.agency_id) AS linked
+       FROM claims c WHERE c.id IN (${placeholders}) AND c.agency_id = ?`
     )
-    .all(...ids);
+    .all(...ids, req.agencyId);
 
   const blocked = rows.filter((r) => !r.archived && r.linked > 0);
   const deletable = rows.filter((r) => !blocked.includes(r));
@@ -843,12 +888,15 @@ router.post('/bulk-delete', (req, res) => {
   let logRowsRemoved = 0;
   db.transaction(() => {
     // Same rule as the single-claim path: imported entries go, manual ones stay.
-    const r = releaseLinkedEntries(deleteIds);
+    const r = releaseLinkedEntries(deleteIds, req.agencyId);
     removed = r.removed;
     unlinked = r.unlinked;
-    db.prepare(`DELETE FROM claims WHERE id IN (${delPlaceholders})`).run(...deleteIds);
+    db.prepare(`DELETE FROM claims WHERE id IN (${delPlaceholders}) AND agency_id = ?`).run(
+      ...deleteIds,
+      req.agencyId
+    );
     markOrphanedImports(req.agencyId);
-    logRowsRemoved = reconcileRaImports(importIds).removed;
+    logRowsRemoved = reconcileRaImports(importIds, req.agencyId).removed;
   })();
 
   for (const rel of files) {
@@ -874,10 +922,10 @@ router.post('/bulk-delete', (req, res) => {
 /** GET /api/claims/:id/delete-check — may this claim be deleted, or archived? */
 router.get('/:id/delete-check', (req, res) => {
   const id = Number(req.params.id);
-  const claim = db.prepare(`SELECT * FROM claims WHERE id = ?`).get(id);
+  const claim = db.prepare(`SELECT * FROM claims WHERE id = ? AND agency_id = ?`).get(id, req.agencyId);
   if (!claim) return res.status(404).json({ error: 'Claim not found' });
 
-  const breakdown = linkedEntryBreakdown(id);
+  const breakdown = linkedEntryBreakdown(id, req.agencyId);
   const archived = Boolean(claim.archived);
   res.json({
     // An archived claim may always be removed. A live claim still refuses while
@@ -893,12 +941,12 @@ router.get('/:id/delete-check', (req, res) => {
 
 router.delete('/:id', (req, res) => {
   const id = Number(req.params.id);
-  const existing = db.prepare(`SELECT * FROM claims WHERE id = ?`).get(id);
+  const existing = db.prepare(`SELECT * FROM claims WHERE id = ? AND agency_id = ?`).get(id, req.agencyId);
   if (!existing) return res.status(404).json({ error: 'Claim not found' });
 
   // A LIVE claim with days on it must be archived first. (The RA import's
   // overwrite releases its own entries explicitly, so it is unaffected.)
-  const linked = linkedEntryCount(id);
+  const linked = linkedEntryCount(id, req.agencyId);
   const archived = Boolean(existing.archived);
   if (!archived && linked > 0) {
     return res.status(409).json({
@@ -934,13 +982,13 @@ router.delete('/:id', (req, res) => {
   const reconcile = { removed: 0, updated: 0 };
   db.transaction(() => {
     // RA-imported entries go with the claim; manual ones are only unlinked.
-    const r = releaseLinkedEntries(id);
+    const r = releaseLinkedEntries(id, req.agencyId);
     released.removed = r.removed;
     released.unlinked = r.unlinked;
-    db.prepare(`DELETE FROM claims WHERE id = ?`).run(id);
+    db.prepare(`DELETE FROM claims WHERE id = ? AND agency_id = ?`).run(id, req.agencyId);
     markOrphanedImports(req.agencyId);
     if (existing.source === 'ra_import' && existing.ra_import_id) {
-      Object.assign(reconcile, reconcileRaImports([existing.ra_import_id]));
+      Object.assign(reconcile, reconcileRaImports([existing.ra_import_id], req.agencyId));
     }
   })();
 
@@ -987,18 +1035,22 @@ async function writeClaimPdf(claim) {
     }
   }
 
-  db.prepare(`UPDATE claims SET generated_pdf_path = ? WHERE id = ?`).run(rel, claim.id);
+  db.prepare(`UPDATE claims SET generated_pdf_path = ? WHERE id = ? AND agency_id = ?`).run(
+    rel,
+    claim.id,
+    claim.agency_id
+  );
   return { path: rel, name: path.basename(rel), bytes: buffer.length, day_count: entries.length };
 }
 
 router.post('/:id/pdf/generate', async (req, res) => {
   const id = Number(req.params.id);
-  const claim = db.prepare(`SELECT * FROM claims WHERE id = ?`).get(id);
+  const claim = db.prepare(`SELECT * FROM claims WHERE id = ? AND agency_id = ?`).get(id, req.agencyId);
   if (!claim) return res.status(404).json({ error: 'Claim not found' });
 
   try {
     const file = await writeClaimPdf(claim);
-    const updated = db.prepare(`SELECT * FROM claims WHERE id = ?`).get(id);
+    const updated = db.prepare(`SELECT * FROM claims WHERE id = ? AND agency_id = ?`).get(id, req.agencyId);
     res.status(201).json({ claim: decorate(updated, req.agencyId), file });
   } catch (e) {
     res.status(500).json({ error: `Could not build the claim PDF: ${e.message}` });
@@ -1018,7 +1070,7 @@ router.post('/:id/pdf/generate', async (req, res) => {
  */
 router.post('/:id/regenerate', async (req, res) => {
   const id = Number(req.params.id);
-  const claim = db.prepare(`SELECT * FROM claims WHERE id = ?`).get(id);
+  const claim = db.prepare(`SELECT * FROM claims WHERE id = ? AND agency_id = ?`).get(id, req.agencyId);
   if (!claim) return res.status(404).json({ error: 'Claim not found' });
 
   if (claim.status !== 'Draft') {
@@ -1035,10 +1087,10 @@ router.post('/:id/regenerate', async (req, res) => {
   const inPeriod = db
     .prepare(
       `SELECT * FROM day_entries
-       WHERE client_id = ? AND work_date >= ? AND work_date <= ?
+       WHERE client_id = ? AND agency_id = ? AND work_date >= ? AND work_date <= ?
        ORDER BY work_date`
     )
-    .all(claim.client_id, claim.period_start, claim.period_end);
+    .all(claim.client_id, claim.agency_id, claim.period_start, claim.period_end);
 
   const mine = inPeriod.filter((e) => e.claim_id == null || e.claim_id === id);
   const others = inPeriod.filter((e) => e.claim_id != null && e.claim_id !== id);
@@ -1049,19 +1101,21 @@ router.post('/:id/regenerate', async (req, res) => {
 
   db.transaction(() => {
     // 1. clear the old aggregate, 2. re-link the period's entries, 3. write the new one.
-    db.prepare(`UPDATE claims SET total_units = NULL, total_dollars = NULL WHERE id = ?`).run(id);
-    const link = db.prepare(`UPDATE day_entries SET claim_id = ? WHERE id = ?`);
-    for (const e of mine) if (e.claim_id !== id) link.run(id, e.id);
+    db.prepare(
+      `UPDATE claims SET total_units = NULL, total_dollars = NULL WHERE id = ? AND agency_id = ?`
+    ).run(id, req.agencyId);
+    const link = db.prepare(`UPDATE day_entries SET claim_id = ? WHERE id = ? AND agency_id = ?`);
+    for (const e of mine) if (e.claim_id !== id) link.run(id, e.id, req.agencyId);
     db.prepare(
       `UPDATE claims
        SET total_units = ?, total_dollars = ?, agreement_id = ?, last_regenerated_at = datetime('now')
-       WHERE id = ?`
-    ).run(totalUnits, totalDollars, agreementId, id);
+       WHERE id = ? AND agency_id = ?`
+    ).run(totalUnits, totalDollars, agreementId, id, req.agencyId);
   })();
 
   // 4. refresh the stored PDF, if one exists. A claim without one is left alone.
   let pdf = { regenerated: false, reason: null };
-  const afterAggregate = db.prepare(`SELECT * FROM claims WHERE id = ?`).get(id);
+  const afterAggregate = db.prepare(`SELECT * FROM claims WHERE id = ? AND agency_id = ?`).get(id, req.agencyId);
   if (afterAggregate.generated_pdf_path) {
     try {
       const file = await writeClaimPdf(afterAggregate);
@@ -1074,7 +1128,7 @@ router.post('/:id/regenerate', async (req, res) => {
   }
 
   res.json({
-    claim: decorate(db.prepare(`SELECT * FROM claims WHERE id = ?`).get(id), req.agencyId),
+    claim: decorate(db.prepare(`SELECT * FROM claims WHERE id = ? AND agency_id = ?`).get(id, req.agencyId), req.agencyId),
     aggregation: {
       day_count: mine.length,
       total_units: totalUnits,
@@ -1096,7 +1150,7 @@ router.post('/:id/regenerate', async (req, res) => {
  */
 router.post('/:id/revert', (req, res) => {
   const id = Number(req.params.id);
-  const claim = db.prepare(`SELECT * FROM claims WHERE id = ?`).get(id);
+  const claim = db.prepare(`SELECT * FROM claims WHERE id = ? AND agency_id = ?`).get(id, req.agencyId);
   if (!claim) return res.status(404).json({ error: 'Claim not found' });
   if (claim.status === 'Draft') {
     return res.json({ claim: decorate(claim, req.agencyId), changed: false });
@@ -1105,11 +1159,11 @@ router.post('/:id/revert', (req, res) => {
   db.prepare(
     `UPDATE claims
      SET status = 'Draft', submitted_date = NULL, expected_pay_date = NULL, variance_days = NULL
-     WHERE id = ?`
-  ).run(id);
+     WHERE id = ? AND agency_id = ?`
+  ).run(id, req.agencyId);
 
   res.json({
-    claim: decorate(db.prepare(`SELECT * FROM claims WHERE id = ?`).get(id), req.agencyId),
+    claim: decorate(db.prepare(`SELECT * FROM claims WHERE id = ? AND agency_id = ?`).get(id, req.agencyId), req.agencyId),
     changed: true,
     kept_payment_record: claim.paid_date != null || claim.paid_amount != null,
   });
@@ -1122,7 +1176,7 @@ router.post('/:id/revert', (req, res) => {
  */
 router.get('/:id/pdf/generated', (req, res) => {
   const id = Number(req.params.id);
-  const claim = db.prepare(`SELECT * FROM claims WHERE id = ?`).get(id);
+  const claim = db.prepare(`SELECT * FROM claims WHERE id = ? AND agency_id = ?`).get(id, req.agencyId);
   if (!claim) return res.status(404).json({ error: 'Claim not found' });
   if (!claim.generated_pdf_path) {
     return res.status(404).json({
@@ -1155,7 +1209,7 @@ router.get('/:id/pdf/generated', (req, res) => {
 /** DELETE /api/claims/:id/pdf/generated — removes just the generated file. */
 router.delete('/:id/pdf/generated', (req, res) => {
   const id = Number(req.params.id);
-  const claim = db.prepare(`SELECT * FROM claims WHERE id = ?`).get(id);
+  const claim = db.prepare(`SELECT * FROM claims WHERE id = ? AND agency_id = ?`).get(id, req.agencyId);
   if (!claim) return res.status(404).json({ error: 'Claim not found' });
   if (!claim.generated_pdf_path) return res.json({ removed: false, claim: decorate(claim, req.agencyId) });
 
@@ -1164,8 +1218,11 @@ router.delete('/:id/pdf/generated', (req, res) => {
   } catch {
     /* already gone */
   }
-  db.prepare(`UPDATE claims SET generated_pdf_path = NULL WHERE id = ?`).run(id);
-  res.json({ removed: true, claim: decorate(db.prepare(`SELECT * FROM claims WHERE id = ?`).get(id), req.agencyId) });
+  db.prepare(`UPDATE claims SET generated_pdf_path = NULL WHERE id = ? AND agency_id = ?`).run(
+    id,
+    req.agencyId
+  );
+  res.json({ removed: true, claim: decorate(db.prepare(`SELECT * FROM claims WHERE id = ? AND agency_id = ?`).get(id, req.agencyId), req.agencyId) });
 });
 
 /**
@@ -1175,7 +1232,7 @@ router.delete('/:id/pdf/generated', (req, res) => {
  */
 router.post('/:id/pdf', (req, res) => {
   const id = Number(req.params.id);
-  const claim = db.prepare(`SELECT * FROM claims WHERE id = ?`).get(id);
+  const claim = db.prepare(`SELECT * FROM claims WHERE id = ? AND agency_id = ?`).get(id, req.agencyId);
   if (!claim) return res.status(404).json({ error: 'Claim not found' });
 
   upload.single('file')(req, res, (err) => {
@@ -1216,8 +1273,12 @@ router.post('/:id/pdf', (req, res) => {
       }
     }
 
-    db.prepare(`UPDATE claims SET local_pdf_path = ? WHERE id = ?`).run(rel, id);
-    const updated = db.prepare(`SELECT * FROM claims WHERE id = ?`).get(id);
+    db.prepare(`UPDATE claims SET local_pdf_path = ? WHERE id = ? AND agency_id = ?`).run(
+      rel,
+      id,
+      req.agencyId
+    );
+    const updated = db.prepare(`SELECT * FROM claims WHERE id = ? AND agency_id = ?`).get(id, req.agencyId);
     res.status(201).json({
       claim: decorate(updated, req.agencyId),
       file: { path: rel, name: path.basename(rel), bytes: req.file.size, replaced: Boolean(previous) },
@@ -1228,7 +1289,7 @@ router.post('/:id/pdf', (req, res) => {
 /** GET /api/claims/:id/pdf — streams the stored PDF (used by "View PDF"). */
 router.get('/:id/pdf', (req, res) => {
   const id = Number(req.params.id);
-  const claim = db.prepare(`SELECT * FROM claims WHERE id = ?`).get(id);
+  const claim = db.prepare(`SELECT * FROM claims WHERE id = ? AND agency_id = ?`).get(id, req.agencyId);
   if (!claim) return res.status(404).json({ error: 'Claim not found' });
   if (!claim.local_pdf_path) {
     return res.status(404).json({ error: 'No PDF is attached to this claim.' });
@@ -1254,7 +1315,7 @@ router.get('/:id/pdf', (req, res) => {
 /** GET /api/claims/:id/pdf/info — metadata only, for the UI. */
 router.get('/:id/pdf/info', (req, res) => {
   const id = Number(req.params.id);
-  const claim = db.prepare(`SELECT * FROM claims WHERE id = ?`).get(id);
+  const claim = db.prepare(`SELECT * FROM claims WHERE id = ? AND agency_id = ?`).get(id, req.agencyId);
   if (!claim) return res.status(404).json({ error: 'Claim not found' });
 
   const uploaded = fileInfo(claim.local_pdf_path);
@@ -1292,7 +1353,7 @@ function fileInfo(relativePath) {
 /** DELETE /api/claims/:id/pdf — detach, and delete the file from disk. */
 router.delete('/:id/pdf', (req, res) => {
   const id = Number(req.params.id);
-  const claim = db.prepare(`SELECT * FROM claims WHERE id = ?`).get(id);
+  const claim = db.prepare(`SELECT * FROM claims WHERE id = ? AND agency_id = ?`).get(id, req.agencyId);
   if (!claim) return res.status(404).json({ error: 'Claim not found' });
   if (!claim.local_pdf_path) return res.json({ detached: false, claim: decorate(claim, req.agencyId) });
 
@@ -1301,8 +1362,11 @@ router.delete('/:id/pdf', (req, res) => {
   } catch {
     /* file already gone; still clear the reference */
   }
-  db.prepare(`UPDATE claims SET local_pdf_path = NULL WHERE id = ?`).run(id);
-  res.json({ detached: true, claim: decorate(db.prepare(`SELECT * FROM claims WHERE id = ?`).get(id), req.agencyId) });
+  db.prepare(`UPDATE claims SET local_pdf_path = NULL WHERE id = ? AND agency_id = ?`).run(
+    id,
+    req.agencyId
+  );
+  res.json({ detached: true, claim: decorate(db.prepare(`SELECT * FROM claims WHERE id = ? AND agency_id = ?`).get(id, req.agencyId), req.agencyId) });
 });
 
 /**
@@ -1311,8 +1375,8 @@ router.delete('/:id/pdf', (req, res) => {
  * filters as the dashboard, so the file matches what is on screen.
  */
 router.get('/export.csv', (req, res) => {
-  const where = [];
-  const params = {};
+  const where = ['cl.agency_id = @agency'];
+  const params = { agency: req.agencyId };
 
   if (req.query.client_id) {
     where.push('cl.client_id = @client_id');
@@ -1385,11 +1449,11 @@ function csvCell(value) {
 router.get('/:id', (req, res) => {
   const id = Number(req.params.id);
   if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid claim id' });
-  const row = db.prepare(`SELECT * FROM claims WHERE id = ?`).get(id);
+  const row = db.prepare(`SELECT * FROM claims WHERE id = ? AND agency_id = ?`).get(id, req.agencyId);
   if (!row) return res.status(404).json({ error: 'Claim not found' });
   const entries = db
-    .prepare(`SELECT * FROM day_entries WHERE claim_id = ? ORDER BY work_date`)
-    .all(row.id);
+    .prepare(`SELECT * FROM day_entries WHERE claim_id = ? AND agency_id = ? ORDER BY work_date`)
+    .all(row.id, req.agencyId);
   res.json({ claim: decorate(row, req.agencyId), entries });
 });
 
@@ -1406,9 +1470,9 @@ function expectedFromPayer(claim, submittedDate) {
     .prepare(
       `SELECT p.typical_days_to_pay
        FROM agreements a JOIN payers p ON p.id = a.payer_id
-       WHERE a.id = ?`
+       WHERE a.id = ? AND a.agency_id = ?`
     )
-    .get(claim.agreement_id);
+    .get(claim.agreement_id, claim.agency_id);
   const days = payer?.typical_days_to_pay;
   if (days == null) return null;
   return addDays(submittedDate, Number(days));

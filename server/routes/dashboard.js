@@ -14,6 +14,7 @@ const router = express.Router();
 // component can shift a period boundary.
 const PERIOD_WHERE = `
   d.work_date >= @start AND d.work_date <= @end
+  AND d.agency_id = @agency
   AND cu.id IS NOT NULL
   AND COALESCE(cu.archived, 0) = 0
   AND (d.agreement_id IS NULL OR a.id IS NOT NULL)
@@ -21,9 +22,9 @@ const PERIOD_WHERE = `
 
 const BASE_FROM = `
   FROM day_entries d
-  JOIN clients cu ON cu.id = d.client_id
-  LEFT JOIN claims cl ON cl.id = d.claim_id
-  LEFT JOIN agreements a ON a.id = d.agreement_id
+  JOIN clients cu ON cu.id = d.client_id AND cu.agency_id = d.agency_id
+  LEFT JOIN claims cl ON cl.id = d.claim_id AND cl.agency_id = d.agency_id
+  LEFT JOIN agreements a ON a.id = d.agreement_id AND a.agency_id = d.agency_id
 `;
 
 /**
@@ -45,7 +46,7 @@ router.get('/pay-period', (req, res) => {
     end = current.end;
   }
 
-  const params = { start, end };
+  const params = { start, end, agency: req.agencyId };
 
   const caretakers = db
     .prepare(
@@ -54,7 +55,7 @@ router.get('/pay-period', (req, res) => {
               ROUND(SUM(d.dollars), 2)     AS dollars,
               COUNT(DISTINCT d.client_id)  AS clients
        ${BASE_FROM}
-       JOIN caretakers t ON t.id = d.caretaker_id
+       JOIN caretakers t ON t.id = d.caretaker_id AND t.agency_id = d.agency_id
        WHERE ${PERIOD_WHERE}
          AND COALESCE(t.active, 1) = 1
        GROUP BY t.id
@@ -80,9 +81,10 @@ router.get('/pay-period', (req, res) => {
     .prepare(
       `SELECT COUNT(*) AS n
        FROM day_entries d
-       LEFT JOIN clients cu ON cu.id = d.client_id
-       LEFT JOIN agreements a ON a.id = d.agreement_id
+       LEFT JOIN clients cu ON cu.id = d.client_id AND cu.agency_id = d.agency_id
+       LEFT JOIN agreements a ON a.id = d.agreement_id AND a.agency_id = d.agency_id
        WHERE d.work_date >= @start AND d.work_date <= @end
+         AND d.agency_id = @agency
          AND (cu.id IS NULL OR COALESCE(cu.archived, 0) = 1
               OR (d.agreement_id IS NOT NULL AND a.id IS NULL))`
     )
@@ -164,13 +166,13 @@ router.get('/pay-period', (req, res) => {
 /** GET /api/dashboard/recent-ra — the last 5 saved RA imports. */
 router.get('/recent-ra', (req, res) => {
   const rows = db
-    .prepare(`SELECT * FROM ra_imports ORDER BY id DESC LIMIT 5`)
-    .all();
+    .prepare(`SELECT * FROM ra_imports WHERE agency_id = ? ORDER BY id DESC LIMIT 5`)
+    .all(req.agencyId);
 
   const claimsFor = db.prepare(
     `SELECT id, claim_name, status, total_dollars
      FROM claims
-     WHERE ra_import_id = ?
+     WHERE ra_import_id = ? AND agency_id = ?
      ORDER BY id
      LIMIT 5`
   );
@@ -182,7 +184,7 @@ router.get('/recent-ra', (req, res) => {
       num_clients: r.num_clients,
       total_payment: round2(r.total_payment ?? 0),
       file_name: r.file_name,
-      claims: claimsFor.all(r.id),
+      claims: claimsFor.all(r.id, req.agencyId),
     })),
   });
 });

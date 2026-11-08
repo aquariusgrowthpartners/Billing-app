@@ -44,14 +44,14 @@ const ENTRY_SELECT = `
          cl.status AS claim_status, cl.claim_name AS claim_name,
               cl.archived AS claim_archived
   FROM day_entries d
-  LEFT JOIN caretakers t ON t.id = d.caretaker_id
-  LEFT JOIN claims cl ON cl.id = d.claim_id
+  LEFT JOIN caretakers t ON t.id = d.caretaker_id AND t.agency_id = d.agency_id
+  LEFT JOIN claims cl ON cl.id = d.claim_id AND cl.agency_id = d.agency_id
   WHERE d.agency_id = @agency
 `;
 
 /** One entry, joined to its caretaker. */
-function readEntry(id) {
-  return db.prepare(`${ENTRY_SELECT} AND d.id = ?`).get(id, req.agencyId);
+function readEntry(id, agencyId) {
+  return db.prepare(`${ENTRY_SELECT} AND d.id = ?`).get(id, agencyId);
 }
 
 /**
@@ -85,7 +85,7 @@ router.get('/', (req, res) => {
   const rows = db
     .prepare(
       `${ENTRY_SELECT}
-       ${where.length ? `WHERE ${where.map((w) => `d.${w}`).join(' AND ')}` : ''}
+       ${where.length ? `AND ${where.map((w) => `d.${w}`).join(' AND ')}` : ''}
        ORDER BY d.work_date, d.client_id`
     )
     .all({ ...params, agency: req.agencyId });
@@ -172,7 +172,7 @@ router.post('/', (req, res) => {
            notes = @notes
        WHERE id = @id`
     ).run({ ...payload, id: existing.id });
-    entry = readEntry(existing.id);
+    entry = readEntry(existing.id, req.agencyId);
   } else {
     const info = db
       .prepare(
@@ -182,7 +182,7 @@ router.post('/', (req, res) => {
            (@client_id, @agreement_id, @caretaker_id, @start_time, @work_date, @minutes_worked, @units, @rate_per_unit, @dollars, @notes, @agency)`
       )
       .run(payload);
-    entry = readEntry(info.lastInsertRowid);
+    entry = readEntry(info.lastInsertRowid, req.agencyId);
   }
 
   res.status(existing ? 200 : 201).json({

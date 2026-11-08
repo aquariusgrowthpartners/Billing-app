@@ -12,8 +12,8 @@ router.get('/', (req, res) => {
       `SELECT a.*, p.name AS payer_name, p.typical_days_to_pay,
               c.first_name, c.last_name
        FROM agreements a
-       LEFT JOIN payers p ON p.id = a.payer_id
-       LEFT JOIN clients c ON c.id = a.client_id
+       LEFT JOIN payers p ON p.id = a.payer_id AND p.agency_id = a.agency_id
+       LEFT JOIN clients c ON c.id = a.client_id AND c.agency_id = a.agency_id
        WHERE a.agency_id = @agency
          ${clientId ? 'AND a.client_id = @clientId' : ''}
        ORDER BY a.client_id, a.start_date DESC, a.id DESC`
@@ -27,7 +27,8 @@ router.get('/:id', (req, res) => {
   const row = db
     .prepare(
       `SELECT a.*, p.name AS payer_name, p.typical_days_to_pay
-       FROM agreements a LEFT JOIN payers p ON p.id = a.payer_id
+       FROM agreements a
+       LEFT JOIN payers p ON p.id = a.payer_id AND p.agency_id = a.agency_id
        WHERE a.id = ? AND a.agency_id = ?`
       )
       .get(Number(req.params.id), req.agencyId);
@@ -42,6 +43,15 @@ router.post('/', (req, res) => {
   if (!clientId) return res.status(400).json({ error: 'client_id is required' });
   if (!db.prepare(`SELECT 1 FROM clients WHERE id = ? AND agency_id = ?`).get(clientId, req.agencyId)) {
     return res.status(400).json({ error: 'client_id does not exist' });
+  }
+  if (b.payer_id != null && b.payer_id !== '') {
+    const payerId = Number(b.payer_id);
+    if (
+      !Number.isInteger(payerId) ||
+      !db.prepare(`SELECT 1 FROM payers WHERE id = ? AND agency_id = ?`).get(payerId, req.agencyId)
+    ) {
+      return res.status(400).json({ error: 'payer_id does not exist' });
+    }
   }
 
   const info = db
@@ -126,7 +136,9 @@ function updateAgreement(req, res) {
 
   const setSql = Object.keys(updates).map((k) => `${k} = @${k}`).join(', ');
   db.prepare(`UPDATE agreements SET ${setSql} WHERE id = @id AND agency_id = @agency`).run({ ...updates, id, agency: req.agencyId });
-  res.json(db.prepare(`SELECT * FROM agreements WHERE id = ?`).get(id));
+  res.json(
+    db.prepare(`SELECT * FROM agreements WHERE id = ? AND agency_id = ?`).get(id, req.agencyId)
+  );
 }
 
 router.patch('/:id', updateAgreement);

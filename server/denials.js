@@ -240,15 +240,19 @@ export function denialDeleteCounts(ids, agencyId) {
   if (!denials.length) return { denials: 0, line_items: 0, rebill_tasks: 0, found_ids: [] };
   const dph = denials.map(() => '?').join(',');
   const items = db
-    .prepare(`SELECT id FROM denied_line_items WHERE denied_claim_id IN (${dph})`)
-    .all(...denials)
+    .prepare(
+      `SELECT id FROM denied_line_items WHERE denied_claim_id IN (${dph}) AND agency_id = ?`
+    )
+    .all(...denials, agencyId)
     .map((r) => r.id);
   let tasks = 0;
   if (items.length) {
     const iph = items.map(() => '?').join(',');
     tasks = db
-      .prepare(`SELECT COUNT(*) AS n FROM rebill_tasks WHERE denied_line_item_id IN (${iph})`)
-      .get(...items).n;
+      .prepare(
+        `SELECT COUNT(*) AS n FROM rebill_tasks WHERE denied_line_item_id IN (${iph}) AND agency_id = ?`
+      )
+      .get(...items, agencyId).n;
   }
   return { denials: denials.length, line_items: items.length, rebill_tasks: tasks, found_ids: denials };
 }
@@ -288,8 +292,9 @@ export function deleteRebillTask(id, agencyId) {
   if (!task) return null;
   db.transaction(() => {
     db.prepare(
-      `UPDATE denied_line_items SET recovery_status = 'written_off' WHERE id = ?`
-    ).run(task.denied_line_item_id);
+      `UPDATE denied_line_items SET recovery_status = 'written_off'
+       WHERE id = ? AND agency_id = ?`
+    ).run(task.denied_line_item_id, agencyId ?? task.agency_id);
     db.prepare(
       scoped ? `DELETE FROM rebill_tasks WHERE id = ? AND agency_id = ?`
              : `DELETE FROM rebill_tasks WHERE id = ?`
@@ -319,9 +324,11 @@ export function markOrphanedImports(agencyId) {
     .all(...(scoped ? [agencyId] : []));
   const orphan = rows.filter((r) => r.claims === 0 && r.denials === 0);
   if (!orphan.length) return [];
-  const mark = db.prepare(`UPDATE ra_imports SET status = 'orphaned' WHERE id = ?`);
+  const mark = db.prepare(
+    `UPDATE ra_imports SET status = 'orphaned' WHERE id = ?${scoped ? ' AND agency_id = ?' : ''}`
+  );
   db.transaction(() => {
-    for (const r of orphan) mark.run(r.id);
+    for (const r of orphan) mark.run(...(scoped ? [r.id, agencyId] : [r.id]));
   })();
   console.log(`[denials] marked ${orphan.length} import(s) orphaned: ${orphan.map((r) => r.id).join(', ')}`);
   return orphan.map((r) => r.id);

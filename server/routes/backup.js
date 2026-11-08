@@ -35,7 +35,7 @@ const router = express.Router();
  * sqlite_master and copy only rows whose agency_id matches, from the tenant
  * tables only. `settings` is shared configuration, so it comes along whole.
  */
-const SHARED_TABLES = new Set(['settings', 'agencies', 'users']);
+const GLOBAL_TABLES = new Set(['settings']);
 
 async function scopedSnapshot(targetPath, agencyId) {
   const clone = new Database(targetPath);
@@ -57,8 +57,28 @@ async function scopedSnapshot(targetPath, agencyId) {
       const cols = db.prepare(`PRAGMA table_info(${name})`).all().map((c) => c.name);
       const hasAgency = cols.includes('agency_id');
 
-      if (SHARED_TABLES.has(name) || !hasAgency) {
-        // global configuration: copy whole
+      if (name === 'agencies') {
+        // only the tenant's own agency row
+        const rows = db.prepare(`SELECT * FROM agencies WHERE id = ?`).all(agencyId);
+        const ins = clone.prepare(
+          `INSERT INTO agencies (${cols.join(',')}) VALUES (${cols.map(() => '?').join(',')})`
+        );
+        for (const r of rows) ins.run(...cols.map((c) => r[c]));
+      } else if (name === 'users') {
+        // only this tenant's users — never another agency's password hashes
+        const rows = db.prepare(`SELECT * FROM users WHERE agency_id = ?`).all(agencyId);
+        const ins = clone.prepare(
+          `INSERT INTO users (${cols.join(',')}) VALUES (${cols.map(() => '?').join(',')})`
+        );
+        for (const r of rows) ins.run(...cols.map((c) => r[c]));
+      } else if (name === 'settings') {
+        // shared config, but never ship the AI secret in a tenant backup
+        const rows = db.prepare(`SELECT * FROM settings WHERE key <> 'ai_api_key'`).all();
+        const ins = clone.prepare(
+          `INSERT INTO settings (${cols.join(',')}) VALUES (${cols.map(() => '?').join(',')})`
+        );
+        for (const r of rows) ins.run(...cols.map((c) => r[c]));
+      } else if (GLOBAL_TABLES.has(name) || !hasAgency) {
         const rows = db.prepare(`SELECT * FROM ${name}`).all();
         const ins = cols.length
           ? clone.prepare(
@@ -112,7 +132,7 @@ router.get('/', async (req, res) => {
 
     // 1. Consistent database snapshot.
     const snapshotPath = path.join(tmpDir, 'billing.db');
-    await db.backup(snapshotPath);
+    await scopedSnapshot(snapshotPath, req.agencyId);
 
     // 2. Counts for the manifest, so a backup can be sanity-checked later.
     const counts = {

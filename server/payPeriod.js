@@ -87,11 +87,11 @@ export const VALID_ENTRY_SQL = `
 export function entryFrom({ caretaker = false, claim = false } = {}) {
   const parts = [
     'FROM day_entries d',
-    'JOIN clients cu ON cu.id = d.client_id',
-    'LEFT JOIN agreements a ON a.id = d.agreement_id',
+    'JOIN clients cu ON cu.id = d.client_id AND cu.agency_id = d.agency_id',
+    'LEFT JOIN agreements a ON a.id = d.agreement_id AND a.agency_id = d.agency_id',
   ];
-  if (caretaker) parts.push('JOIN caretakers t ON t.id = d.caretaker_id');
-  if (claim) parts.push('LEFT JOIN claims cl ON cl.id = d.claim_id');
+  if (caretaker) parts.push('JOIN caretakers t ON t.id = d.caretaker_id AND t.agency_id = d.agency_id');
+  if (claim) parts.push('LEFT JOIN claims cl ON cl.id = d.claim_id AND cl.agency_id = d.agency_id');
   return `${parts.join('\n  ')}\n  WHERE d.agency_id = @agency`;
 }
 

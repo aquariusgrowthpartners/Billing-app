@@ -107,10 +107,13 @@ router.get('/', (req, res) => {
               c.first_name AS caretaker_first,
               c.last_name  AS caretaker_last,
               c.status     AS caretaker_status,
-              (SELECT COUNT(*) FROM task_checklist_items i WHERE i.task_id = t.id) AS total_items,
-              (SELECT COUNT(*) FROM task_checklist_items i WHERE i.task_id = t.id AND i.is_completed = 1) AS completed_items
+              (SELECT COUNT(*) FROM task_checklist_items i
+                WHERE i.task_id = t.id AND i.agency_id = t.agency_id) AS total_items,
+              (SELECT COUNT(*) FROM task_checklist_items i
+                WHERE i.task_id = t.id AND i.is_completed = 1
+                  AND i.agency_id = t.agency_id) AS completed_items
          FROM tasks t
-         LEFT JOIN caretakers c ON c.id = t.caretaker_id
+         LEFT JOIN caretakers c ON c.id = t.caretaker_id AND c.agency_id = t.agency_id
         WHERE t.agency_id = @agency
         ORDER BY (t.status = 'completed'), t.due_date IS NULL, t.due_date, t.id DESC`
     )
@@ -123,9 +126,10 @@ router.get('/', (req, res) => {
       items: db
         .prepare(
           `SELECT id, label, is_completed, document_path, completed_at, sort_order
-             FROM task_checklist_items WHERE task_id = ? ORDER BY sort_order, id`
+             FROM task_checklist_items WHERE task_id = ? AND agency_id = ?
+             ORDER BY sort_order, id`
         )
-        .all(t.id),
+        .all(t.id, req.agencyId),
     })),
   });
 });
@@ -151,10 +155,10 @@ router.post('/new-hire', (req, res) => {
           `INSERT INTO caretakers
              (first_name, last_name, dob, ssn, dl_number, npi_number,
               street_address, city, state, zip, phone,
-              status, active)
+              status, active, agency_id)
            VALUES (@first, @last, @dob, @ssn, @dl, @npi,
                    @street, @city, @state, @zip, @phone,
-                   'Pending', 0)`
+                   'Pending', 0, @agency)`
         )
         .run({
           first,
@@ -168,26 +172,28 @@ router.post('/new-hire', (req, res) => {
           state: b.state || null,
           zip: b.zip || null,
           phone: b.phone || null,
+          agency: req.agencyId,
         });
       const caretakerId = Number(ct.lastInsertRowid);
 
       const task = db
         .prepare(
-          `INSERT INTO tasks (title, type, status, due_date, caretaker_id)
-           VALUES (@title, 'new_hire', 'pending', @due, @ct)`
+          `INSERT INTO tasks (title, type, status, due_date, caretaker_id, agency_id)
+           VALUES (@title, 'new_hire', 'pending', @due, @ct, @agency)`
         )
         .run({
           title: `New hire — ${first} ${last}`,
           due: b.due_date || null,
           ct: caretakerId,
+          agency: req.agencyId,
         });
       const taskId = Number(task.lastInsertRowid);
 
       const ins = db.prepare(
-        `INSERT INTO task_checklist_items (task_id, label, is_completed, sort_order)
-         VALUES (?, ?, 0, ?)`
+        `INSERT INTO task_checklist_items (task_id, label, is_completed, sort_order, agency_id)
+         VALUES (?, ?, 0, ?, ?)`
       );
-      NEW_HIRE_CHECKLIST.forEach((label, i) => ins.run(taskId, label, i));
+      NEW_HIRE_CHECKLIST.forEach((label, i) => ins.run(taskId, label, i, req.agencyId));
 
       return { caretakerId, taskId };
     })();
@@ -215,10 +221,14 @@ router.post('/:taskId/items/:itemId/upload', upload.single('file'), async (req, 
   if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
 
   const item = db
-    .prepare('SELECT * FROM task_checklist_items WHERE id = ? AND task_id = ?')
-    .get(itemId, taskId);
+    .prepare(
+      'SELECT * FROM task_checklist_items WHERE id = ? AND task_id = ? AND agency_id = ?'
+    )
+    .get(itemId, taskId, req.agencyId);
   if (!item) return res.status(404).json({ error: 'Checklist item not found' });
-  const task = db.prepare('SELECT * FROM tasks WHERE id = ?').get(taskId);
+  const task = db
+    .prepare('SELECT * FROM tasks WHERE id = ? AND agency_id = ?')
+    .get(taskId, req.agencyId);
   if (!task) return res.status(404).json({ error: 'Task not found' });
 
   fs.mkdirSync(UPLOAD_DIR, { recursive: true });
@@ -246,29 +256,33 @@ router.post('/:taskId/items/:itemId/upload', upload.single('file'), async (req, 
       db.prepare(
         `UPDATE task_checklist_items
             SET is_completed = 1, document_path = ?, completed_at = datetime('now')
-          WHERE id = ?`
-      ).run(storedPath, itemId);
+          WHERE id = ? AND agency_id = ?`
+      ).run(storedPath, itemId, req.agencyId);
 
       if (npiFound && task.caretaker_id) {
-        db.prepare('UPDATE caretakers SET npi_number = ? WHERE id = ?').run(
+        db.prepare('UPDATE caretakers SET npi_number = ? WHERE id = ? AND agency_id = ?').run(
           npiFound,
-          task.caretaker_id
+          task.caretaker_id,
+          req.agencyId
         );
       }
 
       const remaining = db
         .prepare(
-          'SELECT COUNT(*) n FROM task_checklist_items WHERE task_id = ? AND is_completed = 0'
+          'SELECT COUNT(*) n FROM task_checklist_items WHERE task_id = ? AND is_completed = 0 AND agency_id = ?'
         )
-        .get(taskId).n;
+        .get(taskId, req.agencyId).n;
 
       if (remaining === 0) {
-        db.prepare("UPDATE tasks SET status = 'completed' WHERE id = ?").run(taskId);
+        db.prepare("UPDATE tasks SET status = 'completed' WHERE id = ? AND agency_id = ?").run(
+          taskId,
+          req.agencyId
+        );
         if (task.caretaker_id) {
           // status and active must move together or they drift
-          db.prepare("UPDATE caretakers SET status = 'Active', active = 1 WHERE id = ?").run(
-            task.caretaker_id
-          );
+          db.prepare(
+            "UPDATE caretakers SET status = 'Active', active = 1 WHERE id = ? AND agency_id = ?"
+          ).run(task.caretaker_id, req.agencyId);
           activated = true;
         }
       }
@@ -282,7 +296,7 @@ router.post('/:taskId/items/:itemId/upload', upload.single('file'), async (req, 
     item_id: itemId,
     document_path: storedPath,
     npi_number: npiFound,
-    task_completed: remaining_all_done(db, taskId),
+    task_completed: remaining_all_done(db, taskId, req.agencyId),
     caretaker_activated: activated,
   });
 });
@@ -320,17 +334,18 @@ router.post('/general', upload.single('file'), async (req, res) => {
   try {
     const info = db
       .prepare(
-        `INSERT INTO tasks (title, type, status, due_date, caretaker_id, ai_summary)
-         VALUES (@title, 'general', 'pending', @due, NULL, @summary)`
+        `INSERT INTO tasks (title, type, status, due_date, caretaker_id, ai_summary, agency_id)
+         VALUES (@title, 'general', 'pending', @due, NULL, @summary, @agency)`
       )
-      .run({ title, due: b.due_date || null, summary });
+      .run({ title, due: b.due_date || null, summary, agency: req.agencyId });
     const taskId = Number(info.lastInsertRowid);
 
     if (storedPath) {
       db.prepare(
-        `INSERT INTO task_checklist_items (task_id, label, is_completed, document_path, completed_at, sort_order)
-         VALUES (?, ?, 1, ?, datetime('now'), 0)`
-      ).run(taskId, b.notes?.trim() || 'Attached document', storedPath);
+        `INSERT INTO task_checklist_items
+           (task_id, label, is_completed, document_path, completed_at, sort_order, agency_id)
+         VALUES (?, ?, 1, ?, datetime('now'), 0, ?)`
+      ).run(taskId, b.notes?.trim() || 'Attached document', storedPath, req.agencyId);
     }
 
     res.status(201).json({
@@ -346,11 +361,13 @@ router.post('/general', upload.single('file'), async (req, res) => {
 });
 
 /** True when the task has no outstanding items. */
-function remaining_all_done(database, taskId) {
+function remaining_all_done(database, taskId, agencyId) {
   return (
     database
-      .prepare('SELECT COUNT(*) n FROM task_checklist_items WHERE task_id = ? AND is_completed = 0')
-      .get(taskId).n === 0
+      .prepare(
+        'SELECT COUNT(*) n FROM task_checklist_items WHERE task_id = ? AND is_completed = 0 AND agency_id = ?'
+      )
+      .get(taskId, agencyId).n === 0
   );
 }
 

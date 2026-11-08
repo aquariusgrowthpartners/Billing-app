@@ -26,13 +26,13 @@ const ORPHAN_QUERY = `
          cl.claim_name, cl.source AS claim_source,
          a.id IS NOT NULL AS agreement_exists
   FROM day_entries d
-  LEFT JOIN clients cu ON cu.id = d.client_id
-  LEFT JOIN claims cl ON cl.id = d.claim_id
-  LEFT JOIN agreements a ON a.id = d.agreement_id
-  WHERE cu.id IS NULL
-     OR COALESCE(cu.archived, 0) = 1
-     OR (d.claim_id IS NOT NULL AND cl.id IS NULL)
-      AND d.agency_id = @agency
+  LEFT JOIN clients cu ON cu.id = d.client_id AND cu.agency_id = d.agency_id
+  LEFT JOIN claims cl ON cl.id = d.claim_id AND cl.agency_id = d.agency_id
+  LEFT JOIN agreements a ON a.id = d.agreement_id AND a.agency_id = d.agency_id
+  WHERE d.agency_id = @agency
+    AND (cu.id IS NULL
+      OR COALESCE(cu.archived, 0) = 1
+      OR (d.claim_id IS NOT NULL AND cl.id IS NULL))
   ORDER BY d.work_date, d.id
 `;
 
@@ -67,8 +67,8 @@ router.get('/claims-dump', (req, res) => {
               c.first_name, c.last_name, c.ma_number,
               i.file_name, i.status AS import_status, i.total_payment AS import_payment
        FROM claims cl
-       LEFT JOIN clients c ON c.id = cl.client_id
-       LEFT JOIN ra_imports i ON i.id = cl.ra_import_id
+       LEFT JOIN clients c ON c.id = cl.client_id AND c.agency_id = cl.agency_id
+       LEFT JOIN ra_imports i ON i.id = cl.ra_import_id AND i.agency_id = cl.agency_id
            WHERE cl.agency_id = @agency
        ORDER BY cl.ra_import_id, cl.period_start, cl.id`
     )
@@ -172,12 +172,12 @@ router.get('/orphaned-entries/count', (req, res) => {
     .prepare(
       `SELECT COUNT(*) AS n
        FROM day_entries d
-       LEFT JOIN clients cu ON cu.id = d.client_id
-       LEFT JOIN claims cl ON cl.id = d.claim_id
-       WHERE cu.id IS NULL
-          OR COALESCE(cu.archived, 0) = 1
-          OR (d.claim_id IS NOT NULL AND cl.id IS NULL)
-              AND d.agency_id = @agency`
+       LEFT JOIN clients cu ON cu.id = d.client_id AND cu.agency_id = d.agency_id
+       LEFT JOIN claims cl ON cl.id = d.claim_id AND cl.agency_id = d.agency_id
+       WHERE d.agency_id = @agency
+         AND (cu.id IS NULL
+           OR COALESCE(cu.archived, 0) = 1
+           OR (d.claim_id IS NOT NULL AND cl.id IS NULL))`
     )
     .get({ agency: req.agencyId }).n;
   res.json({ count: n });
