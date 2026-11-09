@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../api.js';
 import { toast } from '../components/Toast.jsx';
@@ -112,7 +112,51 @@ export default function AskDundas() {
   const [asking, setAsking] = useState(false);
   const [result, setResult] = useState(null);
   const [sourcesOpen, setSourcesOpen] = useState(true);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const [pageTop, setPageTop] = useState(108);
   const inputRef = useRef(null);
+  const pageRef = useRef(null);
+
+  /*
+   * iOS does not resize the layout viewport for the on-screen keyboard; it
+   * only shrinks window.visualViewport. Track that difference and use it as the
+   * composer's bottom margin so the input sits directly on the keyboard.
+   */
+  useEffect(() => {
+    const page = pageRef.current;
+    if (!page) return undefined;
+
+    const vv = window.visualViewport;
+    const measureTop = () => {
+      const top = Math.max(0, Math.round(page.getBoundingClientRect().top));
+      setPageTop((current) => (current === top ? current : top));
+    };
+
+    const sync = () => {
+      let nextKeyboard = 0;
+      if (vv) {
+        nextKeyboard = Math.max(0, Math.round(window.innerHeight - vv.height));
+        setKeyboardHeight((current) => (current === nextKeyboard ? current : nextKeyboard));
+      }
+      // Do not remeasure while the keyboard is open: Safari may scroll the
+      // focused input, which would make the page height jump.
+      if (nextKeyboard === 0) measureTop();
+    };
+
+    // First measurement is with the keyboard closed.
+    measureTop();
+    sync();
+
+    vv?.addEventListener('resize', sync);
+    vv?.addEventListener('scroll', sync);
+    window.addEventListener('resize', sync);
+
+    return () => {
+      vv?.removeEventListener('resize', sync);
+      vv?.removeEventListener('scroll', sync);
+      window.removeEventListener('resize', sync);
+    };
+  }, []);
 
   async function ask(q) {
     const question = String(q ?? query).trim();
@@ -147,7 +191,15 @@ export default function AskDundas() {
   }
 
   return (
-    <div className="page wide ask-page" id="ask-page">
+    <div
+      className="page wide ask-page"
+      id="ask-page"
+      ref={pageRef}
+      style={{
+        '--ask-page-top': `${pageTop}px`,
+        '--ask-keyboard-height': `${keyboardHeight}px`,
+      }}
+    >
       <div className="page-head">
         <div>
           <h1>
@@ -232,7 +284,17 @@ export default function AskDundas() {
         )}
       </div>
 
-      <div className="ask-composer">
+      <div
+        className="ask-composer"
+        id="ask-composer"
+        style={{
+          marginBottom: keyboardHeight > 0 ? `${keyboardHeight}px` : 0,
+          paddingBottom:
+            keyboardHeight > 0
+              ? '12px'
+              : 'calc(12px + env(safe-area-inset-bottom, 0px))',
+        }}
+      >
         <div className="ask-input-row">
           <input
             ref={inputRef}

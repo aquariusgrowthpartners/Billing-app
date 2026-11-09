@@ -6503,3 +6503,64 @@ textarea:focus {
     align-self: center;
   }
 }
+
+/* ==================================================================
+   ASK DUNDAS — visual-viewport keyboard tracking (iOS Safari)
+   ================================================================== */
+
+.ask-page {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  max-height: calc(100dvh - var(--ask-page-top, 108px));
+  min-height: 0;
+  max-width: 100%;
+  overflow: hidden;
+  gap: 12px;
+}
+
+.ask-thread {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 8px;
+}
+
+.ask-composer {
+  position: relative;
+  bottom: auto;
+  flex: 0 0 auto;
+  max-width: 100%;
+  margin-top: 0;
+  transition: margin-bottom 180ms ease, padding-bottom 180ms ease;
+}
+
+.ask-input-row {
+  min-width: 0;
+}
+
+.ask-input {
+  min-width: 0;
+  min-height: 44px;
+  font-size: 16px;
+}
+
+.ask-send {
+  min-height: 44px;
+}
+
+@media (max-width: 768px) {
+  .ask-page {
+    height: 100dvh;
+    max-height: calc(100dvh - var(--ask-page-top, 108px));
+    min-height: 0;
+    justify-content: flex-start;
+  }
+
+  .ask-composer {
+    padding: 12px;
+  }
+}
