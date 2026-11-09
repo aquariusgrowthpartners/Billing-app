@@ -313,3 +313,125 @@ export async function summarise(text, { timeoutMs = 15000, agencyId = 1 } = {}) 
     clearTimeout(timer);
   }
 }
+
+/* ------------------------------------------------------------------ vision */
+
+const VISION_SYSTEM_PROMPT =
+  'You are an expert medical billing auditor. The attached image is an RA (Remittance Advice) letter. It may be physically rotated sideways or upside down. Read the text regardless of orientation. Extract the Member ID, Client Name, Date of Service, and Amount Paid. Return ONLY a JSON array of extracted records. Do not include markdown formatting.';
+
+function parseVisionJson(text) {
+  const cleaned = String(text ?? '')
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/\s*```$/i, '')
+    .trim();
+  try {
+    const parsed = JSON.parse(cleaned);
+    if (Array.isArray(parsed)) return parsed;
+    if (Array.isArray(parsed?.records)) return parsed.records;
+  } catch {
+    // Some models wrap the array in prose; try the bracketed slice.
+    const start = cleaned.indexOf('[');
+    const end = cleaned.lastIndexOf(']');
+    if (start >= 0 && end > start) {
+      try {
+        const parsed = JSON.parse(cleaned.slice(start, end + 1));
+        if (Array.isArray(parsed)) return parsed;
+      } catch {
+        /* fall through */
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Read a rotated/scanned RA image with Azure's vision-capable Responses model.
+ *
+ * Returns { records: [...] } on success or { error: "..." } on failure. The
+ * existing complete()/summarise() text functions are deliberately untouched.
+ */
+export async function verifyRaDocument(imageBase64, mimeType, agencyId = 1, timeoutMs = 60000) {
+  const config = aiConfig(agencyId);
+  if (config.disabled) return { error: AI_DISABLED_MESSAGE };
+  if (!config.enabled) return { error: NO_KEY };
+  if (config.provider !== 'azure') {
+    return { error: 'Azure Vision is not configured for this account.' };
+  }
+
+  const cfg = providerConfig(config.provider, config.azureEndpoint, config.azureDeployment);
+  if (!cfg) return { error: 'Azure Vision endpoint or deployment is missing.' };
+
+  const imageUrl = `data:${mimeType || 'image/png'};base64,${imageBase64}`;
+  const extractInstruction =
+    'Extract every RA record you can read. Use these keys: member_id, client_name, date_of_service, amount_paid. Return only the JSON array.';
+  const payload = cfg.responses
+    ? {
+        model: cfg.model,
+        input: [
+          { role: 'system', content: VISION_SYSTEM_PROMPT },
+          {
+            role: 'user',
+            content: [
+              { type: 'input_text', text: extractInstruction },
+              { type: 'input_image', image_url: imageUrl, detail: 'high' },
+            ],
+          },
+        ],
+        max_output_tokens: 2000,
+      }
+    : {
+        model: cfg.model,
+        max_tokens: 2000,
+        messages: [
+          { role: 'system', content: VISION_SYSTEM_PROMPT },
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: extractInstruction },
+              { type: 'image_url', image_url: { url: imageUrl, detail: 'high' } },
+            ],
+          },
+        ],
+      };
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(cfg.url, {
+      method: 'POST',
+      signal: controller.signal,
+      headers: requestHeaders(cfg, config.key),
+      body: JSON.stringify(payload),
+    });
+
+    if (res.status === 403) {
+      const body = await res.text().catch(() => '');
+      if (/quota|provision|initializ/i.test(body)) {
+        return { error: 'Azure quota provisioning in progress' };
+      }
+      console.warn(`[ai] Azure Vision 403: ${body.slice(0, 200)}`);
+      return { error: 'Azure Vision is unavailable for this account.' };
+    }
+
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      console.warn(`[ai] Azure Vision ${res.status}: ${body.slice(0, 200)}`);
+      return { error: `Azure Vision request failed (${res.status}).` };
+    }
+
+    const json = await res.json();
+    const text = completionText(json, cfg);
+    const records = parseVisionJson(text);
+    if (!records) {
+      console.warn('[ai] Azure Vision returned non-JSON output');
+      return { error: 'Azure Vision returned an unreadable response.' };
+    }
+    return { records };
+  } catch (err) {
+    const message = err?.name === 'AbortError' ? 'Azure Vision timed out.' : err.message;
+    console.warn(`[ai] Azure Vision failed: ${message}`);
+    return { error: 'Azure Vision request failed.' };
+  } finally {
+    clearTimeout(timer);
+  }
+}

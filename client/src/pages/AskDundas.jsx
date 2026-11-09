@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { formatMoney } from '../calc.js';
 import api from '../api.js';
 import { toast } from '../components/Toast.jsx';
 
@@ -112,6 +113,13 @@ const SUGGESTIONS = [
   'Find unbilled claims',
   'Show top clients',
 ];
+
+function visionAmount(record) {
+  const value = record?.amount_paid ?? record?.amountPaid;
+  if (value === null || value === undefined || value === '') return '—';
+  const n = Number(value);
+  return Number.isFinite(n) ? formatMoney(n) : String(value);
+}
 
 function timeLabel(ts) {
   try {
@@ -288,9 +296,17 @@ export default function AskDundas() {
     setVerifyError(null);
     setVerifyResult(null);
     try {
-      setVerifyResult(await api.verifyRa(verifyFile));
+      const data = await api.verifyRa(verifyFile);
+      setVerifyResult(
+        Array.isArray(data) ? { status: 'verified', records: data } : data
+      );
     } catch (err) {
-      setVerifyError(err.message);
+      const quota = /quota provisioning|initializ/i.test(err.message);
+      setVerifyError(
+        quota
+          ? 'AI Vision is currently initializing. Please try again in a few minutes.'
+          : err.message
+      );
     } finally {
       setVerifying(false);
     }
@@ -534,20 +550,17 @@ export default function AskDundas() {
               id="ask-verify-submit"
               disabled={!verifyFile || verifying}
             >
-              {verifying ? 'Verifying…' : 'Verify Document'}
+              {verifying ? (
+                <>
+                  <span className="ask-verify-spinner" aria-hidden="true" />
+                  Processing…
+                </>
+              ) : (
+                'Verify Document'
+              )}
             </button>
 
-            {verifyResult?.status === 'extracted' && (
-              <div className="ask-extracted-result" id="ask-extracted-result">
-                <strong>RA text extracted</strong>
-                <p>Review the extracted text below before it is sent for AI verification.</p>
-                <pre className="ask-extracted-text" tabIndex={0} aria-label="Extracted RA text">
-                  {verifyResult.raw_text}
-                </pre>
-              </div>
-            )}
-
-            {verifyResult && verifyResult.status !== 'extracted' && (
+            {verifyResult && (
               <div
                 className={`ask-verify-result ${verificationPassed ? 'ok' : 'failed'}`}
                 role="status"
@@ -588,6 +601,44 @@ export default function AskDundas() {
                     <span className="muted small">{verifyResult.file.name}</span>
                   )}
                 </div>
+              </div>
+            )}
+
+            {Array.isArray(verifyResult?.records) && (
+              <div className="ask-vision-records" id="ask-vision-records">
+                <div className="ask-vision-records-head">
+                  <strong>Extracted records</strong>
+                  <span className="muted small">
+                    {verifyResult.records.length} record
+                    {verifyResult.records.length === 1 ? '' : 's'}
+                  </span>
+                </div>
+                {verifyResult.records.length === 0 ? (
+                  <p className="muted small">No RA records were detected in this document.</p>
+                ) : (
+                  <div className="ask-vision-table-wrap">
+                    <table className="ask-vision-table">
+                      <thead>
+                        <tr>
+                          <th>Member ID</th>
+                          <th>Client Name</th>
+                          <th>Date of Service</th>
+                          <th className="num">Amount Paid</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {verifyResult.records.map((record, index) => (
+                          <tr key={index}>
+                            <td>{record.member_id ?? record.memberId ?? '—'}</td>
+                            <td>{record.client_name ?? record.clientName ?? '—'}</td>
+                            <td>{record.date_of_service ?? record.dateOfService ?? '—'}</td>
+                            <td className="num">{visionAmount(record)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </div>
             )}
           </form>
