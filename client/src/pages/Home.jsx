@@ -282,9 +282,18 @@ export default function Home({ user }) {
             Jan 1 – today{ytd ? ` · ${ytd.count ?? 0} paid claim${(ytd.count ?? 0) === 1 ? '' : 's'}` : ''}
           </span>
         </div>
-        <span className="metric-value ytd-claims-value" id="ytd-claims-total">
-          {formatMoney(ytd?.total ?? 0)}
-        </span>
+        <div className="ytd-claims-amount">
+          <span className="metric-value ytd-claims-value" id="ytd-claims-total">
+            {formatMoney(ytd?.total ?? 0)}
+          </span>
+          <span className="ytd-trend" aria-label="Active">
+            <svg viewBox="0 0 16 16" width="12" height="12" fill="none" aria-hidden="true">
+              <path d="M3 11l4-4 3 3 3-5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+              <path d="M10 5h3v3" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            Active
+          </span>
+        </div>
       </section>
 
       {/* ------------------------------------------- section A: caretakers */}

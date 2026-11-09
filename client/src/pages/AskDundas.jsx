@@ -272,6 +272,8 @@ export default function AskDundas() {
     (id, message) => (message.role === 'ai' ? message.id : id),
     null
   );
+  const verificationPassed =
+    verifyResult?.status === 'verified' && !(verifyResult?.discrepancies?.length > 0);
 
   function selectTab(next) {
     if (next === tab) return;
@@ -386,7 +388,13 @@ export default function AskDundas() {
         </span>
       </header>
 
-      <div className="ask-tabs" role="tablist" aria-label="Ask Dundas sections">
+      <div
+        className="ask-tabs"
+        role="tablist"
+        aria-label="Ask Dundas sections"
+        data-active={tab}
+      >
+        <span className="ask-tab-slider" aria-hidden="true" />
         <button
           type="button"
           role="tab"
@@ -489,13 +497,21 @@ export default function AskDundas() {
 
             <label className="ask-verify-drop" htmlFor="ask-verify-file">
               <span className="ask-verify-drop-icon" aria-hidden="true">
-                <svg viewBox="0 0 24 24" width="26" height="26" fill="none">
-                  <path d="M12 16V4m0 0L7 9m5-5l5 5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-                  <path d="M5 15v3a2 2 0 002 2h10a2 2 0 002-2v-3" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                <svg viewBox="0 0 24 24" width="30" height="30" fill="none">
+                  <path
+                    d="M7 3.5h6.5L19 9v9.5a2 2 0 01-2 2H7a2 2 0 01-2-2v-13a2 2 0 012-2z"
+                    stroke="currentColor"
+                    strokeWidth="1.7"
+                    strokeLinejoin="round"
+                  />
+                  <path d="M13.5 3.5V9H19" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" />
+                  <path d="M8.5 13h7M8.5 16.5h4.5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
                 </svg>
               </span>
               <span className="ask-verify-drop-copy">
-                <strong>{verifyFile ? verifyFile.name : 'Choose a PDF or image'}</strong>
+                <strong>
+                  {verifyFile ? verifyFile.name : 'Tap to upload RA Letter (PDF or Image)'}
+                </strong>
                 <span>{verifyFile ? 'Ready to verify' : 'PDF, PNG or JPG · up to 15 MB'}</span>
               </span>
               <input
@@ -523,24 +539,41 @@ export default function AskDundas() {
 
             {verifyResult && (
               <div
-                className={`ask-verify-result ${
-                  verifyResult.status === 'verified' ? 'ok' : 'warn'
-                }`}
+                className={`ask-verify-result ${verificationPassed ? 'ok' : 'failed'}`}
                 role="status"
                 aria-live="polite"
               >
                 <span className="ask-verify-result-mark" aria-hidden="true">
-                  {verifyResult.status === 'verified' ? '✓' : '!'}
+                  {verificationPassed ? (
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none">
+                      <path d="M5 12.5l4.2 4.2L19 7" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  ) : (
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none">
+                      <path d="M12 8v5" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
+                      <circle cx="12" cy="16.6" r="1.2" fill="currentColor" />
+                      <path d="M12 3.5L21 20H3L12 3.5z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+                    </svg>
+                  )}
                 </span>
                 <div>
-                  <strong>
-                    {verifyResult.status === 'verified' ? 'Verification Passed' : 'Review Required'}
-                  </strong>
+                  <strong>{verificationPassed ? 'Verification Passed' : 'Verification Failed'}</strong>
                   <p>
                     {verifyResult.discrepancies?.length
-                      ? `${verifyResult.discrepancies.length} discrepancies found.`
-                      : 'No discrepancies found.'}
+                      ? `${verifyResult.discrepancies.length} discrepanc${
+                          verifyResult.discrepancies.length === 1 ? 'y' : 'ies'
+                        } found.`
+                      : verificationPassed
+                        ? 'No discrepancies found.'
+                        : 'The document could not be verified.'}
                   </p>
+                  {verifyResult.discrepancies?.length > 0 && (
+                    <ul className="ask-verify-discrepancies">
+                      {verifyResult.discrepancies.map((d, i) => (
+                        <li key={i}>{typeof d === 'string' ? d : JSON.stringify(d)}</li>
+                      ))}
+                    </ul>
+                  )}
                   {verifyResult.file?.name && (
                     <span className="muted small">{verifyResult.file.name}</span>
                   )}

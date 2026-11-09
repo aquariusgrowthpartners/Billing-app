@@ -7130,3 +7130,250 @@ body {
     border-radius: 18px;
   }
 }
+
+/* ==================================================================
+   TASK 27 POLISH — YTD card, sliding tabs, upload/results
+   ================================================================== */
+
+#ytd-paid-claims {
+  background: linear-gradient(135deg, #eef6ff 0%, #f3f1ff 55%, #f8f9ff 100%);
+  border: 1px solid rgba(59, 130, 246, 0.16);
+  border-left: 4px solid var(--accent);
+  box-shadow: 0 12px 30px -18px rgba(59, 130, 246, 0.5);
+}
+
+[data-theme='dark'] #ytd-paid-claims {
+  background: linear-gradient(135deg, #162033 0%, #211b34 55%, #1d1b25 100%);
+  border-color: rgba(129, 140, 248, 0.22);
+  box-shadow: 0 12px 30px -18px rgba(0, 0, 0, 0.8);
+}
+
+.ytd-claims-amount {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.ytd-claims-value {
+  font-size: 34px;
+  font-weight: 750;
+  letter-spacing: -0.035em;
+  font-variant-numeric: tabular-nums;
+}
+
+.ytd-trend {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: #e3f8ec;
+  color: #157347;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+[data-theme='dark'] .ytd-trend {
+  background: rgba(34, 197, 94, 0.16);
+  color: #86efac;
+}
+
+/* ---- sliding segmented control ---- */
+.ask-tabs {
+  position: relative;
+  overflow: hidden;
+  background: #eef0f3;
+  border-color: transparent;
+}
+
+[data-theme='dark'] .ask-tabs {
+  background: #262626;
+}
+
+.ask-tab-slider {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  left: 4px;
+  width: calc(50% - 6px);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
+  pointer-events: none;
+  transition: transform 240ms cubic-bezier(0.4, 0, 0.2, 1);
+  z-index: 0;
+}
+
+.ask-tabs[data-active='verify'] .ask-tab-slider {
+  transform: translateX(calc(100% + 4px));
+}
+
+.ask-tabs .ask-tab {
+  position: relative;
+  z-index: 1;
+  background: transparent;
+  box-shadow: none;
+}
+
+.ask-tabs .ask-tab.active {
+  background: transparent;
+  box-shadow: none;
+  color: var(--text);
+}
+
+/* ---- premium upload dropzone ---- */
+.ask-verify-drop {
+  flex-direction: column;
+  justify-content: center;
+  gap: 10px;
+  min-height: 180px;
+  padding: 26px 20px;
+  text-align: center;
+  border: 2px dashed rgba(59, 130, 246, 0.28);
+  background: linear-gradient(180deg, #f8faff 0%, #f2f6ff 100%);
+}
+
+[data-theme='dark'] .ask-verify-drop {
+  border-color: rgba(129, 140, 248, 0.3);
+  background: linear-gradient(180deg, #1d2230 0%, #1b1f2b 100%);
+}
+
+.ask-verify-drop-icon {
+  width: 56px;
+  height: 56px;
+  border-radius: 16px;
+}
+
+.ask-verify-drop-copy {
+  align-items: center;
+  gap: 3px;
+}
+
+.ask-verify-drop-copy strong {
+  max-width: 100%;
+  font-size: 14px;
+  white-space: normal;
+  line-height: 1.35;
+}
+
+.ask-verify-drop-copy span {
+  font-size: 12px;
+}
+
+.ask-verify-submit {
+  width: 100%;
+  min-height: 48px;
+  font-weight: 700;
+}
+
+/* ---- success / failed result ---- */
+.ask-verify-result {
+  align-items: flex-start;
+  padding: 16px;
+  border-radius: 16px;
+}
+
+.ask-verify-result.ok {
+  border: 1px solid #22c55e;
+  background: #f0fdf4;
+  color: #166534;
+  box-shadow: 0 8px 20px -16px rgba(34, 197, 94, 0.5);
+}
+
+.ask-verify-result.failed {
+  border: 1px solid #ef4444;
+  background: #fef2f2;
+  color: #991b1b;
+  box-shadow: 0 8px 20px -16px rgba(239, 68, 68, 0.5);
+}
+
+[data-theme='dark'] .ask-verify-result.ok {
+  background: #0f2a1a;
+  border-color: #22c55e;
+  color: #86efac;
+}
+
+[data-theme='dark'] .ask-verify-result.failed {
+  background: #2a1414;
+  border-color: #ef4444;
+  color: #fca5a5;
+}
+
+.ask-verify-result-mark {
+  width: 32px;
+  height: 32px;
+  background: #dcfce7;
+  color: #16a34a;
+}
+
+.ask-verify-result.failed .ask-verify-result-mark {
+  background: #fee2e2;
+  color: #dc2626;
+}
+
+[data-theme='dark'] .ask-verify-result-mark {
+  background: rgba(34, 197, 94, 0.18);
+  color: #86efac;
+}
+
+[data-theme='dark'] .ask-verify-result.failed .ask-verify-result-mark {
+  background: rgba(239, 68, 68, 0.18);
+  color: #fca5a5;
+}
+
+.ask-verify-result strong {
+  font-size: 14px;
+  letter-spacing: -0.01em;
+}
+
+.ask-verify-result p {
+  margin: 3px 0 0;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.ask-verify-discrepancies {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+@media (max-width: 600px) {
+  #ytd-paid-claims {
+    padding: 20px;
+  }
+
+  .ytd-claims-amount {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .ytd-claims-value {
+    font-size: 30px;
+  }
+
+  .ask-verify-drop {
+    min-height: 168px;
+    padding: 22px 16px;
+  }
+}
+
+/* Beat the generic .metric-value size for the primary YTD number. */
+#ytd-claims-total {
+  font-size: 34px;
+  font-weight: 750;
+  letter-spacing: -0.035em;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 600px) {
+  #ytd-claims-total {
+    font-size: 30px;
+  }
+}
