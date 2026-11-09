@@ -267,6 +267,14 @@ router.post('/', async (req, res) => {
   try {
     /* Step A — intent */
     const a = await complete(query, { system: systemPlan(), timeoutMs: 20000, agencyId: req.agencyId });
+    if (a.source === 'disabled') {
+      return res.json({
+        answer: a.text,
+        sources: [],
+        unavailable: true,
+        disabled: true,
+      });
+    }
     if (a.source === 'none') {
       return res.json({
         answer:

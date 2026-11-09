@@ -1,6 +1,26 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import api from '../api.js';
 import { toast } from '../components/Toast.jsx';
+import Modal from '../components/Modal.jsx';
+
+const PROVIDERS = [
+  { value: 'deepseek', label: 'DeepSeek' },
+  { value: 'azure', label: 'Azure OpenAI' },
+  { value: 'openai', label: 'OpenAI' },
+  { value: 'none', label: 'None' },
+];
+
+const blankForm = {
+  name: '',
+  agency_tax_id: '',
+  office_npi: '',
+  ai_enabled: true,
+  ai_provider: 'deepseek',
+  ai_api_key: '',
+  azure_endpoint: '',
+  azure_deployment: '',
+  ai_key_set: false,
+};
 
 /**
  * Platform-owner view.
@@ -13,6 +33,9 @@ export default function SuperAdmin() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
+  const [editing, setEditing] = useState(null);
+  const [form, setForm] = useState(blankForm);
+  const [saving, setSaving] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -44,6 +67,46 @@ export default function SuperAdmin() {
     }
   }
 
+  function openEdit(agency) {
+    setEditing(agency);
+    setForm({
+      name: agency.name ?? '',
+      agency_tax_id: agency.agency_tax_id ?? '',
+      office_npi: agency.office_npi ?? '',
+      ai_enabled: String(agency.ai_enabled ?? '1') === '1',
+      ai_provider: agency.ai_provider || 'none',
+      ai_api_key: '',
+      azure_endpoint: agency.azure_endpoint ?? '',
+      azure_deployment: agency.azure_deployment ?? '',
+      ai_key_set: Boolean(agency.ai_key_set),
+    });
+  }
+
+  async function saveEdit(e) {
+    e.preventDefault();
+    if (!editing) return;
+    setSaving(true);
+    try {
+      await api.superadminUpdateAgency(editing.id, {
+        name: form.name,
+        agency_tax_id: form.agency_tax_id,
+        office_npi: form.office_npi,
+        ai_enabled: form.ai_enabled ? 1 : 0,
+        ai_provider: form.ai_provider,
+        ai_api_key: form.ai_api_key,
+        azure_endpoint: form.azure_endpoint,
+        azure_deployment: form.azure_deployment,
+      });
+      toast.success(`${form.name || editing.name} updated.`);
+      setEditing(null);
+      await load();
+    } catch (err) {
+      toast.error(err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
   const agencies = data?.agencies ?? [];
 
   return (
@@ -51,7 +114,7 @@ export default function SuperAdmin() {
       <div className="page-head">
         <div>
           <h1>Super Admin</h1>
-          <p className="muted">Platform-wide agency usage and demo configuration.</p>
+          <p className="muted">Platform-wide agency usage and AI configuration.</p>
         </div>
         <button className="btn" onClick={load} disabled={loading || busy}>
           {loading ? 'Refreshing…' : 'Refresh'}
@@ -78,7 +141,9 @@ export default function SuperAdmin() {
                 <th className="num">Clients</th>
                 <th className="num">Claims</th>
                 <th>AI provider</th>
-                <th>AI key</th>
+                <th>AI status</th>
+                <th>Key</th>
+                <th></th>
               </tr>
             </thead>
             <tbody>
@@ -93,22 +158,34 @@ export default function SuperAdmin() {
                   <td className="num">{a.claims ?? 0}</td>
                   <td>{a.ai_provider || 'none'}</td>
                   <td>
+                    {String(a.ai_enabled ?? '1') === '1' ? (
+                      <span className="pill ok">Active</span>
+                    ) : (
+                      <span className="pill">Disabled</span>
+                    )}
+                  </td>
+                  <td>
                     {a.ai_key_set ? (
                       <span className="pill ok">configured</span>
                     ) : (
-                      <span className="pill muted">none</span>
+                      <span className="pill">none</span>
                     )}
+                  </td>
+                  <td>
+                    <button className="btn tiny" onClick={() => openEdit(a)}>
+                      Edit
+                    </button>
                   </td>
                 </tr>
               ))}
               {!loading && agencies.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="empty">No agencies found.</td>
+                  <td colSpan={8} className="empty">No agencies found.</td>
                 </tr>
               )}
               {loading && agencies.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="empty">Loading agencies…</td>
+                  <td colSpan={8} className="empty">Loading agencies…</td>
                 </tr>
               )}
             </tbody>
@@ -121,7 +198,7 @@ export default function SuperAdmin() {
           <div>
             <h2>Demo account AI</h2>
             <p className="muted small" style={{ margin: '2px 0 0' }}>
-              Let the public Demo Agency use your DeepSeek/OpenAI key.
+              Let the public Demo Agency use your DeepSeek/OpenAI/Azure key.
             </p>
           </div>
         </div>
@@ -146,6 +223,118 @@ export default function SuperAdmin() {
           </p>
         </div>
       </section>
+
+      {editing && (
+        <Modal
+          title={`Edit ${editing.name}`}
+          subtitle={`agency #${editing.id}`}
+          onClose={() => !saving && setEditing(null)}
+          width={620}
+        >
+          <form onSubmit={saveEdit}>
+            <label>
+              Agency Name
+              <input
+                id="edit-agency-name"
+                value={form.name}
+                onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                required
+              />
+            </label>
+            <div className="grid-2">
+              <label>
+                Tax ID
+                <input
+                  id="edit-agency-tax"
+                  value={form.agency_tax_id}
+                  onChange={(e) => setForm((f) => ({ ...f, agency_tax_id: e.target.value }))}
+                />
+              </label>
+              <label>
+                Office NPI
+                <input
+                  id="edit-agency-npi"
+                  value={form.office_npi}
+                  onChange={(e) => setForm((f) => ({ ...f, office_npi: e.target.value }))}
+                />
+              </label>
+            </div>
+
+            <label className="checkbox" style={{ marginTop: 12, alignItems: 'center', gap: 10 }}>
+              <input
+                type="checkbox"
+                id="edit-ai-enabled"
+                checked={form.ai_enabled}
+                onChange={(e) => setForm((f) => ({ ...f, ai_enabled: e.target.checked }))}
+              />
+              <strong>Enable AI Features</strong>
+            </label>
+
+            {form.ai_enabled && (
+              <div id="edit-ai-fields">
+                <label>
+                  AI Provider
+                  <select
+                    id="edit-ai-provider"
+                    value={form.ai_provider}
+                    onChange={(e) => setForm((f) => ({ ...f, ai_provider: e.target.value }))}
+                  >
+                    {PROVIDERS.map((p) => (
+                      <option key={p.value} value={p.value}>{p.label}</option>
+                    ))}
+                  </select>
+                </label>
+
+                {form.ai_provider !== 'none' && (
+                  <label>
+                    AI API Key
+                    <input
+                      id="edit-ai-key"
+                      type="password"
+                      autoComplete="off"
+                      value={form.ai_api_key}
+                      placeholder={form.ai_key_set ? 'Leave blank to keep the saved key' : 'Paste a key'}
+                      onChange={(e) => setForm((f) => ({ ...f, ai_api_key: e.target.value }))}
+                    />
+                  </label>
+                )}
+
+                {form.ai_provider === 'azure' && (
+                  <div className="grid-2">
+                    <label>
+                      Azure Endpoint URL
+                      <input
+                        id="edit-azure-endpoint"
+                        value={form.azure_endpoint}
+                        placeholder="https://your-resource.openai.azure.com"
+                        onChange={(e) => setForm((f) => ({ ...f, azure_endpoint: e.target.value }))}
+                      />
+                    </label>
+                    <label>
+                      Azure Deployment Name
+                      <input
+                        id="edit-azure-deployment"
+                        value={form.azure_deployment}
+                        placeholder="gpt-4o-mini"
+                        onChange={(e) => setForm((f) => ({ ...f, azure_deployment: e.target.value }))}
+                      />
+                    </label>
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="form-actions" style={{ marginTop: 16 }}>
+              <button type="button" className="btn" onClick={() => setEditing(null)} disabled={saving}>
+                Cancel
+              </button>
+              <button type="submit" className="btn primary" id="edit-agency-save" disabled={saving}>
+                {saving ? 'Saving…' : 'Save changes'}
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
     </div>
   );
 }

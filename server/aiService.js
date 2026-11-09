@@ -20,22 +20,101 @@ const PROVIDERS = {
 };
 
 export const NO_KEY = 'AI Summary unavailable (no API key configured in settings).';
+export const AI_DISABLED_MESSAGE =
+  'AI features are currently disabled for your account. Please contact support to upgrade your plan.';
 export const GIBBERISH = 'Text extraction failed (scanned or corrupted PDF). Please view the file directly.';
 
 const PROMPT =
   'Summarize the following document in exactly two sentences. Focus on action items and dates:';
 
-/** Read the current AI configuration from the settings table. */
-export function aiConfig(agencyId = 1) {
+const AI_SETTING_KEYS = [
+  'ai_enabled',
+  'ai_provider',
+  'ai_api_key',
+  'azure_endpoint',
+  'azure_deployment',
+];
+
+function aiSettings(agencyId) {
   const rows = db
     .prepare(
-      "SELECT key, value FROM settings WHERE agency_id = ? AND key IN ('ai_provider','ai_api_key')"
+      `SELECT key, value FROM settings
+        WHERE agency_id = ? AND key IN (${AI_SETTING_KEYS.map(() => '?').join(',')})`
     )
-    .all(agencyId);
-  const map = Object.fromEntries(rows.map((r) => [r.key, r.value]));
-  const provider = String(map.ai_provider ?? 'none').toLowerCase();
-  const key = String(map.ai_api_key ?? '').trim();
-  return { provider, key, enabled: provider !== 'none' && Boolean(key) };
+    .all(agencyId, ...AI_SETTING_KEYS);
+  return Object.fromEntries(rows.map((r) => [r.key, r.value]));
+}
+
+function normalizeProvider(value) {
+  const p = String(value ?? '').trim().toLowerCase();
+  if (p === 'azure-openai' || p === 'azure_openai') return 'azure';
+  return ['deepseek', 'openai', 'azure'].includes(p) ? p : 'none';
+}
+
+/**
+ * Read the current AI configuration.
+ *
+ * The tenant's own ai_enabled flag is authoritative. If a tenant has no key
+ * (or provider) of its own, a non-super tenant may use Agency 1's key. This
+ * keeps the demo/tenant AI working without duplicating secrets into every
+ * settings row.
+ */
+export function aiConfig(agencyId = 1) {
+  const own = aiSettings(agencyId);
+  if (String(own.ai_enabled ?? '1') === '0') {
+    return {
+      provider: 'none',
+      key: '',
+      azureEndpoint: '',
+      azureDeployment: '',
+      enabled: false,
+      disabled: true,
+    };
+  }
+
+  let provider = normalizeProvider(own.ai_provider);
+  let key = String(own.ai_api_key ?? '').trim();
+  let azureEndpoint = String(own.azure_endpoint ?? '').trim();
+  let azureDeployment = String(own.azure_deployment ?? '').trim();
+
+  if (agencyId !== 1) {
+    const superSettings = aiSettings(1);
+    if (provider === 'none') provider = normalizeProvider(superSettings.ai_provider);
+    if (!key) key = String(superSettings.ai_api_key ?? '').trim();
+    if (!azureEndpoint) azureEndpoint = String(superSettings.azure_endpoint ?? '').trim();
+    if (!azureDeployment) azureDeployment = String(superSettings.azure_deployment ?? '').trim();
+  }
+
+  const azureReady = provider !== 'azure' || Boolean(azureEndpoint && azureDeployment);
+  return {
+    provider,
+    key,
+    azureEndpoint,
+    azureDeployment,
+    enabled: provider !== 'none' && Boolean(key) && azureReady,
+    disabled: false,
+  };
+}
+
+function providerConfig(provider, azureEndpoint, azureDeployment) {
+  if (provider === 'azure') {
+    if (!azureEndpoint || !azureDeployment) return null;
+    const base = azureEndpoint.replace(/\/+$/, '');
+    return {
+      url: `${base}/openai/deployments/${encodeURIComponent(
+        azureDeployment
+      )}/chat/completions?api-version=2024-02-15-preview`,
+      model: azureDeployment,
+      azure: true,
+    };
+  }
+  return PROVIDERS[provider] ?? null;
+}
+
+function requestHeaders(cfg, key) {
+  return cfg.azure
+    ? { 'Content-Type': 'application/json', 'api-key': key }
+    : { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` };
 }
 
 /**
@@ -99,10 +178,11 @@ export function firstTwoSentences(text, maxChars = 320) {
  * Returns { text, source }. Never throws — provider problems come back as text.
  */
 export async function complete(userPrompt, { system, timeoutMs = 20000, agencyId = 1 } = {}) {
-  const { provider, key, enabled } = aiConfig(agencyId);
-  if (!enabled) return { text: NO_KEY, source: 'none' };
+  const config = aiConfig(agencyId);
+  if (config.disabled) return { text: AI_DISABLED_MESSAGE, source: 'disabled' };
+  if (!config.enabled) return { text: NO_KEY, source: 'none' };
 
-  const cfg = PROVIDERS[provider];
+  const cfg = providerConfig(config.provider, config.azureEndpoint, config.azureDeployment);
   if (!cfg) return { text: NO_KEY, source: 'none' };
 
   const controller = new AbortController();
@@ -111,7 +191,7 @@ export async function complete(userPrompt, { system, timeoutMs = 20000, agencyId
     const res = await fetch(cfg.url, {
       method: 'POST',
       signal: controller.signal,
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
+      headers: requestHeaders(cfg, config.key),
       body: JSON.stringify({
         model: cfg.model,
         temperature: 0.3,
@@ -129,15 +209,15 @@ export async function complete(userPrompt, { system, timeoutMs = 20000, agencyId
     });
     if (!res.ok) {
       const body = await res.text().catch(() => '');
-      throw new Error(`${provider} ${res.status}: ${body.slice(0, 160)}`);
+      throw new Error(`${config.provider} ${res.status}: ${body.slice(0, 160)}`);
     }
     const json = await res.json();
     const text = json?.choices?.[0]?.message?.content?.trim();
     if (!text) throw new Error('empty completion');
-    return { text, source: provider };
+    return { text, source: config.provider };
   } catch (err) {
-    console.warn(`[ai] ${provider} completion failed: ${err.message}`);
-    return { text: `AI Summary unavailable (${provider} request failed).`, source: 'none' };
+    console.warn(`[ai] ${config.provider} completion failed: ${err.message}`);
+    return { text: `AI Summary unavailable (${config.provider} request failed).`, source: 'none' };
   } finally {
     clearTimeout(timer);
   }
@@ -148,15 +228,15 @@ export async function complete(userPrompt, { system, timeoutMs = 20000, agencyId
  * Returns { summary, source } — source is 'deepseek' | 'openai' | 'none' | 'gibberish'.
  */
 export async function summarise(text, { timeoutMs = 15000, agencyId = 1 } = {}) {
+  const config = aiConfig(agencyId);
+  if (config.disabled) return { summary: AI_DISABLED_MESSAGE, source: 'disabled' };
   if (!text || !String(text).trim()) return { summary: GIBBERISH, source: 'gibberish' };
   if (isGibberish(text)) return { summary: GIBBERISH, source: 'gibberish' };
+  if (!config.enabled) return { summary: NO_KEY, source: 'none' };
 
-  const { provider, key, enabled } = aiConfig(agencyId);
-  if (!enabled) return { summary: NO_KEY, source: 'none' };
-
-  const cfg = PROVIDERS[provider];
+  const cfg = providerConfig(config.provider, config.azureEndpoint, config.azureDeployment);
   if (!cfg) {
-    console.warn(`[ai] unknown provider "${provider}"`);
+    console.warn(`[ai] unknown provider "${config.provider}"`);
     return { summary: NO_KEY, source: 'none' };
   }
 
@@ -166,10 +246,7 @@ export async function summarise(text, { timeoutMs = 15000, agencyId = 1 } = {}) 
     const res = await fetch(cfg.url, {
       method: 'POST',
       signal: controller.signal,
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${key}`,
-      },
+      headers: requestHeaders(cfg, config.key),
       body: JSON.stringify({
         model: cfg.model,
         temperature: 0.2,
@@ -182,16 +259,16 @@ export async function summarise(text, { timeoutMs = 15000, agencyId = 1 } = {}) 
     });
     if (!res.ok) {
       const body = await res.text().catch(() => '');
-      throw new Error(`${provider} ${res.status}: ${body.slice(0, 160)}`);
+      throw new Error(`${config.provider} ${res.status}: ${body.slice(0, 160)}`);
     }
     const json = await res.json();
     const summary = json?.choices?.[0]?.message?.content?.trim();
     if (!summary) throw new Error('empty completion');
-    return { summary, source: provider };
+    return { summary, source: config.provider };
   } catch (err) {
-    console.warn(`[ai] ${provider} summary failed: ${err.message}`);
+    console.warn(`[ai] ${config.provider} summary failed: ${err.message}`);
     // Never block the upload on a provider problem.
-    return { summary: `AI Summary unavailable (${provider} request failed).`, source: 'none' };
+    return { summary: `AI Summary unavailable (${config.provider} request failed).`, source: 'none' };
   } finally {
     clearTimeout(timer);
   }

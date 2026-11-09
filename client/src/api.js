@@ -53,6 +53,8 @@ export const api = {
   superadminAgencies: () => request('/superadmin/agencies'),
   toggleDemoAi: (enabled) =>
     request('/superadmin/demo-ai', { method: 'POST', body: JSON.stringify({ enabled }) }),
+  superadminUpdateAgency: (id, body) =>
+    request(`/superadmin/agencies/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
   changePassword: (body) =>
     request('/auth/change-password', { method: 'POST', body: JSON.stringify(body) }),
   signup: (body) => request('/auth/signup', { method: 'POST', body: JSON.stringify(body) }),

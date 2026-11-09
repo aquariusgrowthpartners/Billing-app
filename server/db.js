@@ -1218,4 +1218,22 @@ function ensureRealAdmin() {
 ensureDemoAgency();
 ensureRealAdmin();
 
+/**
+ * Every agency gets an explicit AI feature switch. This is a default only:
+ * an existing '0' is never overwritten.
+ */
+function ensureAgencyAiDefaults() {
+  const agencies = db.prepare(`SELECT id FROM agencies`).all();
+  const insert = db.prepare(
+    `INSERT INTO settings (agency_id, key, value, updated_at)
+     VALUES (?, 'ai_enabled', '1', datetime('now'))
+     ON CONFLICT(agency_id, key) DO NOTHING`
+  );
+  db.transaction(() => {
+    for (const agency of agencies) insert.run(agency.id);
+  })();
+}
+
+ensureAgencyAiDefaults();
+
 export default db;

@@ -26,7 +26,21 @@ router.use((req, res, next) => {
 });
 
 function demoAgency() {
-  return db.prepare(`SELECT id, name FROM agencies WHERE name = 'Demo Agency'`).get() ?? null;
+  return (
+    db
+      .prepare(
+        `SELECT a.id, a.name
+           FROM agencies a
+          WHERE a.name = 'Demo Agency'
+             OR EXISTS (
+               SELECT 1 FROM users u
+                WHERE u.agency_id = a.id AND lower(u.email) = 'demo@dundas.com'
+             )
+          ORDER BY CASE WHEN a.name = 'Demo Agency' THEN 0 ELSE 1 END, a.id
+          LIMIT 1`
+      )
+      .get() ?? null
+  );
 }
 
 function valueFor(agencyId, key) {
@@ -47,6 +61,16 @@ router.get('/agencies', (req, res) => {
               (SELECT COUNT(*) FROM users u WHERE u.agency_id = a.id) AS users,
               COALESCE((SELECT s.value FROM settings s
                          WHERE s.agency_id = a.id AND s.key = 'ai_provider'), 'none') AS ai_provider,
+              COALESCE((SELECT s.value FROM settings s
+                         WHERE s.agency_id = a.id AND s.key = 'ai_enabled'), '1') AS ai_enabled,
+              COALESCE((SELECT s.value FROM settings s
+                         WHERE s.agency_id = a.id AND s.key = 'agency_tax_id'), '') AS agency_tax_id,
+              COALESCE((SELECT s.value FROM settings s
+                         WHERE s.agency_id = a.id AND s.key = 'office_npi'), '') AS office_npi,
+              COALESCE((SELECT s.value FROM settings s
+                         WHERE s.agency_id = a.id AND s.key = 'azure_endpoint'), '') AS azure_endpoint,
+              COALESCE((SELECT s.value FROM settings s
+                         WHERE s.agency_id = a.id AND s.key = 'azure_deployment'), '') AS azure_deployment,
               CASE WHEN EXISTS (
                 SELECT 1 FROM settings s
                  WHERE s.agency_id = a.id
@@ -70,6 +94,70 @@ router.get('/agencies', (req, res) => {
   });
 });
 
+/** PUT /api/superadmin/agencies/:id — edit one agency's profile/AI config. */
+router.put('/agencies/:id', (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'Invalid agency id.' });
+  const agency = db.prepare(`SELECT id, name FROM agencies WHERE id = ?`).get(id);
+  if (!agency) return res.status(404).json({ error: 'Agency not found.' });
+
+  const b = req.body ?? {};
+  const settingsUpdates = {};
+
+  let name = null;
+  if ('name' in b || 'agency_name' in b) {
+    name = String(b.name ?? b.agency_name ?? '').trim();
+    if (!name) return res.status(400).json({ error: 'Agency name cannot be empty.' });
+    settingsUpdates.agency_name = name;
+  }
+  if ('agency_tax_id' in b) {
+    settingsUpdates.agency_tax_id = String(b.agency_tax_id ?? '').trim();
+  }
+  if ('office_npi' in b) {
+    settingsUpdates.office_npi = String(b.office_npi ?? '').trim();
+  }
+  if ('ai_provider' in b) {
+    const raw = String(b.ai_provider ?? 'none').trim().toLowerCase();
+    const provider = raw === 'azure-openai' || raw === 'azure_openai' ? 'azure' : raw;
+    if (!['none', 'deepseek', 'openai', 'azure'].includes(provider)) {
+      return res.status(400).json({ error: 'ai_provider must be none, deepseek, openai or azure.' });
+    }
+    settingsUpdates.ai_provider = provider;
+  }
+  if ('ai_api_key' in b) {
+    const key = String(b.ai_api_key ?? '').trim();
+    if (key) settingsUpdates.ai_api_key = key; // blank = keep existing key
+  }
+  if (b.clear_ai_key === true) settingsUpdates.ai_api_key = '';
+  if ('azure_endpoint' in b) {
+    settingsUpdates.azure_endpoint = String(b.azure_endpoint ?? '').trim();
+  }
+  if ('azure_deployment' in b) {
+    settingsUpdates.azure_deployment = String(b.azure_deployment ?? '').trim();
+  }
+  if ('ai_enabled' in b) {
+    settingsUpdates.ai_enabled =
+      b.ai_enabled === false || b.ai_enabled === 0 || String(b.ai_enabled) === '0' ? '0' : '1';
+  }
+
+  const upsert = db.prepare(
+    `INSERT INTO settings (agency_id, key, value, updated_at)
+     VALUES (?, ?, ?, datetime('now'))
+     ON CONFLICT(agency_id, key) DO UPDATE SET
+       value = excluded.value,
+       updated_at = excluded.updated_at`
+  );
+
+  db.transaction(() => {
+    if (name) db.prepare(`UPDATE agencies SET name = ? WHERE id = ?`).run(name, id);
+    for (const [key, value] of Object.entries(settingsUpdates)) {
+      upsert.run(id, key, value);
+    }
+  })();
+
+  res.json({ ok: true, agency_id: id });
+});
+
 /** POST /api/superadmin/demo-ai  { enabled: true|false } */
 router.post('/demo-ai', (req, res) => {
   const demo = demoAgency();
@@ -84,6 +172,8 @@ router.post('/demo-ai', (req, res) => {
       });
     }
     const superProvider = valueFor(req.agencyId, 'ai_provider') || 'deepseek';
+    const superEndpoint = valueFor(req.agencyId, 'azure_endpoint');
+    const superDeployment = valueFor(req.agencyId, 'azure_deployment');
     const upsert = db.prepare(
       `INSERT INTO settings (agency_id, key, value, updated_at)
        VALUES (?, ?, ?, datetime('now'))
@@ -94,6 +184,8 @@ router.post('/demo-ai', (req, res) => {
     db.transaction(() => {
       upsert.run(demo.id, 'ai_api_key', superKey);
       upsert.run(demo.id, 'ai_provider', superProvider);
+      if (superEndpoint) upsert.run(demo.id, 'azure_endpoint', superEndpoint);
+      if (superDeployment) upsert.run(demo.id, 'azure_deployment', superDeployment);
     })();
   } else {
     db.prepare(`DELETE FROM settings WHERE agency_id = ? AND key = 'ai_api_key'`).run(demo.id);

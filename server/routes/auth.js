@@ -49,6 +49,10 @@ router.post('/signup', (req, res) => {
       const agencyId = Number(
         db.prepare('INSERT INTO agencies (name) VALUES (?)').run(agencyName).lastInsertRowid
       );
+      db.prepare(
+        `INSERT INTO settings (agency_id, key, value) VALUES (?, 'ai_enabled', '1')
+         ON CONFLICT(agency_id, key) DO NOTHING`
+      ).run(agencyId);
       const userId = Number(
         db
           .prepare(
