@@ -6835,3 +6835,85 @@ body {
     max-width: 92%;
   }
 }
+
+/* ==================================================================
+   SMOOTH ROUTE TRANSITIONS + SKELETON SHELLS
+   ================================================================== */
+
+/* Native View Transitions (Chrome/Edge). */
+::view-transition-old(root) {
+  animation: 200ms ease-out view-fade-out;
+}
+
+::view-transition-new(root) {
+  animation: 200ms ease-in view-fade-in;
+}
+
+@keyframes view-fade-out {
+  to {
+    opacity: 0;
+    transform: translateX(-10px);
+  }
+}
+
+@keyframes view-fade-in {
+  from {
+    opacity: 0;
+    transform: translateX(10px);
+  }
+}
+
+/* Fallback for Safari/Firefox and for browsers without the View Transitions API. */
+@keyframes page-slide-in {
+  from {
+    opacity: 0;
+    transform: translateX(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.page-enter {
+  animation: page-slide-in 200ms ease-out both;
+}
+
+.skeleton-page {
+  min-height: calc(100dvh - 140px);
+  gap: 16px;
+}
+
+.sk-page-head {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 4px 0;
+}
+
+.sk-page-card {
+  min-height: 240px;
+  gap: 14px;
+  padding: 24px;
+}
+
+.sk-table-row td {
+  padding: 14px 10px;
+}
+
+.sk-table-row .sk-line {
+  height: 12px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-old(root),
+  ::view-transition-new(root),
+  .page-enter {
+    animation: none !important;
+  }
+}
+
+/* Keep short pages from collapsing while their data loads. */
+.page:not(.ask-page) {
+  min-height: calc(100dvh - 120px);
+}

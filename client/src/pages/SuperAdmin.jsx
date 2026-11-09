@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import api from '../api.js';
 import { toast } from '../components/Toast.jsx';
 import Modal from '../components/Modal.jsx';
+import { SkeletonRows } from '../components/Skeleton.jsx';
 
 const PROVIDERS = [
   { value: 'deepseek', label: 'DeepSeek' },
@@ -184,9 +185,7 @@ export default function SuperAdmin() {
                 </tr>
               )}
               {loading && agencies.length === 0 && (
-                <tr>
-                  <td colSpan={8} className="empty">Loading agencies…</td>
-                </tr>
+                <SkeletonRows rows={3} cols={8} />
               )}
             </tbody>
           </table>

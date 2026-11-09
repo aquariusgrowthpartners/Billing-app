@@ -1,3 +1,4 @@
+import SkeletonPage from '../components/SkeletonPage.jsx';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import api from '../api.js';
@@ -213,7 +214,7 @@ export default function CaretakerProfile() {
     setMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
   }
 
-  if (loading && !caretaker) return <div className="page wide"><p className="empty">Loading…</p></div>;
+  if (loading && !caretaker) return <SkeletonPage />;
   if (!caretaker) return <div className="page wide"><p className="empty">{error ?? 'Caretaker not found.'}</p></div>;
 
   const p = summary?.period;

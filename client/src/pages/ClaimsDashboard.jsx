@@ -7,6 +7,7 @@ import { useClaimActions } from '../components/ClaimActionModals.jsx';
 import { formatMoney, todayISO } from '../calc.js';
 import { download } from '../download.js';
 import EmptyState from '../components/EmptyState.jsx';
+import { SkeletonCards } from '../components/Skeleton.jsx';
 import InsightBar from '../components/InsightBar.jsx';
 
 export default function ClaimsDashboard({ user }) {
@@ -267,7 +268,7 @@ export default function ClaimsDashboard({ user }) {
           </button>
         </div>
         {loading && !claims.length ? (
-          <p className="empty">Loading claims…</p>
+          <SkeletonCards count={5} />
         ) : claims.length === 0 ? (
           <EmptyState icon="🧾" title="No claims yet" id="claims-empty">
             Open a <Link to="/clients">client</Link> → <strong>Generate Claim</strong> to create the

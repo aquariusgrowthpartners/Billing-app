@@ -10,6 +10,7 @@ import AgreementForm from '../components/AgreementForm.jsx';
 import GenerateClaimDialog from '../components/GenerateClaimDialog.jsx';
 import ClaimEditDialog from '../components/ClaimEditDialog.jsx';
 import ClaimsTable from '../components/ClaimsTable.jsx';
+import SkeletonPage from '../components/SkeletonPage.jsx';
 import { formatClientName, formatLongDate, formatMoney, todayISO } from '../calc.js';
 
 const STATUS_CLASS = {
@@ -361,7 +362,7 @@ export default function ClientProfile() {
     return (
       <div className="page">
         <BackLink />
-        <div className="empty">{loading ? 'Loading client…' : 'Client not found.'}</div>
+        {loading ? <SkeletonPage /> : <div className="empty">Client not found.</div>}
       </div>
     );
   }

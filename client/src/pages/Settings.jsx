@@ -5,6 +5,7 @@ import { MODES, PRESETS, getStored, setTheme, resolveHex, getContrastColor } fro
 import { clearToken } from '../api.js';
 import { download, renderTemplate, SAMPLE_PARTS } from '../download.js';
 import Modal from '../components/Modal.jsx';
+import { SkeletonCards } from '../components/Skeleton.jsx';
 import { formatLongDate, formatMoney } from '../calc.js';
 
 /**
@@ -1607,7 +1608,7 @@ function Payers({ onError, note }) {
       </div>
 
       {loading && !payers.length ? (
-        <p className="empty">Loading payers…</p>
+        <SkeletonCards count={3} />
       ) : (
         <div className="table-scroll hide-on-mobile">
           <table className="table">

@@ -1,26 +1,31 @@
 import React, { lazy, Suspense, useEffect, useState, useRef } from 'react';
-import { BrowserRouter, Routes, Route, NavLink, Link, useLocation } from 'react-router-dom';
-import { motion, AnimatePresence } from 'framer-motion';
-import Home from './pages/Home.jsx';
-import ClientList from './pages/ClientList.jsx';
-import ClientProfile from './pages/ClientProfile.jsx';
-import ClaimsDashboard from './pages/ClaimsDashboard.jsx';
-import Settings from './pages/Settings.jsx';
-import Caretakers from './pages/Caretakers.jsx';
-import CaretakerProfile from './pages/CaretakerProfile.jsx';
-import ImportRa from './pages/ImportRa.jsx';
-import Spreadsheet from './pages/Spreadsheet.jsx';
-import Denials from './pages/Denials.jsx';
-import Tasks from './pages/Tasks.jsx';
-import AskDundas from './pages/AskDundas.jsx';
+import { BrowserRouter, Routes, Route, NavLink, useLocation, useNavigate } from 'react-router-dom';
+import { flushSync } from 'react-dom';
 import { ToastProvider } from './components/Toast.jsx';
+import SkeletonPage from './components/SkeletonPage.jsx';
 import Login from './pages/Login.jsx';
 import ChangePassword from './pages/ChangePassword.jsx';
-import SuperAdmin from './pages/SuperAdmin.jsx';
 import { getToken, clearToken } from './api.js';
 import api from './api.js';
 
-// recharts is heavy and only needed on one page, so Reports is split out.
+/*
+ * Route pages are split into their own chunks. The router renders the skeleton
+ * immediately, then the page chunk resolves — so a menu tap never waits on a
+ * heavy bundle (Reports especially).
+ */
+const Home = lazy(() => import('./pages/Home.jsx'));
+const ClientList = lazy(() => import('./pages/ClientList.jsx'));
+const ClientProfile = lazy(() => import('./pages/ClientProfile.jsx'));
+const ClaimsDashboard = lazy(() => import('./pages/ClaimsDashboard.jsx'));
+const Settings = lazy(() => import('./pages/Settings.jsx'));
+const Caretakers = lazy(() => import('./pages/Caretakers.jsx'));
+const CaretakerProfile = lazy(() => import('./pages/CaretakerProfile.jsx'));
+const ImportRa = lazy(() => import('./pages/ImportRa.jsx'));
+const Spreadsheet = lazy(() => import('./pages/Spreadsheet.jsx'));
+const Denials = lazy(() => import('./pages/Denials.jsx'));
+const Tasks = lazy(() => import('./pages/Tasks.jsx'));
+const AskDundas = lazy(() => import('./pages/AskDundas.jsx'));
+const SuperAdmin = lazy(() => import('./pages/SuperAdmin.jsx'));
 const Reports = lazy(() => import('./pages/Reports.jsx'));
 
 // React Router must know about the path Vite is mounted under (/billing/).
@@ -163,20 +168,72 @@ function RoutedPage({ children }) {
   );
 }
 
-/** Page-level enter/exit motion. Keyed by pathname so detail pages animate too. */
+/**
+ * Page shell.
+ *
+ * Chrome/Edge use the native View Transitions API for a true cross-document
+ * feel. Safari/Firefox get the `.page-enter` CSS fallback. Internal anchor
+ * clicks are intercepted so the route state update happens inside the native
+ * transition callback.
+ */
 function AnimatedRoutes({ user }) {
   const location = useLocation();
+  const navigate = useNavigate();
+  const supportsViewTransition =
+    typeof document !== 'undefined' && typeof document.startViewTransition === 'function';
+
+  useEffect(() => {
+    if (!supportsViewTransition) return undefined;
+
+    const onClick = (event) => {
+      if (
+        event.defaultPrevented ||
+        event.button !== 0 ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.shiftKey ||
+        event.altKey
+      ) {
+        return;
+      }
+      const target = event.target instanceof Element ? event.target.closest('a[href]') : null;
+      if (
+        !target ||
+        target.target ||
+        target.hasAttribute('download') ||
+        target.dataset?.noViewTransition === 'true'
+      ) {
+        return;
+      }
+      const url = new URL(target.href, window.location.href);
+      if (url.origin !== window.location.origin) return;
+      // File/API downloads are real navigations, not SPA route changes.
+      if (url.pathname.startsWith('/api/')) return;
+      if (
+        url.pathname === location.pathname &&
+        url.search === location.search &&
+        url.hash === location.hash
+      ) {
+        return;
+      }
+
+      event.preventDefault();
+      document.startViewTransition(() => {
+        flushSync(() => navigate(`${url.pathname}${url.search}${url.hash}`));
+      });
+    };
+
+    document.addEventListener('click', onClick, true);
+    return () => document.removeEventListener('click', onClick, true);
+  }, [navigate, location.pathname, location.search, supportsViewTransition]);
+
   return (
-    <AnimatePresence mode="wait">
-      <motion.div
-        key={`${location.pathname}${location.search}`}
-        className="route-motion"
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        exit={{ opacity: 0, y: -4 }}
-        transition={{ duration: 0.24, ease: [0.4, 0, 0.2, 1] }}
-      >
-        <RoutedPage>
+    <div
+      key={`${location.pathname}${location.search}`}
+      className={`route-motion${supportsViewTransition ? '' : ' page-enter'}`}
+    >
+      <RoutedPage>
+        <Suspense fallback={<SkeletonPage />}>
           <Routes location={location}>
             <Route
               path="/"
@@ -192,14 +249,7 @@ function AnimatedRoutes({ user }) {
             <Route path="/caretakers" element={<Caretakers />} />
             <Route path="/caretakers/:id" element={<CaretakerProfile />} />
             <Route path="/import-ra" element={<ImportRa />} />
-            <Route
-              path="/reports"
-              element={
-                <Suspense fallback={<div className="empty" style={{ padding: 40 }}>Loading reports…</div>}>
-                  <Reports />
-                </Suspense>
-              }
-            />
+            <Route path="/reports" element={<Reports />} />
             <Route path="/spreadsheet" element={<Spreadsheet />} />
             <Route path="/denials" element={<Denials />} />
             <Route path="/tasks" element={<Tasks />} />
@@ -207,9 +257,9 @@ function AnimatedRoutes({ user }) {
             <Route path="/settings" element={<Settings />} />
             <Route path="/superadmin" element={<SuperAdmin />} />
           </Routes>
-        </RoutedPage>
-      </motion.div>
-    </AnimatePresence>
+        </Suspense>
+      </RoutedPage>
+    </div>
   );
 }
 

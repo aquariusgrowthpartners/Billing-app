@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import api from '../api.js';
 import { formatLongDate, formatMoney, formatClientName, todayISO } from '../calc.js';
 import InsightBar from '../components/InsightBar.jsx';
+import Skeleton from '../components/Skeleton.jsx';
 
 /** "6.5 hrs" — one decimal, always. */
 function hours(minutesOrHours) {
@@ -121,16 +122,32 @@ export default function Home({ user }) {
    */
   if (!data) {
     return (
-      <div className="page" id="home-loading">
-        <div className="card" style={{ padding: 24 }}>
-          {error ? (
-            <div className="alert error" id="home-fetch-error">
-              Home Page Error: {error}
+      <div className="page wide home" id="home-loading">
+        <header className="home-top">
+          <div>
+            <h1>Home</h1>
+            <p className="home-sub">Pay period overview and recent activity</p>
+          </div>
+        </header>
+
+        <InsightBar userName={user?.email} loading />
+
+        {error ? (
+          <div className="alert error" id="home-fetch-error">
+            Home Page Error: {error}
+          </div>
+        ) : (
+          <>
+            <div className="sk-stat-row">
+              <Skeleton variant="stat" />
+              <Skeleton variant="stat" />
+              <Skeleton variant="stat" />
             </div>
-          ) : (
-            <p className="muted">Loading dashboard data...</p>
-          )}
-        </div>
+            <div className="card" style={{ padding: 24 }}>
+              <Skeleton lines={4} />
+            </div>
+          </>
+        )}
       </div>
     );
   }

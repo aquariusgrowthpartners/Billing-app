@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import api from '../api.js';
 import CaretakerForm from '../components/CaretakerForm.jsx';
 import EmptyState from '../components/EmptyState.jsx';
+import { SkeletonRows } from '../components/Skeleton.jsx';
 
 const blank = { first_name: '', last_name: '', npi_number: '', notes: '', active: true };
 
@@ -198,11 +199,7 @@ export default function Caretakers() {
                 )
               )}
               {loading && caretakers.length === 0 && (
-                <tr>
-                  <td colSpan={8} className="empty">
-                    Loading caretakers…
-                  </td>
-                </tr>
+                <SkeletonRows rows={6} cols={8} />
               )}
             </tbody>
           </table>

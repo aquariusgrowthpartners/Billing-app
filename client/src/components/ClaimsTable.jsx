@@ -42,7 +42,7 @@ export function claimDisplayName(c) {
   return `${last}_${ma}_INCOMPLETE_${c?.id ?? 'X'}`;
 }
 
-export default function ClaimsTable({
+function ClaimsTable({
   claims,
   onEdit,
   onPdfChanged,
@@ -416,3 +416,20 @@ export default function ClaimsTable({
     </>
   );
 }
+
+
+/*
+ * The claims table can hold 50+ rows. Keep it from re-rendering when only
+ * unrelated page state changes; callbacks are intentionally excluded because
+ * they only delegate to stable parent setters.
+ */
+export default React.memo(ClaimsTable, (prev, next) => {
+  return (
+    prev.claims === next.claims &&
+    prev.showClient === next.showClient &&
+    prev.clientName === next.clientName &&
+    prev.emptyMessage === next.emptyMessage &&
+    Boolean(prev.onArchive) === Boolean(next.onArchive) &&
+    Boolean(prev.onDelete) === Boolean(next.onDelete)
+  );
+});

@@ -50,3 +50,20 @@ export function SkeletonCards({ count = 3 }) {
     </div>
   );
 }
+
+/** Shimmering table rows for a list that is still loading. */
+export function SkeletonRows({ rows = 5, cols = 6 }) {
+  return (
+    <>
+      {Array.from({ length: rows }, (_, r) => (
+        <tr className="sk-table-row" key={r} aria-hidden="true">
+          {Array.from({ length: cols }, (_, c) => (
+            <td key={c}>
+              <div className={`sk-line ${c === 0 ? 'sk-w70' : 'sk-w50'}`} />
+            </td>
+          ))}
+        </tr>
+      ))}
+    </>
+  );
+}
