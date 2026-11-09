@@ -121,11 +121,14 @@ function timeLabel(ts) {
   }
 }
 
-function AiBubble({ message, sourcesOpen, onToggleSources }) {
+function AiBubble({ message, sourcesOpen, onToggleSources, anchorRef }) {
   const plan = describePlan(message.plan);
   const sources = Array.isArray(message.sources) ? message.sources : [];
   return (
-    <div className={`ask-msg ask-msg-ai${message.error ? ' ask-msg-error' : ''}`}>
+    <div
+      className={`ask-msg ask-msg-ai${message.error ? ' ask-msg-error' : ''}`}
+      ref={anchorRef}
+    >
       <div className="ask-msg-meta">
         <span className="ask-ai-label">AI</span>
         <span className="ask-time">{timeLabel(message.at)}</span>
@@ -187,9 +190,15 @@ export default function AskDundas() {
   const [sourcesOpen, setSourcesOpen] = useState(true);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const [pageTop, setPageTop] = useState(108);
+  const [tab, setTab] = useState('chat');
+  const [verifying, setVerifying] = useState(false);
+  const [verifyFile, setVerifyFile] = useState(null);
+  const [verifyResult, setVerifyResult] = useState(null);
+  const [verifyError, setVerifyError] = useState(null);
   const inputRef = useRef(null);
   const pageRef = useRef(null);
   const threadRef = useRef(null);
+  const latestAiRef = useRef(null);
 
   /*
    * iOS does not resize the layout viewport for the on-screen keyboard; it
@@ -232,11 +241,58 @@ export default function AskDundas() {
     };
   }, []);
 
-  // Keep the newest message in view without moving the header or composer.
+  /*
+   * User messages should sit at the bottom immediately, but a long AI answer
+   * should start at its top so the reader begins at the beginning rather than
+   * being dropped at the end of a wall of text.
+   */
   useEffect(() => {
     const thread = threadRef.current;
+    if (!thread || !messages.length) return undefined;
+    const last = messages[messages.length - 1];
+
+    if (last.role === 'ai') {
+      const timer = setTimeout(() => {
+        latestAiRef.current?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+      }, 60);
+      return () => clearTimeout(timer);
+    }
+
+    thread.scrollTop = thread.scrollHeight;
+    return undefined;
+  }, [messages]);
+
+  useEffect(() => {
+    if (!asking) return;
+    const thread = threadRef.current;
     if (thread) thread.scrollTop = thread.scrollHeight;
-  }, [messages, asking]);
+  }, [asking]);
+
+  const latestAiId = messages.reduce(
+    (id, message) => (message.role === 'ai' ? message.id : id),
+    null
+  );
+
+  function selectTab(next) {
+    if (next === tab) return;
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+    setTab(next);
+  }
+
+  async function verifyDocument(e) {
+    e.preventDefault();
+    if (!verifyFile || verifying) return;
+    setVerifying(true);
+    setVerifyError(null);
+    setVerifyResult(null);
+    try {
+      setVerifyResult(await api.verifyRa(verifyFile));
+    } catch (err) {
+      setVerifyError(err.message);
+    } finally {
+      setVerifying(false);
+    }
+  }
 
   async function ask(q) {
     const question = String(q ?? query).trim();
@@ -330,7 +386,32 @@ export default function AskDundas() {
         </span>
       </header>
 
-      <div className="ask-thread" id="ask-thread" ref={threadRef}>
+      <div className="ask-tabs" role="tablist" aria-label="Ask Dundas sections">
+        <button
+          type="button"
+          role="tab"
+          id="ask-tab-chat"
+          aria-selected={tab === 'chat'}
+          aria-controls="ask-thread"
+          className={`ask-tab${tab === 'chat' ? ' active' : ''}`}
+          onClick={() => selectTab('chat')}
+        >
+          Chat
+        </button>
+        <button
+          type="button"
+          role="tab"
+          id="ask-tab-verify"
+          aria-selected={tab === 'verify'}
+          aria-controls="ask-verify-panel"
+          className={`ask-tab${tab === 'verify' ? ' active' : ''}`}
+          onClick={() => selectTab('verify')}
+        >
+          Verify RA
+        </button>
+      </div>
+
+      <div className="ask-thread" id="ask-thread" ref={threadRef} hidden={tab !== 'chat'}>
         {messages.length === 0 && (
           <div className="ask-empty-state" id="ask-empty">
             <div className="ask-empty-icon" aria-hidden="true">
@@ -376,6 +457,7 @@ export default function AskDundas() {
               message={message}
               sourcesOpen={sourcesOpen}
               onToggleSources={() => setSourcesOpen((v) => !v)}
+              anchorRef={message.id === latestAiId ? latestAiRef : null}
             />
           )
         )}
@@ -397,10 +479,83 @@ export default function AskDundas() {
         )}
       </div>
 
+      {tab === 'verify' && (
+        <div className="ask-verify-panel" id="ask-verify-panel" role="tabpanel" aria-labelledby="ask-tab-verify">
+          <form className="ask-verify-card" onSubmit={verifyDocument}>
+            <div className="ask-verify-heading">
+              <h2>Verify an RA letter</h2>
+              <p>Upload the payer's Remittance Advice and check it against your records.</p>
+            </div>
+
+            <label className="ask-verify-drop" htmlFor="ask-verify-file">
+              <span className="ask-verify-drop-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="26" height="26" fill="none">
+                  <path d="M12 16V4m0 0L7 9m5-5l5 5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                  <path d="M5 15v3a2 2 0 002 2h10a2 2 0 002-2v-3" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                </svg>
+              </span>
+              <span className="ask-verify-drop-copy">
+                <strong>{verifyFile ? verifyFile.name : 'Choose a PDF or image'}</strong>
+                <span>{verifyFile ? 'Ready to verify' : 'PDF, PNG or JPG · up to 15 MB'}</span>
+              </span>
+              <input
+                type="file"
+                id="ask-verify-file"
+                accept="application/pdf,image/*"
+                onChange={(e) => {
+                  setVerifyFile(e.target.files?.[0] ?? null);
+                  setVerifyResult(null);
+                  setVerifyError(null);
+                }}
+              />
+            </label>
+
+            {verifyError && <div className="alert error">{verifyError}</div>}
+
+            <button
+              type="submit"
+              className="btn primary ask-verify-submit"
+              id="ask-verify-submit"
+              disabled={!verifyFile || verifying}
+            >
+              {verifying ? 'Verifying…' : 'Verify Document'}
+            </button>
+
+            {verifyResult && (
+              <div
+                className={`ask-verify-result ${
+                  verifyResult.status === 'verified' ? 'ok' : 'warn'
+                }`}
+                role="status"
+                aria-live="polite"
+              >
+                <span className="ask-verify-result-mark" aria-hidden="true">
+                  {verifyResult.status === 'verified' ? '✓' : '!'}
+                </span>
+                <div>
+                  <strong>
+                    {verifyResult.status === 'verified' ? 'Verification Passed' : 'Review Required'}
+                  </strong>
+                  <p>
+                    {verifyResult.discrepancies?.length
+                      ? `${verifyResult.discrepancies.length} discrepancies found.`
+                      : 'No discrepancies found.'}
+                  </p>
+                  {verifyResult.file?.name && (
+                    <span className="muted small">{verifyResult.file.name}</span>
+                  )}
+                </div>
+              </div>
+            )}
+          </form>
+        </div>
+      )}
+
       <form
         className="ask-composer"
         id="ask-composer"
         onSubmit={onSubmit}
+        hidden={tab !== 'chat'}
         style={{ marginBottom: keyboardHeight > 0 ? `${keyboardHeight}px` : 0 }}
       >
         <div className="ask-input-row">

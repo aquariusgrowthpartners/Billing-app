@@ -128,6 +128,12 @@ export const api = {
     request('/tasks/new-hire', { method: 'POST', body: JSON.stringify(body) }),
   explainDenial: (id) => request(`/denials/${id}/explain`, { method: 'POST' }),
   ask: (query) => request('/ask', { method: 'POST', body: JSON.stringify({ query }) }),
+  ytdClaims: () => request('/metrics/ytd-claims'),
+  verifyRa: (file) => {
+    const body = new FormData();
+    body.append('file', file);
+    return request('/ai/verify-ra', { method: 'POST', body });
+  },
   parseNewHire: (file) => {
     const fd = new FormData();
     fd.append('file', file);

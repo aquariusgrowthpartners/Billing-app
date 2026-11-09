@@ -74,6 +74,7 @@ export default function Home({ user }) {
   const [recentRa, setRecentRa] = useState([]);
   const [recentClients, setRecentClients] = useState([]);
   const [denialAlert, setDenialAlert] = useState(null);
+  const [ytd, setYtd] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -81,16 +82,18 @@ export default function Home({ user }) {
     setLoading(true);
     setError(null);
     try {
-      const [d, ra, rc, dn] = await Promise.all([
+      const [d, ra, rc, dn, ytdData] = await Promise.all([
         api.payPeriod(start),
         api.recentRa(),
         api.recentClients(),
         api.denialSummary().catch(() => null),
+        api.ytdClaims().catch(() => null),
       ]);
       if (!d || typeof d !== 'object') {
         throw new Error('Dashboard data was empty or invalid.');
       }
       setDenialAlert(dn);
+      setYtd(ytdData);
       setData(d ?? null);
       setPeriodStart(d?.period?.start ?? null);
       setRecentRa(Array.isArray(ra?.imports) ? ra.imports : []);
@@ -270,6 +273,18 @@ export default function Home({ user }) {
             {totals?.active_caretakers ?? 0}
           </span>
         </div>
+      </section>
+
+      <section className="card ytd-claims-card" id="ytd-paid-claims">
+        <div className="ytd-claims-copy">
+          <span className="metric-label">Year-to-date paid claims</span>
+          <span className="muted small">
+            Jan 1 – today{ytd ? ` · ${ytd.count ?? 0} paid claim${(ytd.count ?? 0) === 1 ? '' : 's'}` : ''}
+          </span>
+        </div>
+        <span className="metric-value ytd-claims-value" id="ytd-claims-total">
+          {formatMoney(ytd?.total ?? 0)}
+        </span>
       </section>
 
       {/* ------------------------------------------- section A: caretakers */}

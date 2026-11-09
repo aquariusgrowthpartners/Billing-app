@@ -6917,3 +6917,216 @@ body {
 .page:not(.ask-page) {
   min-height: calc(100dvh - 120px);
 }
+
+/* ==================================================================
+   ASK DUNDAS — Chat / Verify RA sub-tabs + YTD Home card
+   ================================================================== */
+
+.ask-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  padding: 4px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+}
+
+.ask-tab {
+  min-height: 44px;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.ask-tab.active {
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.ask-thread[hidden],
+.ask-composer[hidden] {
+  display: none !important;
+}
+
+.ask-verify-panel {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  padding: 4px 0 8px;
+}
+
+.ask-verify-card {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 100%;
+  max-width: 620px;
+  margin: 0 auto;
+  padding: 24px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  box-shadow: var(--shadow);
+}
+
+.ask-verify-heading h2 {
+  margin: 0;
+  font-size: 18px;
+  letter-spacing: -0.02em;
+}
+
+.ask-verify-heading p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.ask-verify-drop {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 88px;
+  padding: 16px;
+  border: 1px dashed var(--border-strong);
+  border-radius: 16px;
+  background: var(--bg);
+  cursor: pointer;
+}
+
+.ask-verify-drop:active {
+  transform: scale(0.995);
+}
+
+.ask-verify-drop input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.ask-verify-drop-icon {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  flex: 0 0 auto;
+  border-radius: 12px;
+  color: #fff;
+  background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);
+}
+
+.ask-verify-drop-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.ask-verify-drop-copy strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+}
+
+.ask-verify-drop-copy span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.ask-verify-submit {
+  min-height: 44px;
+}
+
+.ask-verify-result {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid rgba(34, 197, 94, 0.24);
+  border-radius: 14px;
+  background: var(--ok-bg);
+  color: var(--ok-fg);
+}
+
+.ask-verify-result.warn {
+  border-color: rgba(245, 158, 11, 0.3);
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+}
+
+.ask-verify-result-mark {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: currentColor;
+  color: var(--surface);
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.ask-verify-result p {
+  margin: 2px 0 4px;
+  font-size: 13px;
+}
+
+/* ---- YTD paid claims ---- */
+.ytd-claims-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 24px;
+  border-left: 4px solid var(--accent);
+}
+
+.ytd-claims-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.ytd-claims-value {
+  flex: 0 0 auto;
+  font-size: 28px;
+  line-height: 1.1;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+}
+
+@media (max-width: 600px) {
+  .ytd-claims-card {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
+    padding: 20px;
+  }
+
+  .ytd-claims-value {
+    font-size: 26px;
+  }
+
+  .ask-verify-card {
+    padding: 20px;
+    border-radius: 18px;
+  }
+}
