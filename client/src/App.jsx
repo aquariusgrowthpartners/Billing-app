@@ -189,9 +189,6 @@ export default function App() {
   const [demoMode, setDemoMode] = useState(false);
   const [authed, setAuthed] = useState(false);
   const [user, setUser] = useState(null);
-  useEffect(() => {
-    window.__BILLING_USER__ = user;
-  }, [user]);
   const [authChecked, setAuthChecked] = useState(false);
   const [bannerHeight, setBannerHeight] = useState(0);
   const bannerRef = useRef(null);

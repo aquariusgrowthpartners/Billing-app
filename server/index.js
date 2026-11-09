@@ -206,10 +206,35 @@ try {
  */
 const distDir = path.join(__dirname, '..', 'client', 'dist');
 const hasBuild = fs.existsSync(path.join(distDir, 'index.html'));
+
+/*
+ * Safari will happily keep serving an old index.html from its cache, which
+ * points at a hashed bundle that no longer exists after a deploy. The entry
+ * document must always be revalidated; only the content-hashed JS/CSS files
+ * may be cached.
+ */
+const HTML_CACHE_CONTROL = 'no-cache, no-store, must-revalidate';
+const noCacheHtml = (res) => {
+  res.setHeader('Cache-Control', HTML_CACHE_CONTROL);
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+};
+
 if (hasBuild) {
-  app.use(express.static(distDir, { index: false, maxAge: '1h' }));
+  app.use(
+    express.static(distDir, {
+      index: false,
+      maxAge: '1h',
+      setHeaders: (res, filePath) => {
+        if (filePath.endsWith('.html')) noCacheHtml(res);
+      },
+    })
+  );
   // SPA fallback — but never for /api, which has already 404'd above
-  app.get('*', (_req, res) => res.sendFile(path.join(distDir, 'index.html')));
+  app.get('*', (_req, res) => {
+    noCacheHtml(res);
+    res.sendFile(path.join(distDir, 'index.html'));
+  });
 } else if (process.env.NODE_ENV === 'production') {
   console.warn('  [web] no client/dist build found — run `npm run build` before starting in production');
 }
