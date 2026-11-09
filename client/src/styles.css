@@ -7935,3 +7935,100 @@ body {
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
+
+/* RA verification: match badges + mobile record cards */
+.ask-vision-sub {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 400;
+  white-space: normal;
+}
+
+.ask-vision-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.ask-vision-badge.match {
+  background: var(--ok-bg);
+  color: var(--ok-fg);
+}
+
+.ask-vision-badge.mismatch {
+  background: var(--err-bg);
+  color: var(--err-fg);
+}
+
+.ask-vision-badge.missing_in_db {
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+}
+
+.ask-vision-discrepancy-row td {
+  padding-top: 0;
+  color: var(--err-fg);
+  font-size: 12px;
+  white-space: normal;
+}
+
+.ask-vision-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ask-vision-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--bg);
+}
+
+.ask-vision-card-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.ask-vision-card-top strong {
+  min-width: 0;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.ask-vision-card-meta {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.ask-vision-card-amounts {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding-top: 4px;
+  border-top: 1px solid var(--border);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.ask-vision-card-note {
+  margin: 0;
+  color: var(--err-fg);
+  font-size: 12px;
+  line-height: 1.45;
+}

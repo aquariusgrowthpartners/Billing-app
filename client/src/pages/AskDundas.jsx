@@ -114,6 +114,18 @@ const SUGGESTIONS = [
   'Show top clients',
 ];
 
+const VISION_STATUS_LABEL = {
+  match: 'Match',
+  mismatch: 'Mismatch',
+  missing_in_db: 'Missing in DB',
+};
+
+function dbAmountText(value) {
+  if (value === null || value === undefined || value === '') return '—';
+  const n = Number(value);
+  return Number.isFinite(n) ? formatMoney(n) : String(value);
+}
+
 function visionAmount(record) {
   const value = record?.amount_paid ?? record?.amountPaid;
   if (value === null || value === undefined || value === '') return '—';
@@ -280,8 +292,12 @@ export default function AskDundas() {
     (id, message) => (message.role === 'ai' ? message.id : id),
     null
   );
+  const visionRecords = Array.isArray(verifyResult?.records) ? verifyResult.records : [];
+  const visionNeedsReview = visionRecords.filter((record) => record.status !== 'match').length;
   const verificationPassed =
-    verifyResult?.status === 'verified' && !(verifyResult?.discrepancies?.length > 0);
+    verifyResult?.status === 'success' &&
+    visionRecords.length > 0 &&
+    visionNeedsReview === 0;
 
   function selectTab(next) {
     if (next === tab) return;
@@ -297,9 +313,7 @@ export default function AskDundas() {
     setVerifyResult(null);
     try {
       const data = await api.verifyRa(verifyFile);
-      setVerifyResult(
-        Array.isArray(data) ? { status: 'verified', records: data } : data
-      );
+      setVerifyResult(Array.isArray(data) ? { status: 'success', records: data } : data);
     } catch (err) {
       const quota = /quota provisioning|initializ/i.test(err.message);
       setVerifyError(
@@ -580,23 +594,18 @@ export default function AskDundas() {
                   )}
                 </span>
                 <div>
-                  <strong>{verificationPassed ? 'Verification Passed' : 'Verification Failed'}</strong>
+                  <strong>{verificationPassed ? 'Verification Passed' : 'Review Required'}</strong>
                   <p>
-                    {verifyResult.discrepancies?.length
-                      ? `${verifyResult.discrepancies.length} discrepanc${
-                          verifyResult.discrepancies.length === 1 ? 'y' : 'ies'
-                        } found.`
+                    {visionRecords.length === 0
+                      ? 'No RA records were extracted from this document.'
                       : verificationPassed
-                        ? 'No discrepancies found.'
-                        : 'The document could not be verified.'}
+                        ? `${visionRecords.length} record${
+                            visionRecords.length === 1 ? '' : 's'
+                          } matched the database.`
+                        : `${visionNeedsReview} of ${visionRecords.length} record${
+                            visionRecords.length === 1 ? '' : 's'
+                          } ${visionNeedsReview === 1 ? 'needs' : 'need'} review.`}
                   </p>
-                  {verifyResult.discrepancies?.length > 0 && (
-                    <ul className="ask-verify-discrepancies">
-                      {verifyResult.discrepancies.map((d, i) => (
-                        <li key={i}>{typeof d === 'string' ? d : JSON.stringify(d)}</li>
-                      ))}
-                    </ul>
-                  )}
                   {verifyResult.file?.name && (
                     <span className="muted small">{verifyResult.file.name}</span>
                   )}
@@ -609,35 +618,91 @@ export default function AskDundas() {
                 <div className="ask-vision-records-head">
                   <strong>Extracted records</strong>
                   <span className="muted small">
-                    {verifyResult.records.length} record
-                    {verifyResult.records.length === 1 ? '' : 's'}
+                    {visionRecords.length} record
+                    {visionRecords.length === 1 ? '' : 's'}
                   </span>
                 </div>
-                {verifyResult.records.length === 0 ? (
+                {visionRecords.length === 0 ? (
                   <p className="muted small">No RA records were detected in this document.</p>
                 ) : (
-                  <div className="ask-vision-table-wrap">
-                    <table className="ask-vision-table">
-                      <thead>
-                        <tr>
-                          <th>Member ID</th>
-                          <th>Client Name</th>
-                          <th>Date of Service</th>
-                          <th className="num">Amount Paid</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {verifyResult.records.map((record, index) => (
-                          <tr key={index}>
-                            <td>{record.member_id ?? record.memberId ?? '—'}</td>
-                            <td>{record.client_name ?? record.clientName ?? '—'}</td>
-                            <td>{record.date_of_service ?? record.dateOfService ?? '—'}</td>
-                            <td className="num">{visionAmount(record)}</td>
+                  <>
+                    <div className="ask-vision-table-wrap hide-on-mobile">
+                      <table className="ask-vision-table">
+                        <thead>
+                          <tr>
+                            <th>Client</th>
+                            <th>Date of Service</th>
+                            <th className="num">RA Amount</th>
+                            <th className="num">DB Amount</th>
+                            <th>Status</th>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+                        </thead>
+                        <tbody>
+                          {visionRecords.map((record, index) => {
+                            const ra = record.ra_data ?? record;
+                            const db = record.db_data ?? {};
+                            const status = record.status ?? 'missing_in_db';
+                            return (
+                              <React.Fragment key={index}>
+                                <tr>
+                                  <td>
+                                    <strong>
+                                      {ra.client_name ?? ra.clientName ?? '—'}
+                                    </strong>
+                                    <span className="ask-vision-sub">
+                                      {ra.member_id ?? ra.memberId ?? '—'}
+                                    </span>
+                                  </td>
+                                  <td>{ra.date_of_service ?? ra.dateOfService ?? '—'}</td>
+                                  <td className="num">{visionAmount(ra)}</td>
+                                  <td className="num">{dbAmountText(db.paid_amount)}</td>
+                                  <td>
+                                    <span className={`ask-vision-badge ${status}`}>
+                                      {VISION_STATUS_LABEL[status] ?? status}
+                                    </span>
+                                  </td>
+                                </tr>
+                                {record.discrepancy && (
+                                  <tr className="ask-vision-discrepancy-row">
+                                    <td colSpan={5}>{record.discrepancy}</td>
+                                  </tr>
+                                )}
+                              </React.Fragment>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    <div className="ask-vision-cards show-on-mobile">
+                      {visionRecords.map((record, index) => {
+                        const ra = record.ra_data ?? record;
+                        const db = record.db_data ?? {};
+                        const status = record.status ?? 'missing_in_db';
+                        return (
+                          <div className="ask-vision-card" key={index}>
+                            <div className="ask-vision-card-top">
+                              <strong>{ra.client_name ?? ra.clientName ?? '—'}</strong>
+                              <span className={`ask-vision-badge ${status}`}>
+                                {VISION_STATUS_LABEL[status] ?? status}
+                              </span>
+                            </div>
+                            <div className="ask-vision-card-meta">
+                              {ra.member_id ?? ra.memberId ?? '—'} ·{' '}
+                              {ra.date_of_service ?? ra.dateOfService ?? '—'}
+                            </div>
+                            <div className="ask-vision-card-amounts">
+                              <span>RA {visionAmount(ra)}</span>
+                              <span>DB {dbAmountText(db.paid_amount)}</span>
+                            </div>
+                            {record.discrepancy && (
+                              <p className="ask-vision-card-note">{record.discrepancy}</p>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </>
                 )}
               </div>
             )}
