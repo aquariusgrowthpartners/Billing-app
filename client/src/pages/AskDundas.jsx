@@ -315,6 +315,9 @@ export default function AskDundas() {
     setVerifyResult(null);
     try {
       const data = await api.verifyRa(verifyFile);
+      if (data?.status === 'error') {
+        throw new Error(data.error || 'RA verification failed.');
+      }
       setVerifyResult(Array.isArray(data) ? { status: 'success', records: data } : data);
     } catch (err) {
       const quota = /quota provisioning|initializ/i.test(err.message);

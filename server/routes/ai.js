@@ -7,7 +7,7 @@
  */
 import express from 'express';
 import multer from 'multer';
-import { verifyRaDocument } from '../aiService.js';
+import { verifyRaDocument, complete } from '../aiService.js';
 import db from '../db.js';
 
 const router = express.Router();
@@ -209,6 +209,42 @@ function verifyRecord(record, agencyId) {
   };
 }
 
+function parseJsonRecords(text) {
+  const cleaned = String(text ?? '')
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/\s*```$/i, '')
+    .trim();
+  try {
+    const parsed = JSON.parse(cleaned);
+    if (Array.isArray(parsed)) return parsed;
+    if (Array.isArray(parsed?.records)) return parsed.records;
+  } catch {
+    const start = cleaned.indexOf('[');
+    const end = cleaned.lastIndexOf(']');
+    if (start >= 0 && end > start) {
+      try {
+        const parsed = JSON.parse(cleaned.slice(start, end + 1));
+        if (Array.isArray(parsed)) return parsed;
+      } catch {
+        /* fall through */
+      }
+    }
+  }
+  return null;
+}
+
+/** Last-resort text extraction when rasterising the PDF fails. */
+async function extractPdfText(buffer) {
+  const { PDFParse } = await import('pdf-parse');
+  const parser = new PDFParse({ data: buffer });
+  try {
+    const result = await parser.getText();
+    return String(result?.text ?? '').trim();
+  } finally {
+    await parser.cleanup?.();
+  }
+}
+
 /** POST /api/ai/verify-ra — multipart field name: file */
 router.post('/verify-ra', (req, res) => {
   upload.single('file')(req, res, async (err) => {
@@ -224,41 +260,89 @@ router.post('/verify-ra', (req, res) => {
       return res.status(400).json({ error: 'Upload a PDF or image file.' });
     }
 
-    const isPdf =
-      req.file.mimetype === 'application/pdf' || /\.pdf$/i.test(req.file.originalname);
-    let pngBuffer;
-    let mimeType;
     try {
-      if (isPdf) {
-        pngBuffer = await pdfFirstPagePng(req.file.buffer);
-        mimeType = 'image/png';
+      const isPdf =
+        req.file.mimetype === 'application/pdf' || /\.pdf$/i.test(req.file.originalname);
+      let records = null;
+
+      if (!isPdf) {
+        const result = await verifyRaDocument(
+          req.file.buffer.toString('base64'),
+          req.file.mimetype || 'image/png',
+          req.agencyId
+        );
+        if (result.error) {
+          const status = result.error.includes('quota provisioning') ? 503 : 502;
+          return res.status(status).json({ error: result.error });
+        }
+        records = Array.isArray(result.records) ? result.records : [];
       } else {
-        pngBuffer = req.file.buffer;
-        mimeType = req.file.mimetype || 'image/png';
+        let renderError = null;
+        try {
+          const pngBuffer = await pdfFirstPagePng(req.file.buffer);
+          const result = await verifyRaDocument(
+            pngBuffer.toString('base64'),
+            'image/png',
+            req.agencyId
+          );
+          if (result.error) {
+            const status = result.error.includes('quota provisioning') ? 503 : 502;
+            return res.status(status).json({ error: result.error });
+          }
+          records = Array.isArray(result.records) ? result.records : [];
+        } catch (err) {
+          renderError = err;
+          console.error('[PDF-RENDER-ERROR]', err?.stack || err?.message || String(err));
+        }
+
+        if (records === null) {
+          // Canvas/pdfjs failed — fall back to text extraction and a text-only
+          // Azure completion. This keeps the endpoint usable on hosts where
+          // the native canvas binary is unavailable.
+          try {
+            const rawText = await extractPdfText(req.file.buffer);
+            if (!rawText) throw new Error('PDF text extraction returned no text.');
+
+            const completion = await complete(
+              `Here is the raw text extracted from an RA letter. Parse it into JSON.\n\n${rawText.slice(
+                0,
+                16000
+              )}`,
+              {
+                system:
+                  'You are an expert medical billing auditor. Extract the Member ID, Client Name, Date of Service, and Amount Paid from the RA text. Return ONLY a JSON array using the keys member_id, client_name, date_of_service, amount_paid. Do not include markdown formatting.',
+                timeoutMs: 60000,
+                agencyId: req.agencyId,
+              }
+            );
+
+            if (completion.source === 'none') {
+              throw new Error(completion.text || 'Azure text completion failed.');
+            }
+            records = parseJsonRecords(completion.text);
+            if (!records) throw new Error('Azure text completion returned no JSON records.');
+          } catch (fallbackError) {
+            console.error(
+              '[PDF-RENDER-ERROR] text fallback failed:',
+              fallbackError?.stack || fallbackError?.message || String(fallbackError)
+            );
+            const renderMessage =
+              renderError?.message || renderError?.toString() || 'unknown render error';
+            return res.status(500).json({
+              error: `Could not process RA. Render error: ${renderMessage}. Fallback error: ${
+                fallbackError?.message || String(fallbackError)
+              }`,
+            });
+          }
+        }
       }
-    } catch (renderError) {
-      console.warn(`[ai] RA rasterise failed: ${renderError.message}`);
-      return res.status(422).json({
-        error: 'Could not render that RA. Try a different PDF or a clear image.',
-      });
+
+      const compared = (records ?? []).map((record) => verifyRecord(record, req.agencyId));
+      res.json({ status: 'success', records: compared });
+    } catch (err) {
+      console.error('[PDF-RENDER-ERROR] unhandled RA verification error:', err?.stack || err);
+      return res.status(500).json({ error: err?.message || 'RA verification failed.' });
     }
-
-    const result = await verifyRaDocument(
-      pngBuffer.toString('base64'),
-      mimeType,
-      req.agencyId
-    );
-
-    if (result.error) {
-      const status = result.error.includes('quota provisioning') ? 503 : 502;
-      return res.status(status).json({ error: result.error });
-    }
-
-    const records = Array.isArray(result.records)
-      ? result.records.map((record) => verifyRecord(record, req.agencyId))
-      : [];
-
-    res.json({ status: 'success', records });
   });
 });
 
