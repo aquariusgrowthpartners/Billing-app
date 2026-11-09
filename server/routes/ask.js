@@ -278,6 +278,7 @@ router.post('/', async (req, res) => {
     if (a.source === 'none') {
       return res.json({
         answer:
+          a.text ||
           'AI Summary unavailable (no API key configured in settings). Add a provider and key in Settings → AI Configuration.',
         sources: [],
         unavailable: true,
