@@ -25,6 +25,7 @@ import dashboardRouter from './routes/dashboard.js';
 import adminRouter from './routes/admin.js';
 import mpsmiscRouter from './routes/mpsmisc.js';
 import denialsRouter from './routes/denials.js';
+import superadminRouter from './routes/superadmin.js';
 import { reconcileOnStartup, markOrphanedImports, openTaskCount, deleteRebillTask } from './denials.js';
 import { computeEntry, todayISO, weekStart, addDays } from './calc.js';
 
@@ -173,6 +174,7 @@ app.use('/api/dashboard', dashboardRouter);
 app.use('/api/admin', adminRouter);
 app.use('/api/exports', mpsmiscRouter);
 app.use('/api/denials', denialsRouter);
+app.use('/api/superadmin', superadminRouter);
 // DELETE /api/rebill-tasks/:id — the lighter, task-only removal
 app.delete('/api/rebill-tasks/:id', (req, res) => {
   const r = deleteRebillTask(req.params.id, req.agencyId);

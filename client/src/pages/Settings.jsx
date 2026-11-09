@@ -376,6 +376,8 @@ export default function Settings() {
         />
       )}
 
+      <AccountSecurityCard />
+
       {/* -------------------------------------------- HHAeXchange export */}
       <HhaExportsCard onError={setError} />
 
@@ -1883,6 +1885,101 @@ function AiConfigCard({ settings, onSaved, onError }) {
           {saving ? 'Saving…' : 'Save AI settings'}
         </button>
       </div>
+    </section>
+  );
+}
+
+
+/* -------------------------------------------------- account security */
+
+function AccountSecurityCard() {
+  const [current, setCurrent] = useState('');
+  const [next, setNext] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+
+  async function submit(e) {
+    e.preventDefault();
+    setError(null);
+    if (next.length < 8) {
+      setError('The new password must be at least 8 characters.');
+      return;
+    }
+    if (next !== confirm) {
+      setError('The new passwords do not match.');
+      return;
+    }
+    setBusy(true);
+    try {
+      await api.changePassword({ current_password: current, new_password: next });
+      setCurrent('');
+      setNext('');
+      setConfirm('');
+      toast.success('Password changed.');
+    } catch (err) {
+      setError(err.message);
+      toast.error(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="card" id="account-security">
+      <div className="card-head">
+        <div>
+          <h2>Account Security</h2>
+          <p className="muted small" style={{ margin: '2px 0 0' }}>
+            Change the password used to sign in to this account.
+          </p>
+        </div>
+      </div>
+      <form className="card-body" onSubmit={submit}>
+        <div className="grid-3">
+          <label>
+            Current Password
+            <input
+              type="password"
+              id="security-current-password"
+              autoComplete="current-password"
+              value={current}
+              onChange={(e) => setCurrent(e.target.value)}
+              required
+            />
+          </label>
+          <label>
+            New Password
+            <input
+              type="password"
+              id="security-new-password"
+              autoComplete="new-password"
+              value={next}
+              onChange={(e) => setNext(e.target.value)}
+              required
+              minLength={8}
+            />
+          </label>
+          <label>
+            Confirm New Password
+            <input
+              type="password"
+              id="security-confirm-password"
+              autoComplete="new-password"
+              value={confirm}
+              onChange={(e) => setConfirm(e.target.value)}
+              required
+              minLength={8}
+            />
+          </label>
+        </div>
+        {error && <div className="alert error" id="security-error">{error}</div>}
+        <div className="form-actions">
+          <button className="btn primary" id="security-save" disabled={busy}>
+            {busy ? 'Saving…' : 'Change Password'}
+          </button>
+        </div>
+      </form>
     </section>
   );
 }

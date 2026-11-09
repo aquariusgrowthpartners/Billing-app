@@ -15,6 +15,7 @@ import AskDundas from './pages/AskDundas.jsx';
 import { ToastProvider } from './components/Toast.jsx';
 import Login from './pages/Login.jsx';
 import ChangePassword from './pages/ChangePassword.jsx';
+import SuperAdmin from './pages/SuperAdmin.jsx';
 import { getToken, clearToken } from './api.js';
 import api from './api.js';
 
@@ -414,6 +415,15 @@ export default function App() {
                 </span>
               )}
             </NavLink>
+            {user?.agency_id === 1 && ['admin', 'superadmin'].includes(user.role) && (
+              <NavLink
+                to="/superadmin"
+                className={({ isActive }) => (isActive ? 'active' : '')}
+                id="superadmin-nav"
+              >
+                Super Admin
+              </NavLink>
+            )}
           </nav>
 
           {/* Mobile drawer: the 8 links stacked, with a tap-anywhere overlay */}
@@ -462,20 +472,25 @@ export default function App() {
                 Settings
                 {orphanCount > 0 && <span className="nav-badge">{orphanCount}</span>}
               </NavLink>
+              {user?.agency_id === 1 && ['admin', 'superadmin'].includes(user.role) && (
+                <NavLink to="/superadmin" onClick={() => setNavOpen(false)} id="superadmin-nav-mobile">
+                  Super Admin
+                </NavLink>
+              )}
               <button
                 type="button"
                 className="nav-drawer-clear"
-                id="clear-cache-logout"
+                id="logout-button"
                 onClick={() => {
                   try {
                     window.localStorage.clear();
                   } catch {
                     /* private mode */
                   }
-                  window.location.reload();
+                  window.location.assign(LOGIN_PATH);
                 }}
               >
-                Clear Cache &amp; Log Out
+                Log Out
               </button>
             </nav>
           )}
@@ -511,6 +526,7 @@ export default function App() {
             <Route path="/tasks" element={<Tasks />} />
             <Route path="/ask" element={<AskDundas />} />
             <Route path="/settings" element={<Settings />} />
+            <Route path="/superadmin" element={<SuperAdmin />} />
           </Routes>
           </RoutedPage>
         </main>

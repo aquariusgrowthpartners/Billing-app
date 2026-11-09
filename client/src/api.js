@@ -50,6 +50,9 @@ export const api = {
   health: () => request('/health'),
   login: (body) => request('/auth/login', { method: 'POST', body: JSON.stringify(body) }),
   demoLogin: () => request('/auth/login', { method: 'POST', body: JSON.stringify({ demo: true }) }),
+  superadminAgencies: () => request('/superadmin/agencies'),
+  toggleDemoAi: (enabled) =>
+    request('/superadmin/demo-ai', { method: 'POST', body: JSON.stringify({ enabled }) }),
   changePassword: (body) =>
     request('/auth/change-password', { method: 'POST', body: JSON.stringify(body) }),
   signup: (body) => request('/auth/signup', { method: 'POST', body: JSON.stringify(body) }),
