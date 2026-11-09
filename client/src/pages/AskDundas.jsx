@@ -126,6 +126,24 @@ function dbAmountText(value) {
   return Number.isFinite(n) ? formatMoney(n) : String(value);
 }
 
+const BULK_POLL_MS = 3000;
+
+function formatFileSize(bytes) {
+  const n = Number(bytes) || 0;
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function bulkFileStatus(entry) {
+  if (entry?.status === 'error') return 'missing_in_db';
+  const records = Array.isArray(entry?.records) ? entry.records : [];
+  if (!records.length) return 'missing_in_db';
+  if (records.every((record) => record.status === 'match')) return 'match';
+  if (records.some((record) => record.status === 'missing_in_db')) return 'missing_in_db';
+  return 'mismatch';
+}
+
 function visionAmount(record) {
   const value = record?.amount_paid ?? record?.amountPaid;
   if (value === null || value === undefined || value === '') return '—';
@@ -215,6 +233,12 @@ export default function AskDundas() {
   const [verifyFile, setVerifyFile] = useState(null);
   const [verifyResult, setVerifyResult] = useState(null);
   const [verifyError, setVerifyError] = useState(null);
+  const [verifyMode, setVerifyMode] = useState('single');
+  const [bulkFiles, setBulkFiles] = useState([]);
+  const [bulkJobId, setBulkJobId] = useState(null);
+  const [bulkJob, setBulkJob] = useState(null);
+  const [bulkError, setBulkError] = useState(null);
+  const [bulkStarting, setBulkStarting] = useState(false);
   const inputRef = useRef(null);
   const pageRef = useRef(null);
   const threadRef = useRef(null);
@@ -287,6 +311,39 @@ export default function AskDundas() {
     const thread = threadRef.current;
     if (thread) thread.scrollTop = thread.scrollHeight;
   }, [asking]);
+
+  useEffect(() => {
+    if (!bulkJobId) return undefined;
+    let cancelled = false;
+    let timer = null;
+
+    const poll = async () => {
+      try {
+        const data = await api.verifyRaBulkJob(bulkJobId);
+        if (cancelled) return;
+        setBulkJob(data);
+        if (data.status === 'completed' || data.status === 'failed') {
+          setBulkJobId(null);
+          return;
+        }
+      } catch (err) {
+        if (!cancelled) setBulkError(err.message);
+      }
+      if (!cancelled) timer = setTimeout(poll, BULK_POLL_MS);
+    };
+
+    poll();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [bulkJobId]);
+
+  const bulkResults = Array.isArray(bulkJob?.results) ? bulkJob.results : [];
+  const bulkGroups = { match: [], mismatch: [], missing_in_db: [] };
+  for (const entry of bulkResults) bulkGroups[bulkFileStatus(entry)].push(entry);
+  const bulkVerified = bulkGroups.match.length;
+  const bulkReview = bulkResults.length - bulkVerified;
 
   const latestAiId = messages.reduce(
     (id, message) => (message.role === 'ai' ? message.id : id),
@@ -375,6 +432,29 @@ export default function AskDundas() {
       toast.error(e.message);
     } finally {
       setAsking(false);
+    }
+  }
+
+  async function startBulk(e) {
+    e.preventDefault();
+    if (!bulkFiles.length || bulkStarting) return;
+    setBulkStarting(true);
+    setBulkError(null);
+    setBulkJob(null);
+    try {
+      const started = await api.verifyRaBulk(bulkFiles);
+      setBulkJob({
+        status: started.status ?? 'queued',
+        total_files: bulkFiles.length,
+        processed_files: 0,
+        results: [],
+        error: null,
+      });
+      setBulkJobId(started.jobId);
+    } catch (err) {
+      setBulkError(err.message);
+    } finally {
+      setBulkStarting(false);
     }
   }
 
@@ -524,12 +604,44 @@ export default function AskDundas() {
 
       {tab === 'verify' && (
         <div className="ask-verify-panel" id="ask-verify-panel" role="tabpanel" aria-labelledby="ask-tab-verify">
-          <form className="ask-verify-card" onSubmit={verifyDocument}>
+          <form
+            className="ask-verify-card"
+            onSubmit={verifyMode === 'single' ? verifyDocument : startBulk}
+          >
             <div className="ask-verify-heading">
               <h2>Verify an RA letter</h2>
               <p>Upload the payer's Remittance Advice and check it against your records.</p>
             </div>
 
+            <div className="ask-verify-mode" role="tablist" aria-label="RA upload mode">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={verifyMode === 'single'}
+                className={`ask-verify-mode-btn${verifyMode === 'single' ? ' active' : ''}`}
+                onClick={() => {
+                  setVerifyMode('single');
+                  setBulkError(null);
+                }}
+              >
+                Single File
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={verifyMode === 'bulk'}
+                className={`ask-verify-mode-btn${verifyMode === 'bulk' ? ' active' : ''}`}
+                onClick={() => {
+                  setVerifyMode('bulk');
+                  setVerifyError(null);
+                }}
+              >
+                Bulk Upload
+              </button>
+            </div>
+
+            {verifyMode === 'single' ? (
+              <>
             <label className="ask-verify-drop" htmlFor="ask-verify-file">
               <span className="ask-verify-drop-icon" aria-hidden="true">
                 <svg viewBox="0 0 24 24" width="30" height="30" fill="none">
@@ -719,6 +831,172 @@ export default function AskDundas() {
                   </>
               </div>
             ))}
+              </>
+            ) : (
+              <>
+                <label className="ask-verify-drop ask-bulk-drop" htmlFor="ask-bulk-files">
+                  <span className="ask-verify-drop-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" width="30" height="30" fill="none">
+                      <path
+                        d="M7 3.5h6.5L19 9v9.5a2 2 0 01-2 2H7a2 2 0 01-2-2v-13a2 2 0 012-2z"
+                        stroke="currentColor"
+                        strokeWidth="1.7"
+                        strokeLinejoin="round"
+                      />
+                      <path d="M13.5 3.5V9H19" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" />
+                      <path d="M8.5 13h7M8.5 16.5h4.5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+                    </svg>
+                  </span>
+                  <span className="ask-verify-drop-copy">
+                    <strong>
+                      {bulkFiles.length
+                        ? `${bulkFiles.length} file${bulkFiles.length === 1 ? '' : 's'} selected`
+                        : 'Select RA files for bulk verification'}
+                    </strong>
+                    <span>Select up to 300 PDFs or images</span>
+                  </span>
+                  <input
+                    type="file"
+                    id="ask-bulk-files"
+                    accept=".pdf,image/*"
+                    multiple
+                    onChange={(e) => {
+                      const picked = Array.from(e.target.files ?? []);
+                      setBulkError(picked.length > 300 ? 'You can select at most 300 files.' : null);
+                      setBulkFiles(picked.slice(0, 300));
+                      setBulkJob(null);
+                      setBulkJobId(null);
+                    }}
+                  />
+                </label>
+
+                {bulkFiles.length > 0 && (
+                  <ul className="ask-bulk-file-list" id="ask-bulk-file-list">
+                    {bulkFiles.map((file, index) => (
+                      <li key={`${file.name}-${index}`}>
+                        <span className="ask-bulk-check" aria-hidden="true">✓</span>
+                        <span className="ask-bulk-file-name">{file.name}</span>
+                        <span className="ask-bulk-file-size">{formatFileSize(file.size)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+
+                {bulkError && <div className="alert error">{bulkError}</div>}
+
+                <button
+                  type="submit"
+                  className="btn primary ask-verify-submit"
+                  id="ask-bulk-submit"
+                  disabled={!bulkFiles.length || bulkStarting}
+                >
+                  {bulkStarting ? (
+                    <>
+                      <span className="ask-verify-spinner" aria-hidden="true" />
+                      Starting…
+                    </>
+                  ) : (
+                    `Start Bulk Verification${bulkFiles.length ? ` (${bulkFiles.length})` : ''}`
+                  )}
+                </button>
+
+                {bulkJob && (
+                  <div className="ask-bulk-status" id="ask-bulk-status">
+                    <div className="ask-bulk-progress-head">
+                      <strong>
+                        {bulkJob.status === 'completed'
+                          ? 'Bulk verification complete'
+                          : bulkJob.status === 'failed'
+                            ? 'Bulk verification failed'
+                            : `Processing ${bulkJob.processed_files ?? 0} of ${
+                                bulkJob.total_files ?? bulkFiles.length
+                              }...`}
+                      </strong>
+                      <span className="muted small">
+                        {Math.round(
+                          ((bulkJob.processed_files ?? 0) /
+                            Math.max(1, bulkJob.total_files ?? bulkFiles.length)) *
+                            100
+                        )}
+                        %
+                      </span>
+                    </div>
+                    <div className="ask-bulk-bar" aria-hidden="true">
+                      <span
+                        style={{
+                          width: `${Math.round(
+                            ((bulkJob.processed_files ?? 0) /
+                              Math.max(1, bulkJob.total_files ?? bulkFiles.length)) *
+                              100
+                          )}%`,
+                        }}
+                      />
+                    </div>
+
+                    {bulkJob.status === 'failed' && (
+                      <div className="alert error" id="ask-bulk-error">
+                        {bulkJob.error || 'Bulk verification failed.'}
+                      </div>
+                    )}
+
+                    {bulkJob.status === 'completed' && (
+                      <>
+                        <div
+                          className={`ask-verify-result ${bulkReview === 0 ? 'ok' : 'failed'}`}
+                          role="status"
+                          aria-live="polite"
+                        >
+                          <span className="ask-verify-result-mark" aria-hidden="true">
+                            {bulkReview === 0 ? (
+                              <svg viewBox="0 0 24 24" width="18" height="18" fill="none">
+                                <path d="M5 12.5l4.2 4.2L19 7" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+                              </svg>
+                            ) : (
+                              <svg viewBox="0 0 24 24" width="18" height="18" fill="none">
+                                <path d="M12 8v5" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
+                                <circle cx="12" cy="16.6" r="1.2" fill="currentColor" />
+                                <path d="M12 3.5L21 20H3L12 3.5z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+                              </svg>
+                            )}
+                          </span>
+                          <div>
+                            <strong>
+                              {bulkReview === 0
+                                ? `All ${bulkVerified} files verified. No discrepancies found.`
+                                : `${bulkVerified} of ${bulkResults.length} files verified, ${bulkReview} need review.`}
+                            </strong>
+                          </div>
+                        </div>
+
+                        <div className="ask-bulk-groups">
+                          {[
+                            ['match', 'Match'],
+                            ['mismatch', 'Mismatch'],
+                            ['missing_in_db', 'Missing'],
+                          ].map(([key, label]) =>
+                            bulkGroups[key].length ? (
+                              <section className="ask-bulk-group" key={key}>
+                                <h3>
+                                  {label} <span>{bulkGroups[key].length}</span>
+                                </h3>
+                                <ul>
+                                  {bulkGroups[key].map((entry, index) => (
+                                    <li key={`${entry.file_name}-${index}`}>
+                                      <span>{entry.file_name}</span>
+                                      {entry.error && <small>{entry.error}</small>}
+                                    </li>
+                                  ))}
+                                </ul>
+                              </section>
+                            ) : null
+                          )}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
+              </>
+            )}
           </form>
         </div>
       )}

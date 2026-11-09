@@ -7,6 +7,10 @@
  */
 import express from 'express';
 import multer from 'multer';
+import fs from 'node:fs';
+import path from 'node:path';
+import crypto from 'node:crypto';
+import pLimit from 'p-limit';
 import { verifyRaDocument, complete } from '../aiService.js';
 import db from '../db.js';
 
@@ -16,6 +20,30 @@ const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 15 * 1024 * 1024, files: 1 },
 });
+
+const BULK_DIR = path.resolve('data', 'ra_bulk_uploads');
+fs.mkdirSync(BULK_DIR, { recursive: true });
+
+const bulkUpload = multer({
+  storage: multer.diskStorage({
+    destination(req, _file, cb) {
+      const dir = path.join(BULK_DIR, req.bulkJobId);
+      fs.mkdirSync(dir, { recursive: true });
+      cb(null, dir);
+    },
+    filename(_req, file, cb) {
+      const ext = path.extname(file.originalname || '').slice(0, 12);
+      cb(null, `${crypto.randomUUID()}${ext}`);
+    },
+  }),
+  limits: { fileSize: 15 * 1024 * 1024, files: 300 },
+});
+
+/*
+ * In-memory queue, intentionally no Redis. The limit is global: at most two
+ * files are processed at once across all jobs.
+ */
+const fileLimit = pLimit(2);
 
 function allowedFile(file) {
   const name = String(file?.originalname ?? '');
@@ -245,6 +273,89 @@ async function extractPdfText(buffer) {
   }
 }
 
+/**
+ * Process one uploaded RA file with the exact single-file pipeline:
+ * PDF raster → Azure Vision, with pdf-parse/text-completion fallback.
+ * Returned records are already compared against the tenant's claims.
+ */
+async function processRaFile(file, agencyId) {
+  const isPdf = file.mimetype === 'application/pdf' || /\.pdf$/i.test(file.originalname);
+  let records = null;
+
+  if (!isPdf) {
+    const result = await verifyRaDocument(
+      file.buffer.toString('base64'),
+      file.mimetype || 'image/png',
+      agencyId
+    );
+    if (result.error) {
+      const status = result.error.includes('quota provisioning') ? 503 : 502;
+      const err = new Error(result.error);
+      err.status = status;
+      throw err;
+    }
+    records = Array.isArray(result.records) ? result.records : [];
+  } else {
+    let renderError = null;
+    try {
+      const pngBuffer = await pdfFirstPagePng(file.buffer);
+      const result = await verifyRaDocument(pngBuffer.toString('base64'), 'image/png', agencyId);
+      if (result.error) {
+        const status = result.error.includes('quota provisioning') ? 503 : 502;
+        const err = new Error(result.error);
+        err.status = status;
+        throw err;
+      }
+      records = Array.isArray(result.records) ? result.records : [];
+    } catch (err) {
+      renderError = err;
+      console.error('[PDF-RENDER-ERROR]', err?.stack || err?.message || String(err));
+    }
+
+    if (records === null) {
+      try {
+        const rawText = await extractPdfText(file.buffer);
+        if (!rawText) throw new Error('PDF text extraction returned no text.');
+
+        const completion = await complete(
+          `Here is the raw text extracted from an RA letter. Parse it into JSON.\n\n${rawText.slice(
+            0,
+            16000
+          )}`,
+          {
+            system:
+              'You are an expert medical billing auditor. Extract the Member ID, Client Name, Date of Service, and Amount Paid from the RA text. Return ONLY a JSON array using the keys member_id, client_name, date_of_service, amount_paid. Do not include markdown formatting.',
+            timeoutMs: 60000,
+            agencyId,
+          }
+        );
+
+        if (completion.source === 'none') {
+          throw new Error(completion.text || 'Azure text completion failed.');
+        }
+        records = parseJsonRecords(completion.text);
+        if (!records) throw new Error('Azure text completion returned no JSON records.');
+      } catch (fallbackError) {
+        console.error(
+          '[PDF-RENDER-ERROR] text fallback failed:',
+          fallbackError?.stack || fallbackError?.message || String(fallbackError)
+        );
+        const renderMessage =
+          renderError?.message || renderError?.toString() || 'unknown render error';
+        const err = new Error(
+          `Could not process RA. Render error: ${renderMessage}. Fallback error: ${
+            fallbackError?.message || String(fallbackError)
+          }`
+        );
+        err.status = 500;
+        throw err;
+      }
+    }
+  }
+
+  return (records ?? []).map((record) => verifyRecord(record, agencyId));
+}
+
 /** POST /api/ai/verify-ra — multipart field name: file */
 router.post('/verify-ra', (req, res) => {
   upload.single('file')(req, res, async (err) => {
@@ -261,88 +372,236 @@ router.post('/verify-ra', (req, res) => {
     }
 
     try {
-      const isPdf =
-        req.file.mimetype === 'application/pdf' || /\.pdf$/i.test(req.file.originalname);
-      let records = null;
-
-      if (!isPdf) {
-        const result = await verifyRaDocument(
-          req.file.buffer.toString('base64'),
-          req.file.mimetype || 'image/png',
-          req.agencyId
-        );
-        if (result.error) {
-          const status = result.error.includes('quota provisioning') ? 503 : 502;
-          return res.status(status).json({ error: result.error });
-        }
-        records = Array.isArray(result.records) ? result.records : [];
-      } else {
-        let renderError = null;
-        try {
-          const pngBuffer = await pdfFirstPagePng(req.file.buffer);
-          const result = await verifyRaDocument(
-            pngBuffer.toString('base64'),
-            'image/png',
-            req.agencyId
-          );
-          if (result.error) {
-            const status = result.error.includes('quota provisioning') ? 503 : 502;
-            return res.status(status).json({ error: result.error });
-          }
-          records = Array.isArray(result.records) ? result.records : [];
-        } catch (err) {
-          renderError = err;
-          console.error('[PDF-RENDER-ERROR]', err?.stack || err?.message || String(err));
-        }
-
-        if (records === null) {
-          // Canvas/pdfjs failed — fall back to text extraction and a text-only
-          // Azure completion. This keeps the endpoint usable on hosts where
-          // the native canvas binary is unavailable.
-          try {
-            const rawText = await extractPdfText(req.file.buffer);
-            if (!rawText) throw new Error('PDF text extraction returned no text.');
-
-            const completion = await complete(
-              `Here is the raw text extracted from an RA letter. Parse it into JSON.\n\n${rawText.slice(
-                0,
-                16000
-              )}`,
-              {
-                system:
-                  'You are an expert medical billing auditor. Extract the Member ID, Client Name, Date of Service, and Amount Paid from the RA text. Return ONLY a JSON array using the keys member_id, client_name, date_of_service, amount_paid. Do not include markdown formatting.',
-                timeoutMs: 60000,
-                agencyId: req.agencyId,
-              }
-            );
-
-            if (completion.source === 'none') {
-              throw new Error(completion.text || 'Azure text completion failed.');
-            }
-            records = parseJsonRecords(completion.text);
-            if (!records) throw new Error('Azure text completion returned no JSON records.');
-          } catch (fallbackError) {
-            console.error(
-              '[PDF-RENDER-ERROR] text fallback failed:',
-              fallbackError?.stack || fallbackError?.message || String(fallbackError)
-            );
-            const renderMessage =
-              renderError?.message || renderError?.toString() || 'unknown render error';
-            return res.status(500).json({
-              error: `Could not process RA. Render error: ${renderMessage}. Fallback error: ${
-                fallbackError?.message || String(fallbackError)
-              }`,
-            });
-          }
-        }
-      }
-
-      const compared = (records ?? []).map((record) => verifyRecord(record, req.agencyId));
-      res.json({ status: 'success', records: compared });
+      const records = await processRaFile(req.file, req.agencyId);
+      res.json({ status: 'success', records });
     } catch (err) {
+      if (err.status) {
+        return res.status(err.status).json({ error: err.message });
+      }
       console.error('[PDF-RENDER-ERROR] unhandled RA verification error:', err?.stack || err);
       return res.status(500).json({ error: err?.message || 'RA verification failed.' });
+    }  });
+});
+
+
+/* ------------------------------------------------------------------ bulk */
+
+const JOB_TIMEOUT_MS = 30 * 60 * 1000;
+console.warn('[bulk] in-memory RA queue enabled (concurrency 2); jobs will be lost on restart.');
+
+function jobIsTimedOut(row) {
+  if (!row || !['queued', 'processing'].includes(row.status)) return false;
+  const created = Date.parse(`${String(row.created_at).replace(' ', 'T')}Z`);
+  return Number.isFinite(created) && Date.now() - created > JOB_TIMEOUT_MS;
+}
+
+function markJobTimedOut(jobId) {
+  db.prepare(
+    `UPDATE ra_verification_jobs
+        SET status = 'failed', error = 'Job timed out', updated_at = datetime('now')
+      WHERE id = ? AND status IN ('queued', 'processing')`
+  ).run(jobId);
+}
+
+function parseResults(json) {
+  try {
+    const parsed = JSON.parse(json || '[]');
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+async function runBulkJob(job) {
+  try {
+    const row = db
+      .prepare(`SELECT status, created_at FROM ra_verification_jobs WHERE id = ?`)
+      .get(job.id);
+    if (!row) return;
+    if (jobIsTimedOut(row)) {
+      markJobTimedOut(job.id);
+      return;
     }
+
+    db.prepare(
+      `UPDATE ra_verification_jobs
+          SET status = 'processing', updated_at = datetime('now')
+        WHERE id = ?`
+    ).run(job.id);
+
+    let stopped = false;
+    await Promise.all(
+      job.files.map((file) =>
+        fileLimit(async () => {
+          if (stopped) return;
+
+          const current = db
+            .prepare(`SELECT status, created_at FROM ra_verification_jobs WHERE id = ?`)
+            .get(job.id);
+          if (jobIsTimedOut(current)) {
+            stopped = true;
+            markJobTimedOut(job.id);
+            return;
+          }
+
+          let entry;
+          try {
+            const buffer = fs.readFileSync(file.path);
+            const records = await processRaFile(
+              {
+                buffer,
+                originalname: file.originalname,
+                mimetype: file.mimetype,
+              },
+              job.agencyId
+            );
+            entry = { file_name: file.originalname, status: 'completed', records };
+          } catch (err) {
+            entry = {
+              file_name: file.originalname,
+              status: 'error',
+              records: [],
+              error: err?.message || 'File processing failed.',
+            };
+          }
+
+          if (stopped) return;
+          job.results.push(entry);
+          db.prepare(
+            `UPDATE ra_verification_jobs
+                SET processed_files = processed_files + 1,
+                    results_json = ?,
+                    updated_at = datetime('now')
+              WHERE id = ?`
+          ).run(JSON.stringify(job.results), job.id);
+        })
+      )
+    );
+
+    if (stopped) return;
+
+    const finalRow = db
+      .prepare(`SELECT status, created_at FROM ra_verification_jobs WHERE id = ?`)
+      .get(job.id);
+    if (jobIsTimedOut(finalRow)) {
+      markJobTimedOut(job.id);
+      return;
+    }
+
+    db.prepare(
+      `UPDATE ra_verification_jobs
+          SET status = 'completed',
+              processed_files = ?,
+              results_json = ?,
+              error = NULL,
+              updated_at = datetime('now')
+        WHERE id = ?`
+    ).run(job.files.length, JSON.stringify(job.results), job.id);
+
+    fs.rm(path.join(BULK_DIR, job.id), { recursive: true, force: true }, () => {});
+  } catch (err) {
+    console.error('[bulk] job failed:', err?.stack || err);
+    db.prepare(
+      `UPDATE ra_verification_jobs
+          SET status = 'failed', error = ?, updated_at = datetime('now')
+        WHERE id = ?`
+    ).run(err?.message || 'Bulk job failed.', job.id);
+  }
+}
+
+/** POST /api/ai/verify-ra-bulk — multipart field name: files (max 300). */
+router.post(
+  '/verify-ra-bulk',
+  (req, _res, next) => {
+    req.bulkJobId = crypto.randomUUID();
+    next();
+  },
+  (req, res) => {
+    bulkUpload.array('files', 300)(req, res, (err) => {
+      const dir = path.join(BULK_DIR, req.bulkJobId);
+      if (err) {
+        fs.rm(dir, { recursive: true, force: true }, () => {});
+        const message =
+          err.code === 'LIMIT_FILE_SIZE'
+            ? 'Each file must be 15 MB or smaller.'
+            : err.code === 'LIMIT_FILE_COUNT'
+              ? 'You can upload at most 300 files at once.'
+              : 'The files could not be uploaded.';
+        return res.status(400).json({ error: message });
+      }
+
+      const files = Array.isArray(req.files) ? req.files : [];
+      if (!files.length) {
+        return res.status(400).json({ error: 'Choose at least one PDF or image.' });
+      }
+      const invalid = files.find((file) => !allowedFile(file));
+      if (invalid) {
+        fs.rm(dir, { recursive: true, force: true }, () => {});
+        return res.status(400).json({ error: `Unsupported file: ${invalid.originalname}` });
+      }
+
+      const jobId = req.bulkJobId;
+      try {
+        db.prepare(
+          `INSERT INTO ra_verification_jobs
+             (id, agency_id, status, total_files, processed_files, results_json, created_at, updated_at)
+           VALUES (?, ?, 'queued', ?, 0, '[]', datetime('now'), datetime('now'))`
+        ).run(jobId, req.agencyId, files.length);
+      } catch (dbError) {
+        console.error('[bulk] could not create job:', dbError);
+        fs.rm(dir, { recursive: true, force: true }, () => {});
+        return res.status(500).json({ error: 'Could not create the bulk job.' });
+      }
+
+      const job = {
+        id: jobId,
+        agencyId: req.agencyId,
+        files: files.map((file) => ({
+          path: file.path,
+          originalname: file.originalname,
+          mimetype: file.mimetype,
+        })),
+        results: [],
+      };
+
+      // Return before processing. The global p-limit(2) controls concurrency.
+      res.status(202).json({ jobId, status: 'queued' });
+      runBulkJob(job).catch((err) => {
+        console.error('[bulk] unhandled worker error:', err?.stack || err);
+      });
+    });
+  }
+);
+
+/** GET /api/ai/verify-ra-bulk/:jobId — tenant-scoped progress/results. */
+router.get('/verify-ra-bulk/:jobId', (req, res) => {
+  let row = db
+    .prepare(
+      `SELECT id, status, total_files, processed_files, results_json, error, created_at
+         FROM ra_verification_jobs
+        WHERE id = ? AND agency_id = ?`
+    )
+    .get(req.params.jobId, req.agencyId);
+
+  if (!row) return res.status(404).json({ error: 'Bulk job not found.' });
+
+  if (jobIsTimedOut(row)) {
+    markJobTimedOut(row.id);
+    row = db
+      .prepare(
+        `SELECT id, status, total_files, processed_files, results_json, error, created_at
+           FROM ra_verification_jobs
+          WHERE id = ? AND agency_id = ?`
+      )
+      .get(req.params.jobId, req.agencyId);
+  }
+
+  res.json({
+    status: row.status,
+    total_files: row.total_files,
+    processed_files: row.processed_files,
+    results: parseResults(row.results_json),
+    error: row.error,
   });
 });
 

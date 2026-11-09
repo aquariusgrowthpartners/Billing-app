@@ -373,6 +373,22 @@ db.exec(`
   );
 
   -- People who coordinate a client's care. Assigned per client.
+  CREATE TABLE IF NOT EXISTS ra_verification_jobs (
+    id               TEXT PRIMARY KEY,
+    agency_id        INTEGER NOT NULL REFERENCES agencies(id) ON DELETE CASCADE,
+    status           TEXT NOT NULL DEFAULT 'queued'
+                       CHECK (status IN ('queued', 'processing', 'completed', 'failed')),
+    total_files      INTEGER NOT NULL DEFAULT 0,
+    processed_files  INTEGER NOT NULL DEFAULT 0,
+    results_json     TEXT,
+    error            TEXT,
+    created_at       TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at       TEXT
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_ra_verification_jobs_agency_created
+    ON ra_verification_jobs (agency_id, created_at DESC);
+
   CREATE TABLE IF NOT EXISTS case_managers (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
     first_name   TEXT    NOT NULL,
