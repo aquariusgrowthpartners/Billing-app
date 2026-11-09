@@ -298,6 +298,8 @@ export default function AskDundas() {
     verifyResult?.status === 'success' &&
     visionRecords.length > 0 &&
     visionNeedsReview === 0;
+  const visionEmpty = verifyResult?.status === 'success' && visionRecords.length === 0;
+  const recordWord = (n) => (n === 1 ? 'record' : 'records');
 
   function selectTab(next) {
     if (next === tab) return;
@@ -574,7 +576,7 @@ export default function AskDundas() {
               )}
             </button>
 
-            {verifyResult && (
+            {verifyResult && !visionEmpty && (
               <div
                 className={`ask-verify-result ${verificationPassed ? 'ok' : 'failed'}`}
                 role="status"
@@ -594,18 +596,13 @@ export default function AskDundas() {
                   )}
                 </span>
                 <div>
-                  <strong>{verificationPassed ? 'Verification Passed' : 'Review Required'}</strong>
-                  <p>
-                    {visionRecords.length === 0
-                      ? 'No RA records were extracted from this document.'
-                      : verificationPassed
-                        ? `${visionRecords.length} record${
-                            visionRecords.length === 1 ? '' : 's'
-                          } matched the database.`
-                        : `${visionNeedsReview} of ${visionRecords.length} record${
-                            visionRecords.length === 1 ? '' : 's'
-                          } ${visionNeedsReview === 1 ? 'needs' : 'need'} review.`}
-                  </p>
+                  <strong>
+                    {verificationPassed
+                      ? `All ${visionRecords.length} ${recordWord(visionRecords.length)} verified. No discrepancies found.`
+                      : `Review Required. ${visionNeedsReview} of ${visionRecords.length} ${recordWord(
+                          visionRecords.length
+                        )} ${visionNeedsReview === 1 ? 'needs' : 'need'} attention.`}
+                  </strong>
                   {verifyResult.file?.name && (
                     <span className="muted small">{verifyResult.file.name}</span>
                   )}
@@ -613,18 +610,32 @@ export default function AskDundas() {
               </div>
             )}
 
-            {Array.isArray(verifyResult?.records) && (
-              <div className="ask-vision-records" id="ask-vision-records">
-                <div className="ask-vision-records-head">
-                  <strong>Extracted records</strong>
-                  <span className="muted small">
-                    {visionRecords.length} record
-                    {visionRecords.length === 1 ? '' : 's'}
+            {Array.isArray(verifyResult?.records) &&
+              (visionRecords.length === 0 ? (
+                <div className="ask-vision-empty" id="ask-vision-empty">
+                  <span className="ask-vision-empty-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" width="30" height="30" fill="none">
+                      <path
+                        d="M7 3.5h6.5L19 9v9.5a2 2 0 01-2 2H7a2 2 0 01-2-2v-13a2 2 0 012-2z"
+                        stroke="currentColor"
+                        strokeWidth="1.6"
+                        strokeLinejoin="round"
+                      />
+                      <path d="M13.5 3.5V9H19" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
+                      <path d="M8.5 15.5l2.4 2.4 4.4-5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
                   </span>
+                  <h3>No records found in this document</h3>
+                  <p>Try uploading a different RA letter, or check that the file is legible.</p>
                 </div>
-                {visionRecords.length === 0 ? (
-                  <p className="muted small">No RA records were detected in this document.</p>
-                ) : (
+              ) : (
+                <div className="ask-vision-records" id="ask-vision-records">
+                  <div className="ask-vision-records-head">
+                    <strong>Extracted records</strong>
+                    <span className="muted small">
+                      {visionRecords.length} {recordWord(visionRecords.length)}
+                    </span>
+                  </div>
                   <>
                     <div className="ask-vision-table-wrap hide-on-mobile">
                       <table className="ask-vision-table">
@@ -703,9 +714,8 @@ export default function AskDundas() {
                       })}
                     </div>
                   </>
-                )}
               </div>
-            )}
+            ))}
           </form>
         </div>
       )}

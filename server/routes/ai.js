@@ -49,21 +49,25 @@ async function pdfFirstPagePng(buffer) {
   }
 }
 
-/** Parse "$1,234.56" / "1234.56" / numeric values. */
-function parseAmount(value) {
-  if (value === null || value === undefined || value === '') return null;
-  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
-  const cleaned = String(value).replace(/[^0-9.\-]/g, '');
-  if (!cleaned || cleaned === '.' || cleaned === '-') return null;
-  const n = Number(cleaned);
-  return Number.isFinite(n) ? n : null;
+/**
+ * RA values may arrive as numbers, "$1,234.56", " 1234.56 ", etc.
+ * Strip whitespace, dollar signs and thousands separators, then parseFloat.
+ * NaN is preserved deliberately so the caller can route it to a mismatch.
+ */
+function parseCurrency(value) {
+  if (typeof value === 'number') return value;
+  const normalized = String(value ?? '')
+    .replace(/\s/g, '')
+    .replace(/\$/g, '')
+    .replace(/,/g, '');
+  return parseFloat(normalized);
 }
 
 function money(value) {
-  const n = parseAmount(value);
-  return n === null
-    ? '—'
-    : `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const n = parseCurrency(value);
+  return Number.isFinite(n)
+    ? `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+    : '—';
 }
 
 /** Parse ISO or US dates into an inclusive range. */
@@ -182,20 +186,18 @@ function verifyRecord(record, agencyId) {
     };
   }
 
-  const raAmount = parseAmount(record?.amount_paid ?? record?.amountPaid);
-  const dbAmount = parseAmount(claim.paid_amount);
-  if (raAmount === null || dbAmount === null) {
+  const raAmount = parseCurrency(record?.amount_paid ?? record?.amountPaid);
+  const dbAmount = parseCurrency(claim.paid_amount);
+  if (!Number.isFinite(raAmount) || !Number.isFinite(dbAmount)) {
     return {
       ra_data: record,
       db_data: claim,
       status: 'mismatch',
-      discrepancy: `Amount unavailable: RA says ${money(
-        record?.amount_paid ?? record?.amountPaid
-      )}, DB says ${money(claim.paid_amount)}.`,
+      discrepancy: 'Could not parse amount',
     };
   }
 
-  if (Math.abs(raAmount - dbAmount) <= 0.01) {
+  if (Math.abs(raAmount - dbAmount) < 0.01) {
     return { ra_data: record, db_data: claim, status: 'match', discrepancy: null };
   }
 

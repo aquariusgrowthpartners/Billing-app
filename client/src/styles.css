@@ -8032,3 +8032,43 @@ body {
   font-size: 12px;
   line-height: 1.45;
 }
+
+/* Clean RA empty state */
+.ask-vision-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 32px 18px;
+  border: 1px dashed var(--border-strong);
+  border-radius: 16px;
+  background: var(--bg);
+  text-align: center;
+}
+
+.ask-vision-empty-icon {
+  display: grid;
+  place-items: center;
+  width: 58px;
+  height: 58px;
+  margin-bottom: 2px;
+  border-radius: 17px;
+  background: var(--surface);
+  color: var(--ok-fg);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
+}
+
+.ask-vision-empty h3 {
+  margin: 0;
+  font-size: 16px;
+  letter-spacing: -0.02em;
+}
+
+.ask-vision-empty p {
+  max-width: 34ch;
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
