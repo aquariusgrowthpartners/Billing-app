@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import api from '../api.js';
 import { toast } from '../components/Toast.jsx';
 
@@ -107,15 +107,89 @@ function renderBlocks(text) {
   return out;
 }
 
+const SUGGESTIONS = [
+  "Summarize this week's billing",
+  'Find unbilled claims',
+  'Show top clients',
+];
+
+function timeLabel(ts) {
+  try {
+    return new Date(ts).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  } catch {
+    return '';
+  }
+}
+
+function AiBubble({ message, sourcesOpen, onToggleSources }) {
+  const plan = describePlan(message.plan);
+  const sources = Array.isArray(message.sources) ? message.sources : [];
+  return (
+    <div className={`ask-msg ask-msg-ai${message.error ? ' ask-msg-error' : ''}`}>
+      <div className="ask-msg-meta">
+        <span className="ask-ai-label">AI</span>
+        <span className="ask-time">{timeLabel(message.at)}</span>
+      </div>
+      <div className="ask-bubble">
+        {plan && (
+          <span className="ask-context" title="What the database was asked for">
+            <span className="ask-context-label">Querying</span>
+            {plan}
+          </span>
+        )}
+        <div className="ask-body">{renderBlocks(String(message.text ?? ''))}</div>
+
+        {sources.length > 0 && (
+          <div className="ask-sources">
+            <button
+              type="button"
+              className="ask-sources-toggle"
+              id={`ask-sources-toggle-${message.id}`}
+              onClick={onToggleSources}
+              aria-expanded={sourcesOpen}
+            >
+              <span>{sourcesOpen ? '▾' : '▸'}</span>
+              Sources ({sources.length})
+            </button>
+            {sourcesOpen && (
+              <ul className="ask-source-list">
+                {sources.map((s) => (
+                  <li key={`${s.type}-${s.id}`} className="ask-source">
+                    <div className="ask-source-main">
+                      <span className="ask-source-date">{s.date ?? '—'}</span>
+                      <span className="ask-source-label">{s.name ?? s.label}</span>
+                      {s.units != null && <span className="muted small">{s.units} units</span>}
+                      {s.amount != null && (
+                        <span className="ask-source-amount">${Number(s.amount).toFixed(2)}</span>
+                      )}
+                    </div>
+                    {s.href && (
+                      <Link className="link small" to={s.href}>
+                        View record
+                      </Link>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function AskDundas() {
+  const navigate = useNavigate();
   const [query, setQuery] = useState('');
   const [asking, setAsking] = useState(false);
-  const [result, setResult] = useState(null);
+  const [messages, setMessages] = useState([]);
   const [sourcesOpen, setSourcesOpen] = useState(true);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const [pageTop, setPageTop] = useState(108);
   const inputRef = useRef(null);
   const pageRef = useRef(null);
+  const threadRef = useRef(null);
 
   /*
    * iOS does not resize the layout viewport for the on-screen keyboard; it
@@ -158,25 +232,53 @@ export default function AskDundas() {
     };
   }, []);
 
+  // Keep the newest message in view without moving the header or composer.
+  useEffect(() => {
+    const thread = threadRef.current;
+    if (thread) thread.scrollTop = thread.scrollHeight;
+  }, [messages, asking]);
+
   async function ask(q) {
     const question = String(q ?? query).trim();
-    // Empty submits are a no-op: no fetch, and nothing to clear.
     if (!question || asking) return;
-    // Clear optimistically so the next question can be typed while this one is
-    // still in flight. The submitted text lives on `result.question`, so it is
-    // not lost from the transcript.
+
     setQuery('');
-    // Dismiss the iOS keyboard before the answer lands so the response is
-    // readable immediately rather than hidden behind the keyboard.
     if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+
+    const at = Date.now();
+    setMessages((prev) => [
+      ...prev,
+      { id: `u-${at}`, role: 'user', text: question, at },
+    ]);
     setAsking(true);
-    setResult(null);
+
     try {
       const r = await api.ask(question);
-      setResult({ question, ...r });
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `a-${Date.now()}`,
+          role: 'ai',
+          text: String(r.answer ?? ''),
+          plan: r.plan,
+          sources: Array.isArray(r.sources) ? r.sources : [],
+          error: Boolean(r.error),
+          at: Date.now(),
+        },
+      ]);
       if (r.understood === false) toast.error('That question cannot be answered from your data.');
     } catch (e) {
-      setResult({ question, answer: e.message, sources: [], understood: false, error: true });
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `a-${Date.now()}`,
+          role: 'ai',
+          text: e.message,
+          sources: [],
+          error: true,
+          at: Date.now(),
+        },
+      ]);
       toast.error(e.message);
     } finally {
       setAsking(false);
@@ -186,6 +288,11 @@ export default function AskDundas() {
   function onSubmit(e) {
     e.preventDefault();
     ask();
+  }
+
+  function useSuggestion(text) {
+    setQuery(text);
+    inputRef.current?.focus();
   }
 
   return (
@@ -199,86 +306,93 @@ export default function AskDundas() {
         '--ask-keyboard-height': `${keyboardHeight}px`,
       }}
     >
-      <div className="page-head">
-        <div>
-          <h1>
-            Ask Dundas <span className="ask-spark">✨</span>
-          </h1>
-          <p className="muted">Ask a question about your billing data in plain English.</p>
-        </div>
-      </div>
+      <header className="ask-header" id="ask-header">
+        <button
+          type="button"
+          className="ask-back"
+          aria-label="Back to dashboard"
+          onClick={() => navigate('/')}
+        >
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" aria-hidden="true">
+            <path
+              d="M15 18l-6-6 6-6"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        </button>
+        <h1>Ask Dundas</h1>
+        <span className="ask-status">
+          <span className="ask-status-dot" aria-hidden="true" />
+          AI Online
+        </span>
+      </header>
 
-      <div className="ask-thread" id="ask-thread">
-        {!result && !asking && (
-          <div className="ask-welcome" id="ask-welcome">
-            <div className="empty-state-icon" aria-hidden="true">🤖</div>
-            <p className="empty-state-title">What would you like to know?</p>
-            <p className="muted small">
-              Answers include the math and a list of the records used, so you can check them.
-            </p>
+      <div className="ask-thread" id="ask-thread" ref={threadRef}>
+        {messages.length === 0 && (
+          <div className="ask-empty-state" id="ask-empty">
+            <div className="ask-empty-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="28" height="28" fill="none">
+                <path
+                  d="M12 3.5l1.7 4.6 4.8 1.7-4.8 1.7L12 16.1l-1.7-4.6L5.5 9.8l4.8-1.7L12 3.5z"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinejoin="round"
+                />
+                <path
+                  d="M18.5 15.5l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8.8-2.2z"
+                  fill="currentColor"
+                  opacity=".8"
+                />
+              </svg>
+            </div>
+            <h2>How can I help you today?</h2>
+            <p>Ask about billing, claims, or agency data.</p>
+            <div className="ask-suggestions">
+              {SUGGESTIONS.map((suggestion) => (
+                <button
+                  type="button"
+                  className="ask-suggestion"
+                  key={suggestion}
+                  onClick={() => useSuggestion(suggestion)}
+                >
+                  {suggestion}
+                </button>
+              ))}
+            </div>
           </div>
+        )}
+
+        {messages.map((message) =>
+          message.role === 'user' ? (
+            <div className="ask-msg ask-msg-user" key={message.id}>
+              <div className="ask-bubble">{message.text}</div>
+            </div>
+          ) : (
+            <AiBubble
+              key={message.id}
+              message={message}
+              sourcesOpen={sourcesOpen}
+              onToggleSources={() => setSourcesOpen((v) => !v)}
+            />
+          )
         )}
 
         {asking && (
-          <div className="ask-card" id="ask-loading">
-            <div className="ask-loading">
-              <span className="ask-dot" /> <span className="ask-dot" /> <span className="ask-dot" />
-              <span className="muted">Analyzing data…</span>
+          <div className="ask-msg ask-msg-ai" id="ask-loading">
+            <div className="ask-msg-meta">
+              <span className="ask-ai-label">AI</span>
+              <span className="ask-time">Thinking</span>
             </div>
-          </div>
-        )}
-
-        {result && (
-          <div className="ask-card" id="ask-answer">
-            <p className="ask-question">{result.question}</p>
-            {describePlan(result.plan) && (
-              <span className="ask-context" id="ask-context" title="What the database was asked for">
-                <span className="ask-context-label">Querying</span>
-                {describePlan(result.plan)}
-              </span>
-            )}
-            <div className="ask-body" id="ask-text">
-              {renderBlocks(String(result.answer ?? ''))}
-            </div>
-
-            {result.sources?.length > 0 && (
-              <div className="ask-sources" id="ask-sources">
-                <button
-                  className="ask-sources-toggle"
-                  id="ask-sources-toggle"
-                  onClick={() => setSourcesOpen((v) => !v)}
-                  aria-expanded={sourcesOpen}
-                >
-                  <span>{sourcesOpen ? '▾' : '▸'}</span>
-                  Sources ({result.sources.length})
-                </button>
-                {sourcesOpen && (
-                  <ul className="ask-source-list">
-                    {result.sources.map((s) => (
-                      <li key={`${s.type}-${s.id}`} className="ask-source" id={`ask-source-${s.id}`}>
-                        <div className="ask-source-main">
-                          <span className="ask-source-date">{s.date ?? '—'}</span>
-                          <span className="ask-source-label">{s.name ?? s.label}</span>
-                          {s.units != null && (
-                            <span className="muted small">{s.units} units</span>
-                          )}
-                          {s.amount != null && (
-                            <span className="ask-source-amount">
-                              ${Number(s.amount).toFixed(2)}
-                            </span>
-                          )}
-                        </div>
-                        {s.href && (
-                          <Link className="link small" to={s.href} id={`ask-view-${s.id}`}>
-                            View record
-                          </Link>
-                        )}
-                      </li>
-                    ))}
-                  </ul>
-                )}
+            <div className="ask-bubble">
+              <div className="ask-loading">
+                <span className="ask-dot" /> <span className="ask-dot" />{' '}
+                <span className="ask-dot" />
+                <span className="muted">Analyzing data…</span>
               </div>
-            )}
+            </div>
           </div>
         )}
       </div>
