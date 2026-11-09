@@ -8307,3 +8307,30 @@ body {
     font-size: 22px;
   }
 }
+
+.data-health-badge {
+  margin-left: 8px;
+  vertical-align: middle;
+  font-size: 9px;
+}
+
+.data-health-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.data-health-scope {
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+@media (max-width: 600px) {
+  .data-health-actions {
+    width: 100%;
+    justify-content: space-between;
+  }
+}

@@ -27,11 +27,12 @@ function DataHealthCard() {
   const [audit, setAudit] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [globalView, setGlobalView] = useState(false);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (global = false) => {
     setLoading(true);
     try {
-      setAudit(await api.auditData());
+      setAudit(await api.auditData(global));
       setError(null);
     } catch (e) {
       setError(e.message);
@@ -41,28 +42,57 @@ function DataHealthCard() {
   }, []);
 
   useEffect(() => {
-    load();
+    load(false);
   }, [load]);
 
+  const scopeLabel = audit?.scope === 'global' ? 'Global' : 'Agency';
   const metrics = [
-    ['Total clients', audit?.total_clients],
-    ['Total claims', audit?.total_claims],
-    ['RAs processed', audit?.total_ras_processed],
-    ['Orphaned claims', audit?.orphaned_claims],
+    [`${scopeLabel} Clients`, audit?.total_clients],
+    [`${scopeLabel} Claims`, audit?.total_claims],
+    ['RAs Processed', audit?.total_ras_processed],
+    ['Orphaned Claims', audit?.orphaned_claims],
   ];
+
+  function changeScope(checked) {
+    setGlobalView(checked);
+    load(checked);
+  }
 
   return (
     <section className="card" id="data-health">
       <div className="card-head">
         <div>
-          <h2>Data Health</h2>
+          <h2>
+            Data Health
+            {audit?.scope === 'global' && (
+              <span className="pill ok data-health-badge" id="data-health-global-badge">
+                Global View
+              </span>
+            )}
+          </h2>
           <p className="muted small" style={{ margin: '2px 0 0' }}>
-            Cross-checks clients, claims and processed RAs across the platform.
+            {audit?.scope === 'global'
+              ? 'Cross-checks clients, claims and processed RAs across the platform.'
+              : 'Cross-checks clients, claims and processed RAs for this agency.'}
           </p>
         </div>
-        <button className="btn" id="data-health-run" onClick={load} disabled={loading}>
-          {loading ? 'Checking…' : 'Run Integrity Check'}
-        </button>
+        <div className="data-health-actions">
+          {audit?.global_allowed && (
+            <label className="checkbox data-health-scope">
+              <input
+                type="checkbox"
+                id="data-health-global-toggle"
+                checked={globalView}
+                onChange={(e) => changeScope(e.target.checked)}
+                disabled={loading}
+              />
+              Global View
+            </label>
+          )}
+          <button className="btn" id="data-health-run" onClick={() => load(globalView)} disabled={loading}>
+            {loading ? 'Checking…' : 'Run Integrity Check'}
+          </button>
+        </div>
       </div>
       <div className="card-body">
         {error && <div className="alert error">{error}</div>}

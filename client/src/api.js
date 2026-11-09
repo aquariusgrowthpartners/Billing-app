@@ -51,7 +51,8 @@ export const api = {
   login: (body) => request('/auth/login', { method: 'POST', body: JSON.stringify(body) }),
   demoLogin: () => request('/auth/login', { method: 'POST', body: JSON.stringify({ demo: true }) }),
   superadminAgencies: () => request('/superadmin/agencies'),
-  auditData: () => request('/admin/audit-data'),
+  auditData: (global = false) =>
+    request(`/admin/audit-data${global ? '?global=true' : ''}`),
   toggleDemoAi: (enabled) =>
     request('/superadmin/demo-ai', { method: 'POST', body: JSON.stringify({ enabled }) }),
   superadminUpdateAgency: (id, body) =>

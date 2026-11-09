@@ -50,26 +50,50 @@ function problemsFor(row) {
 
 const decorate = (row) => ({ ...row, problems: problemsFor(row) });
 
-/** GET /api/admin/audit-data — platform data-integrity summary (Agency 1 only). */
+/** GET /api/admin/audit-data — tenant-scoped data-integrity summary. */
 router.get('/audit-data', (req, res) => {
   const user = req.user;
-  const isSuperAdmin =
-    user && ['admin', 'superadmin'].includes(user.role) &&
-    (user.agency_id === 1 || user.role === 'superadmin');
-  if (!isSuperAdmin) return res.status(403).json({ error: 'Super admin access is required.' });
+  if (!user || !['admin', 'superadmin'].includes(user.role)) {
+    return res.status(403).json({ error: 'An administrator login is required.' });
+  }
 
-  const count = (sql) => Number(db.prepare(sql).get()?.n ?? 0);
-  const totalClients = count('SELECT COUNT(*) AS n FROM clients');
-  const totalClaims = count('SELECT COUNT(*) AS n FROM claims');
-  const totalRas = count('SELECT COUNT(*) AS n FROM ra_imports');
-  const orphanedClaims = count(
-    `SELECT COUNT(*) AS n
-       FROM claims cl
-       LEFT JOIN clients c ON c.id = cl.client_id AND c.agency_id = cl.agency_id
-      WHERE c.id IS NULL`
+  const isSuperAdmin =
+    ['admin', 'superadmin'].includes(user.role) &&
+    (user.agency_id === 1 || user.role === 'superadmin');
+  const wantsGlobal = String(req.query.global ?? '').toLowerCase() === 'true';
+  if (wantsGlobal && !isSuperAdmin) {
+    return res.status(403).json({ error: 'Global view requires Super Admin access.' });
+  }
+
+  const global = wantsGlobal && isSuperAdmin;
+  const params = global ? [] : [req.agencyId];
+  const whereAgency = global ? '' : 'WHERE agency_id = ?';
+  const count = (sql) => Number(db.prepare(sql).get(...params)?.n ?? 0);
+
+  const clientFilter = global
+    ? 'WHERE active = 1 AND COALESCE(archived, 0) = 0'
+    : 'WHERE agency_id = ? AND active = 1 AND COALESCE(archived, 0) = 0';
+  const totalClients = Number(
+    db.prepare(`SELECT COUNT(*) AS n FROM clients ${clientFilter}`).get(...params)?.n ?? 0
   );
+  const totalClaims = count(`SELECT COUNT(*) AS n FROM claims ${whereAgency}`);
+  const totalRas = count(`SELECT COUNT(*) AS n FROM ra_imports ${whereAgency}`);
+
+  const orphanSql = global
+    ? `SELECT COUNT(*) AS n
+         FROM claims cl
+         LEFT JOIN clients c ON c.id = cl.client_id AND c.agency_id = cl.agency_id
+        WHERE c.id IS NULL`
+    : `SELECT COUNT(*) AS n
+         FROM claims cl
+         LEFT JOIN clients c ON c.id = cl.client_id AND c.agency_id = cl.agency_id
+        WHERE cl.agency_id = ? AND c.id IS NULL`;
+  const orphanedClaims = count(orphanSql);
 
   res.json({
+    scope: global ? 'global' : 'agency',
+    agency_id: req.agencyId,
+    global_allowed: isSuperAdmin,
     total_clients: totalClients,
     total_claims: totalClaims,
     total_ras_processed: totalRas,
