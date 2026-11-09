@@ -367,7 +367,15 @@ export default function App() {
             aria-controls="mobile-nav"
             onClick={() => setNavOpen((v) => !v)}
           >
-            {navOpen ? '✕' : '☰'}
+            {navOpen ? (
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M6 6l12 12M18 6L6 18" />
+              </svg>
+            ) : (
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M3 6h18M3 12h18M3 18h18" />
+              </svg>
+            )}
             <span className="nav-toggle-label">Menu</span>
           </button>
 
