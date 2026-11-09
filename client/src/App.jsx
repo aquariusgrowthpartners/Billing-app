@@ -224,10 +224,27 @@ export default function App() {
    */
   useEffect(() => {
     let alive = true;
+    let timedOut = false;
+
+    /*
+     * Hard auth deadline. A stalled /api/mode or /api/auth/me used to leave the
+     * app on "Loading your workspace…" forever — visually a blank page on iOS.
+     * After 5 seconds, drop the token and show Login no matter what.
+     */
+    const timer = setTimeout(() => {
+      if (!alive || timedOut) return;
+      timedOut = true;
+      console.warn('[auth] timed out after 5s — showing Login');
+      clearToken();
+      setUser(null);
+      setAuthed(false);
+      setAuthChecked(true);
+    }, 5000);
+
     (async () => {
       try {
         const d = await api.mode();
-        if (!alive) return;
+        if (!alive || timedOut) return;
         if (d?.demo) {
           setUser(null);
           setAuthed(true);
@@ -240,32 +257,37 @@ export default function App() {
           try {
             const me = await api.me();
             if (!me?.user) throw new Error('No user returned by /api/auth/me');
-            if (alive) {
+            if (alive && !timedOut) {
               setUser(me.user);
               setAuthed(true);
             }
           } catch {
-            if (alive) {
+            if (alive && !timedOut) {
               clearToken();
               setUser(null);
               setAuthed(false);
             }
           }
         } else {
-          setUser(null);
-          setAuthed(false);
+          if (alive && !timedOut) {
+            setUser(null);
+            setAuthed(false);
+          }
         }
       } catch {
-        if (alive) {
+        if (alive && !timedOut) {
           setUser(null);
           setAuthed(false);
         }
       } finally {
-        if (alive) setAuthChecked(true);
+        clearTimeout(timer);
+        if (alive && !timedOut) setAuthChecked(true);
       }
     })();
+
     return () => {
       alive = false;
+      clearTimeout(timer);
     };
   }, []);
 

@@ -9,6 +9,7 @@
     <title>Billing Calendar</title>
   </head>
   <body>
+    <!-- VERSION 2 -->
     <script>
       /*
        * DEBUG: capture fatal errors before the React bundle loads.
@@ -27,7 +28,7 @@
                 .replace(/>/g, '&gt;');
             };
             document.body.innerHTML =
-              '<div style="position:fixed;inset:0;z-index:2147483647;overflow:auto;padding:20px;' +
+              '<div id="global-fatal-error" style="position:fixed;inset:0;z-index:2147483647;overflow:auto;padding:20px;' +
               'color:#b00020;background:#fff;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;' +
               'font-size:16px;line-height:1.5;-webkit-overflow-scrolling:touch;">' +
               '<h2 style="margin:0 0 12px;font-size:22px;">' + safe(title) + '</h2>' +
@@ -62,6 +63,24 @@
           }
           show('UNHANDLED PROMISE REJECTION', detail, '');
         });
+
+        /*
+         * Bundle watchdog: if React never puts anything inside #root, the
+         * module failed to load or parse. Show that instead of an empty page.
+         */
+        window.setTimeout(function () {
+          if (document.getElementById('global-fatal-error')) return;
+          var root = document.getElementById('root');
+          if (root && root.children.length === 0) {
+            show(
+              'APP DID NOT BOOT — VERSION 2',
+              'The JavaScript bundle did not render anything within 8 seconds. ' +
+                'This usually means the bundle failed to download, hit a syntax error, ' +
+                'or iOS Safari is still serving an old cached index.html.',
+              navigator.userAgent || ''
+            );
+          }
+        }, 8000);
       })();
     </script>
     <div id="root"></div>

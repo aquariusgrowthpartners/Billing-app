@@ -57,7 +57,7 @@ export default function Login({ onAuthed }) {
         <p className="muted small login-sub">
           {isSignup
             ? 'Start a new agency workspace. You will be its administrator.'
-            : 'Sign in to your billing workspace.'}
+            : 'Sign in to your billing workspace. (VERSION 2)'}
         </p>
 
         {!isSignup && (
