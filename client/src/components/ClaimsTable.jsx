@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { motion } from 'framer-motion';
 import ClaimPdfControl from './ClaimPdfControl.jsx';
 import BulkClaimActions from './BulkClaimActions.jsx';
 import { formatLongDate, formatMoney } from '../calc.js';
@@ -304,8 +305,8 @@ export default function ClaimsTable({
 
     {/* Mobile: one card per claim — a 12-column table is unusable at 375px */}
     <div className="show-on-mobile claim-cards" id="claims-cards">
-      {claims.map((c) => (
-        <div
+      {claims.map((c, index) => (
+        <motion.div
           key={c.id}
           className={[
             'claim-card',
@@ -316,6 +317,13 @@ export default function ClaimsTable({
             .filter(Boolean)
             .join(' ')}
           onClick={(e) => onRowClick?.(e, c.id)}
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{
+            duration: 0.24,
+            delay: Math.min(index * 0.03, 0.24),
+            ease: [0.4, 0, 0.2, 1],
+          }}
         >
           <div className="claim-card-top">
             {showActions && (
@@ -387,7 +395,7 @@ export default function ClaimsTable({
               </div>
             </details>
           )}
-        </div>
+        </motion.div>
       ))}
       {!claims.length && <p className="empty">{emptyMessage ?? 'No claims yet.'}</p>}
     </div>

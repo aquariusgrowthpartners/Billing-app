@@ -7,8 +7,9 @@ import { useClaimActions } from '../components/ClaimActionModals.jsx';
 import { formatMoney, todayISO } from '../calc.js';
 import { download } from '../download.js';
 import EmptyState from '../components/EmptyState.jsx';
+import InsightBar from '../components/InsightBar.jsx';
 
-export default function ClaimsDashboard() {
+export default function ClaimsDashboard({ user }) {
   const [claims, setClaims] = useState([]);
   const [stats, setStats] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -120,6 +121,13 @@ export default function ClaimsDashboard() {
           </label>
         </div>
       </div>
+
+      <InsightBar
+        userName={user?.email}
+        loading={loading}
+        hasData={claims.length > 0}
+        awaiting={pipeline.submitted.count}
+      />
 
       {error && <div className="alert error">{error}</div>}
 

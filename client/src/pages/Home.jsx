@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import api from '../api.js';
 import { formatLongDate, formatMoney, formatClientName, todayISO } from '../calc.js';
+import InsightBar from '../components/InsightBar.jsx';
 
 /** "6.5 hrs" — one decimal, always. */
 function hours(minutesOrHours) {
@@ -65,7 +66,7 @@ function Card({ title, hint, right, children, id }) {
   );
 }
 
-export default function Home() {
+export default function Home({ user }) {
   const navigate = useNavigate();
   const [periodStart, setPeriodStart] = useState(null);
   const [data, setData] = useState(null);
@@ -141,6 +142,8 @@ export default function Home() {
     data?.unassigned && typeof data.unassigned === 'object' ? data.unassigned : {};
   const denial = denialAlert && typeof denialAlert === 'object' ? denialAlert : null;
   const byClientCount = Array.isArray(denial?.by_client) ? denial.by_client.length : 0;
+  const hasDenialExposure =
+    Number(denial?.unrecovered_days) > 0 || Number(denial?.unrecovered_dollars) > 0;
   const recentRaList = Array.isArray(recentRa) ? recentRa : [];
   const recentClientsList = Array.isArray(recentClients) ? recentClients : [];
 
@@ -154,10 +157,28 @@ export default function Home() {
         <DueReminder />
       </header>
 
+      <InsightBar
+        userName={user?.email}
+        loading={loading}
+        hasData={
+          Boolean(data) &&
+          ((recentRaList?.length ?? 0) > 0 ||
+            (recentClientsList?.length ?? 0) > 0 ||
+            Number(data?.totals?.hours) > 0)
+        }
+        detail={
+          Number(data?.totals?.hours) > 0
+            ? `${hours(data.totals.hours)} across ${data.totals.active_caretakers ?? 0} caretaker${
+                (data.totals.active_caretakers ?? 0) === 1 ? '' : 's'
+              } — ${formatMoney(data.totals.dollars)} this pay period.`
+            : 'No visits in this pay period yet — use Prev to review history.'
+        }
+      />
+
       {error && <div className="alert error">{error}</div>}
 
       {/* Denials alert: shown only while there is unrecovered work. */}
-      {denial && Number(denial.open_tasks) > 0 && (
+      {denial && Number(denial.open_tasks) > 0 && hasDenialExposure && (
         <div className="ds-alert-card" id="home-denial-alert">
           <span className="ds-alert-icon" aria-hidden="true">⚠</span>
           <span className="ds-alert-text">

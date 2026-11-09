@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import { motion } from 'framer-motion';
 import { Link } from 'react-router-dom';
 import api from '../api.js';
 import { SkeletonCards } from '../components/Skeleton.jsx';
@@ -156,8 +157,8 @@ export default function ClientList() {
         {/* Mobile: one card per client — a 6-column table is unreadable at 375px */}
         {!loading && clients.length > 0 && (
           <div className="show-on-mobile client-cards" id="client-cards">
-            {clients.map((client) => (
-              <div
+            {clients.map((client, index) => (
+              <motion.div
                 className={[
                   'client-card',
                   client.active ? '' : 'client-card-inactive',
@@ -166,6 +167,13 @@ export default function ClientList() {
                   .filter(Boolean)
                   .join(' ')}
                 key={client.id}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{
+                  duration: 0.24,
+                  delay: Math.min(index * 0.03, 0.24),
+                  ease: [0.4, 0, 0.2, 1],
+                }}
               >
                 <div className="client-card-top">
                   <Link className="client-card-name" to={`/clients/${client.id}`}>
@@ -183,7 +191,7 @@ export default function ClientList() {
                   </div>
                 )}
                 {client.notes && <div className="client-card-notes sub">{client.notes}</div>}
-              </div>
+              </motion.div>
             ))}
           </div>
         )}

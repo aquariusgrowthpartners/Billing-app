@@ -6282,3 +6282,224 @@ h3,
     transition: none !important;
   }
 }
+
+/* ==================================================================
+   PREMIUM UI — PHASE 2: depth, squircle cards, tactile controls
+   ================================================================== */
+
+:root {
+  --radius: 24px;
+  --radius-sm: 12px;
+  --shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.1);
+  --shadow-hover: 0 15px 40px -10px rgba(0, 0, 0, 0.15);
+  --shadow-press: 0 4px 12px -4px rgba(0, 0, 0, 0.12);
+  --input-bg: #f3f4f6;
+  --input-bg-focus: #ffffff;
+}
+
+[data-theme='dark'] {
+  --shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.55);
+  --shadow-hover: 0 15px 40px -10px rgba(0, 0, 0, 0.7);
+  --shadow-press: 0 4px 12px -4px rgba(0, 0, 0, 0.55);
+  --input-bg: #1f2937;
+  --input-bg-focus: #243244;
+}
+
+.card {
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+    box-shadow 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.home .card,
+#settings-page .card,
+.ds-card {
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+
+/* The inner hairline is what gives the dark surface its Apple-like edge. */
+[data-theme='dark'] .card,
+[data-theme='dark'] .home .card,
+[data-theme='dark'] #settings-page .card,
+[data-theme='dark'] .ds-card {
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.05), var(--shadow);
+}
+
+@media (hover: hover) and (min-width: 769px) {
+  .card:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-hover);
+  }
+
+  .home .card:hover,
+  #settings-page .card:hover,
+  .ds-card:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-hover);
+  }
+
+  [data-theme='dark'] .card:hover,
+  [data-theme='dark'] .home .card:hover,
+  [data-theme='dark'] #settings-page .card:hover,
+  [data-theme='dark'] .ds-card:hover {
+    transform: translateY(-2px);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.07), var(--shadow-hover);
+  }
+}
+
+.card:active {
+  transform: scale(0.995);
+  box-shadow: var(--shadow-press);
+}
+
+/* ---- primary buttons: gradient + top highlight ---- */
+.btn {
+  border-radius: 12px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+
+.btn.primary {
+  background: linear-gradient(180deg, var(--accent) 0%, var(--accent-dark) 100%);
+  border-color: var(--accent-dark);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2),
+    0 1px 2px rgba(0, 0, 0, 0.08);
+}
+
+.btn.primary:hover:not(:disabled) {
+  background: linear-gradient(180deg, var(--accent-dark) 0%, var(--accent-dark) 100%);
+  border-color: var(--accent-dark);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    0 6px 16px -6px color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+/* ---- inputs: borderless filled fields with a glow on focus ---- */
+input:not([type='checkbox']):not([type='radio']):not([type='file']),
+select,
+textarea {
+  background: var(--input-bg);
+  border: 1px solid transparent;
+  border-radius: 12px;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.02);
+  transition: background-color 160ms ease, border-color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+input:not([type='checkbox']):not([type='radio']):not([type='file']):focus,
+select:focus,
+textarea:focus {
+  outline: none;
+  background: var(--input-bg-focus);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(31, 95, 214, 0.18);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 24%, transparent);
+}
+
+.search-field input {
+  background: var(--input-bg);
+  border-color: transparent;
+}
+
+.search-field input:focus {
+  outline: none;
+  background: var(--input-bg-focus);
+  border-color: var(--accent);
+}
+
+/* ---- insight bar ---- */
+.insight-bar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 18px;
+  border-radius: 20px;
+  background: linear-gradient(
+    135deg,
+    rgba(59, 130, 246, 0.09) 0%,
+    rgba(139, 92, 246, 0.11) 100%
+  );
+  border: 1px solid rgba(59, 130, 246, 0.14);
+  box-shadow: 0 8px 24px -16px rgba(59, 130, 246, 0.35);
+}
+
+.insight-icon {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  flex: 0 0 auto;
+  border-radius: 12px;
+  color: #fff;
+  background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35),
+    0 4px 12px -4px rgba(59, 130, 246, 0.45);
+}
+
+.insight-copy {
+  min-width: 0;
+}
+
+.insight-copy strong {
+  display: block;
+  margin-bottom: 1px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.insight-copy p {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text);
+}
+
+.insight-cta {
+  margin-left: auto;
+  flex: 0 0 auto;
+  padding: 8px 14px;
+  border-radius: 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+[data-theme='dark'] .insight-bar {
+  background: linear-gradient(
+    135deg,
+    rgba(59, 130, 246, 0.14) 0%,
+    rgba(139, 92, 246, 0.16) 100%
+  );
+  border-color: rgba(129, 140, 248, 0.18);
+  box-shadow: 0 8px 24px -16px rgba(0, 0, 0, 0.6);
+}
+
+.route-motion {
+  min-width: 0;
+}
+
+@media (max-width: 600px) {
+  .insight-bar {
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: 12px;
+    padding: 14px 16px;
+    border-radius: 18px;
+  }
+
+  .insight-copy {
+    flex: 1 1 220px;
+  }
+
+  .insight-cta {
+    margin-left: 50px;
+    align-self: center;
+  }
+}

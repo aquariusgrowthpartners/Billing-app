@@ -1,5 +1,6 @@
 import React, { lazy, Suspense, useEffect, useState, useRef } from 'react';
 import { BrowserRouter, Routes, Route, NavLink, Link, useLocation } from 'react-router-dom';
+import { motion, AnimatePresence } from 'framer-motion';
 import Home from './pages/Home.jsx';
 import ClientList from './pages/ClientList.jsx';
 import ClientProfile from './pages/ClientProfile.jsx';
@@ -159,6 +160,56 @@ function RoutedPage({ children }) {
   const location = useLocation();
   return (
     <AppErrorBoundary key={`${location.pathname}${location.search}`}>{children}</AppErrorBoundary>
+  );
+}
+
+/** Page-level enter/exit motion. Keyed by pathname so detail pages animate too. */
+function AnimatedRoutes({ user }) {
+  const location = useLocation();
+  return (
+    <AnimatePresence mode="wait">
+      <motion.div
+        key={`${location.pathname}${location.search}`}
+        className="route-motion"
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: -4 }}
+        transition={{ duration: 0.24, ease: [0.4, 0, 0.2, 1] }}
+      >
+        <RoutedPage>
+          <Routes location={location}>
+            <Route
+              path="/"
+              element={
+                <AppErrorBoundary title="Home Page Error">
+                  <Home user={user} />
+                </AppErrorBoundary>
+              }
+            />
+            <Route path="/clients" element={<ClientList />} />
+            <Route path="/clients/:id" element={<ClientProfile />} />
+            <Route path="/claims" element={<ClaimsDashboard user={user} />} />
+            <Route path="/caretakers" element={<Caretakers />} />
+            <Route path="/caretakers/:id" element={<CaretakerProfile />} />
+            <Route path="/import-ra" element={<ImportRa />} />
+            <Route
+              path="/reports"
+              element={
+                <Suspense fallback={<div className="empty" style={{ padding: 40 }}>Loading reports…</div>}>
+                  <Reports />
+                </Suspense>
+              }
+            />
+            <Route path="/spreadsheet" element={<Spreadsheet />} />
+            <Route path="/denials" element={<Denials />} />
+            <Route path="/tasks" element={<Tasks />} />
+            <Route path="/ask" element={<AskDundas />} />
+            <Route path="/settings" element={<Settings />} />
+            <Route path="/superadmin" element={<SuperAdmin />} />
+          </Routes>
+        </RoutedPage>
+      </motion.div>
+    </AnimatePresence>
   );
 }
 
@@ -505,38 +556,7 @@ export default function App() {
         </header>
 
         <main className="content">
-          <RoutedPage>
-          <Routes>
-            <Route
-              path="/"
-              element={
-                <AppErrorBoundary title="Home Page Error">
-                  <Home />
-                </AppErrorBoundary>
-              }
-            />
-            <Route path="/clients" element={<ClientList />} />
-            <Route path="/clients/:id" element={<ClientProfile />} />
-            <Route path="/claims" element={<ClaimsDashboard />} />
-            <Route path="/caretakers" element={<Caretakers />} />
-            <Route path="/caretakers/:id" element={<CaretakerProfile />} />
-            <Route path="/import-ra" element={<ImportRa />} />
-            <Route
-              path="/reports"
-              element={
-                <Suspense fallback={<div className="empty" style={{ padding: 40 }}>Loading reports…</div>}>
-                  <Reports />
-                </Suspense>
-              }
-            />
-            <Route path="/spreadsheet" element={<Spreadsheet />} />
-            <Route path="/denials" element={<Denials />} />
-            <Route path="/tasks" element={<Tasks />} />
-            <Route path="/ask" element={<AskDundas />} />
-            <Route path="/settings" element={<Settings />} />
-            <Route path="/superadmin" element={<SuperAdmin />} />
-          </Routes>
-          </RoutedPage>
+          <AnimatedRoutes user={user} />
         </main>
       </div>
     </BrowserRouter>
