@@ -1,9 +1,9 @@
 /**
  * AI-adjacent file endpoints.
  *
- * RA verification is vision-first: PDFs are rasterised (first page) and sent
- * to Azure with the image, because RA letters are commonly scanned sideways.
- * The text completion functions in aiService.js are untouched.
+ * RA verification uses Azure Document Intelligence to read the original PDF or
+ * image directly, including scanned and sideways documents. The extracted text
+ * is then structured by the existing Azure text completion path.
  */
 import express from 'express';
 import multer from 'multer';
@@ -11,7 +11,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import pLimit from 'p-limit';
-import { verifyRaDocument, complete } from '../aiService.js';
+import { extractRaWithAzureDocIntel, complete } from '../aiService.js';
 import db from '../db.js';
 
 const router = express.Router();
@@ -52,29 +52,6 @@ function allowedFile(file) {
     String(file?.mimetype ?? '').startsWith('image/') ||
     /\.(pdf|png|jpe?g|webp|heic|heif)$/i.test(name)
   );
-}
-
-async function pdfFirstPagePng(buffer) {
-  const { getDocument } = await import('pdfjs-dist/legacy/build/pdf.mjs');
-  const { createCanvas } = await import('canvas');
-
-  const doc = await getDocument({
-    data: new Uint8Array(buffer),
-    useSystemFonts: true,
-  }).promise;
-
-  try {
-    const page = await doc.getPage(1);
-    const viewport = page.getViewport({ scale: 2 });
-    const canvas = createCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height));
-    const context = canvas.getContext('2d');
-    context.fillStyle = '#ffffff';
-    context.fillRect(0, 0, canvas.width, canvas.height);
-    await page.render({ canvasContext: context, viewport, background: '#ffffff' }).promise;
-    return canvas.toBuffer('image/png');
-  } finally {
-    await doc.cleanup?.();
-  }
 }
 
 /**
@@ -261,99 +238,49 @@ function parseJsonRecords(text) {
   return null;
 }
 
-/** Last-resort text extraction when rasterising the PDF fails. */
-async function extractPdfText(buffer) {
-  const { PDFParse } = await import('pdf-parse');
-  const parser = new PDFParse({ data: buffer });
-  try {
-    const result = await parser.getText();
-    return String(result?.text ?? '').trim();
-  } finally {
-    await parser.cleanup?.();
-  }
-}
-
 /**
- * Process one uploaded RA file with the exact single-file pipeline:
- * PDF raster → Azure Vision, with pdf-parse/text-completion fallback.
- * Returned records are already compared against the tenant's claims.
+ * Process one uploaded RA file with the shared single-file/bulk pipeline:
+ * Azure Document Intelligence → text completion → claim comparison.
  */
 async function processRaFile(file, agencyId) {
-  const isPdf = file.mimetype === 'application/pdf' || /\.pdf$/i.test(file.originalname);
-  let records = null;
-
-  if (!isPdf) {
-    const result = await verifyRaDocument(
-      file.buffer.toString('base64'),
-      file.mimetype || 'image/png',
-      agencyId
-    );
-    if (result.error) {
-      const status = result.error.includes('quota provisioning') ? 503 : 502;
-      const err = new Error(result.error);
-      err.status = status;
-      throw err;
-    }
-    records = Array.isArray(result.records) ? result.records : [];
-  } else {
-    let renderError = null;
-    try {
-      const pngBuffer = await pdfFirstPagePng(file.buffer);
-      const result = await verifyRaDocument(pngBuffer.toString('base64'), 'image/png', agencyId);
-      if (result.error) {
-        const status = result.error.includes('quota provisioning') ? 503 : 502;
-        const err = new Error(result.error);
-        err.status = status;
-        throw err;
-      }
-      records = Array.isArray(result.records) ? result.records : [];
-    } catch (err) {
-      renderError = err;
-      console.error('[PDF-RENDER-ERROR]', err?.stack || err?.message || String(err));
-    }
-
-    if (records === null) {
-      try {
-        const rawText = await extractPdfText(file.buffer);
-        if (!rawText) throw new Error('PDF text extraction returned no text.');
-
-        const completion = await complete(
-          `Here is the raw text extracted from an RA letter. Parse it into JSON.\n\n${rawText.slice(
-            0,
-            16000
-          )}`,
-          {
-            system:
-              'You are an expert medical billing auditor. Extract the Member ID, Client Name, Date of Service, and Amount Paid from the RA text. Return ONLY a JSON array using the keys member_id, client_name, date_of_service, amount_paid. Do not include markdown formatting.',
-            timeoutMs: 60000,
-            agencyId,
-          }
-        );
-
-        if (completion.source === 'none') {
-          throw new Error(completion.text || 'Azure text completion failed.');
-        }
-        records = parseJsonRecords(completion.text);
-        if (!records) throw new Error('Azure text completion returned no JSON records.');
-      } catch (fallbackError) {
-        console.error(
-          '[PDF-RENDER-ERROR] text fallback failed:',
-          fallbackError?.stack || fallbackError?.message || String(fallbackError)
-        );
-        const renderMessage =
-          renderError?.message || renderError?.toString() || 'unknown render error';
-        const err = new Error(
-          `Could not process RA. Render error: ${renderMessage}. Fallback error: ${
-            fallbackError?.message || String(fallbackError)
-          }`
-        );
-        err.status = 500;
-        throw err;
-      }
-    }
+  const extracted = await extractRaWithAzureDocIntel(
+    file.buffer,
+    file.mimetype || 'application/pdf'
+  );
+  const rawText = String(extracted?.text ?? '').trim();
+  if (!rawText) {
+    const err = new Error('Azure Document Intelligence failed to read this file.');
+    err.status = 502;
+    throw err;
   }
 
-  return (records ?? []).map((record) => verifyRecord(record, agencyId));
+  const completion = await complete(
+    `Here is the raw text extracted from an RA letter. Parse it into JSON.\n\n${rawText.slice(
+      0,
+      16000
+    )}`,
+    {
+      system:
+        'You are an expert medical billing auditor. Extract the Member ID, Client Name, Date of Service, and Amount Paid from the RA text. Return ONLY a JSON array using the keys member_id, client_name, date_of_service, amount_paid. Do not include markdown formatting.',
+      timeoutMs: 60000,
+      agencyId,
+    }
+  );
+
+  if (completion.source === 'none') {
+    const err = new Error(completion.text || 'Azure text completion failed.');
+    err.status = 502;
+    throw err;
+  }
+
+  const records = parseJsonRecords(completion.text);
+  if (!records) {
+    const err = new Error('Azure text completion returned no JSON records.');
+    err.status = 502;
+    throw err;
+  }
+
+  return records.map((record) => verifyRecord(record, agencyId));
 }
 
 /** POST /api/ai/verify-ra — multipart field name: file */

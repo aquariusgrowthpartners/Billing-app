@@ -7,6 +7,7 @@
  * and it must never prevent a document from being uploaded or a task created.
  */
 import db from './db.js';
+import { DocumentAnalysisClient, AzureKeyCredential } from '@azure/ai-form-recognizer';
 
 const PROVIDERS = {
   deepseek: {
@@ -433,5 +434,51 @@ export async function verifyRaDocument(imageBase64, mimeType, agencyId = 1, time
     return { error: 'Azure Vision request failed.' };
   } finally {
     clearTimeout(timer);
+  }
+}
+
+
+/* ------------------------------------------------------ document intelligence */
+
+/**
+ * Read an RA PDF/image with Azure Document Intelligence (prebuilt-layout).
+ * Raw bytes go straight to Azure; no local rendering or OCR dependencies.
+ */
+export async function extractRaWithAzureDocIntel(fileBuffer, mimeType) {
+  const endpoint = String(process.env.AZURE_DOC_INTEL_ENDPOINT ?? '').trim();
+  const key = String(process.env.AZURE_DOC_INTEL_KEY ?? '').trim();
+
+  if (!endpoint || !key) {
+    const err = new Error(
+      'Azure Document Intelligence is not configured. Add AZURE_DOC_INTEL_ENDPOINT and AZURE_DOC_INTEL_KEY.'
+    );
+    err.status = 503;
+    err.code = 'DOC_INTEL_NOT_CONFIGURED';
+    throw err;
+  }
+
+  const client = new DocumentAnalysisClient(endpoint, new AzureKeyCredential(key));
+  try {
+    const poller = await client.beginAnalyzeDocument(
+      'prebuilt-layout',
+      new Uint8Array(fileBuffer)
+    );
+    const result = await poller.pollUntilDone();
+    return {
+      text: String(result?.content ?? '').trim(),
+      tables: Array.isArray(result?.tables) ? result.tables : [],
+    };
+  } catch (err) {
+    const message = err?.message || String(err);
+    if (err?.statusCode === 403 || /quota|forbidden|unauthorized/i.test(message)) {
+      const e = new Error(`Azure Document Intelligence quota exceeded or access denied: ${message}`);
+      e.status = 503;
+      e.code = 'DOC_INTEL_QUOTA';
+      throw e;
+    }
+    const e = new Error(`Azure Document Intelligence failed to read this file: ${message}`);
+    e.status = 502;
+    e.code = 'DOC_INTEL_FAILED';
+    throw e;
   }
 }
