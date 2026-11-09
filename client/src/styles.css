@@ -3224,6 +3224,25 @@ body,
     font-weight: 600;
   }
 
+  .nav-drawer .nav-drawer-clear {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    width: 100%;
+    min-height: 48px;
+    margin-top: 6px;
+    padding: 12px 14px;
+    border: 1px solid #fecaca;
+    border-radius: 10px;
+    background: #fff5f5;
+    color: #b00020;
+    font: inherit;
+    font-size: 16px;
+    font-weight: 600;
+    text-align: left;
+    cursor: pointer;
+  }
+
   /* ---- Part 4: the Add payer form stacks full-width ---- */
   .payer-add {
     grid-template-columns: 1fr !important;

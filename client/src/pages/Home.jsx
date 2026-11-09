@@ -85,13 +85,17 @@ export default function Home() {
         api.recentClients(),
         api.denialSummary().catch(() => null),
       ]);
+      if (!d || typeof d !== 'object') {
+        throw new Error('Dashboard data was empty or invalid.');
+      }
       setDenialAlert(dn);
       setData(d ?? null);
       setPeriodStart(d?.period?.start ?? null);
       setRecentRa(Array.isArray(ra?.imports) ? ra.imports : []);
       setRecentClients(Array.isArray(rc?.clients) ? rc.clients : []);
     } catch (e) {
-      setError(e.message);
+      console.error('Dashboard fetch failed', e);
+      setError(e.message || 'Dashboard fetch failed');
     } finally {
       setLoading(false);
     }
@@ -109,6 +113,26 @@ export default function Home() {
     window.addEventListener('data-updated', refresh);
     return () => window.removeEventListener('data-updated', refresh);
   }, [load, periodStart]);
+
+  /*
+   * Keep the page from ever rendering with no dashboard payload. If the fetch
+   * failed, show the reason instead of an eternal loading message.
+   */
+  if (!data) {
+    return (
+      <div className="page" id="home-loading">
+        <div className="card" style={{ padding: 24 }}>
+          {error ? (
+            <div className="alert error" id="home-fetch-error">
+              Home Page Error: {error}
+            </div>
+          ) : (
+            <p className="muted">Loading dashboard data...</p>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   const period = data?.period && typeof data.period === 'object' ? data.period : null;
   const caretakers = Array.isArray(data?.caretakers) ? data.caretakers : [];

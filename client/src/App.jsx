@@ -23,6 +23,17 @@ const Reports = lazy(() => import('./pages/Reports.jsx'));
 
 // React Router must know about the path Vite is mounted under (/billing/).
 const BASENAME = import.meta.env.BASE_URL.replace(/\/$/, '') || '/';
+const HOME_PATH = BASENAME === '/' ? '/' : `${BASENAME}/`;
+const LOGIN_PATH = `${BASENAME === '/' ? '' : BASENAME}/login`;
+
+/** Change the address bar without a full page reload. */
+function replacePath(path) {
+  try {
+    window.history.replaceState({}, '', path);
+  } catch {
+    window.location.assign(path);
+  }
+}
 
 /**
  * Last-resort UI boundary.
@@ -66,7 +77,7 @@ export class AppErrorBoundary extends React.Component {
         }}
       >
         <h1 style={{ margin: '0 0 10px', fontSize: 24, lineHeight: 1.2 }}>
-          PAGE RENDER ERROR
+          {this.props.title ?? 'PAGE RENDER ERROR'}
         </h1>
         <p style={{ margin: '0 0 12px', fontSize: 16, fontWeight: 700 }}>
           Please screenshot or copy this text and send it back.
@@ -236,6 +247,7 @@ export default function App() {
       setUser(null);
       setAuthed(false);
       setAuthChecked(true);
+      replacePath(LOGIN_PATH);
     }, 5000);
 
     (async () => {
@@ -245,6 +257,7 @@ export default function App() {
         if (d?.demo) {
           setUser(null);
           setAuthed(true);
+          replacePath(HOME_PATH);
           return;
         }
         // A stored token may be from an older deployment (or a deleted user).
@@ -263,18 +276,21 @@ export default function App() {
               clearToken();
               setUser(null);
               setAuthed(false);
+              replacePath(LOGIN_PATH);
             }
           }
         } else {
           if (alive && !timedOut) {
             setUser(null);
             setAuthed(false);
+            replacePath(LOGIN_PATH);
           }
         }
       } catch {
         if (alive && !timedOut) {
           setUser(null);
           setAuthed(false);
+          replacePath(LOGIN_PATH);
         }
       } finally {
         clearTimeout(timer);
@@ -320,6 +336,7 @@ export default function App() {
     ) : !demoMode && !authed ? (
       <Login
         onAuthed={(u) => {
+          replacePath(HOME_PATH);
           setUser(u ?? null);
           setAuthed(true);
         }}
@@ -445,6 +462,21 @@ export default function App() {
                 Settings
                 {orphanCount > 0 && <span className="nav-badge">{orphanCount}</span>}
               </NavLink>
+              <button
+                type="button"
+                className="nav-drawer-clear"
+                id="clear-cache-logout"
+                onClick={() => {
+                  try {
+                    window.localStorage.clear();
+                  } catch {
+                    /* private mode */
+                  }
+                  window.location.reload();
+                }}
+              >
+                Clear Cache &amp; Log Out
+              </button>
             </nav>
           )}
         </header>
@@ -452,7 +484,14 @@ export default function App() {
         <main className="content">
           <RoutedPage>
           <Routes>
-            <Route path="/" element={<Home />} />
+            <Route
+              path="/"
+              element={
+                <AppErrorBoundary title="Home Page Error">
+                  <Home />
+                </AppErrorBoundary>
+              }
+            />
             <Route path="/clients" element={<ClientList />} />
             <Route path="/clients/:id" element={<ClientProfile />} />
             <Route path="/claims" element={<ClaimsDashboard />} />
