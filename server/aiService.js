@@ -100,15 +100,41 @@ function providerConfig(provider, azureEndpoint, azureDeployment) {
   if (provider === 'azure') {
     if (!azureEndpoint || !azureDeployment) return null;
     const base = azureEndpoint.replace(/\/+$/, '');
+
+    /*
+     * Azure AI Foundry (the newer "OpenAI v1" surface) exposes the Responses
+     * API at .../openai/v1/responses. A bare /openai/v1 base gets /responses
+     * appended. Older Azure OpenAI resources still use the deployments path.
+     */
+    if (/\/responses(?:\?|$)/i.test(base)) {
+      return { url: base, model: azureDeployment, azure: true, responses: true };
+    }
+    if (/\/openai\/v1$/i.test(base)) {
+      return { url: `${base}/responses`, model: azureDeployment, azure: true, responses: true };
+    }
     return {
       url: `${base}/openai/deployments/${encodeURIComponent(
         azureDeployment
       )}/chat/completions?api-version=2024-02-15-preview`,
       model: azureDeployment,
       azure: true,
+      responses: false,
     };
   }
   return PROVIDERS[provider] ?? null;
+}
+
+/** Extract text from either the Responses API or classic chat-completions JSON. */
+function completionText(json, cfg) {
+  if (!cfg.responses) return json?.choices?.[0]?.message?.content?.trim() ?? '';
+  if (typeof json?.output_text === 'string') return json.output_text.trim();
+  const parts = [];
+  for (const item of Array.isArray(json?.output) ? json.output : []) {
+    for (const content of Array.isArray(item?.content) ? item.content : []) {
+      if (typeof content?.text === 'string') parts.push(content.text);
+    }
+  }
+  return parts.join('\n').trim();
 }
 
 function requestHeaders(cfg, key) {
@@ -188,31 +214,36 @@ export async function complete(userPrompt, { system, timeoutMs = 20000, agencyId
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
+    const systemPrompt =
+      system ?? 'You are a home-care billing expert for the state of Minnesota.';
+    const prompt = String(userPrompt).slice(0, 14000);
+    const payload = cfg.responses
+      ? {
+          model: cfg.model,
+          input: `${systemPrompt}\n\n${prompt}`,
+          max_output_tokens: 700,
+        }
+      : {
+          model: cfg.model,
+          temperature: 0.3,
+          max_tokens: 700,
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: prompt },
+          ],
+        };
     const res = await fetch(cfg.url, {
       method: 'POST',
       signal: controller.signal,
       headers: requestHeaders(cfg, config.key),
-      body: JSON.stringify({
-        model: cfg.model,
-        temperature: 0.3,
-        max_tokens: 700,
-        messages: [
-          {
-            role: 'system',
-            content:
-              system ??
-              'You are a home-care billing expert for the state of Minnesota.',
-          },
-          { role: 'user', content: String(userPrompt).slice(0, 14000) },
-        ],
-      }),
+      body: JSON.stringify(payload),
     });
     if (!res.ok) {
       const body = await res.text().catch(() => '');
       throw new Error(`${config.provider} ${res.status}: ${body.slice(0, 160)}`);
     }
     const json = await res.json();
-    const text = json?.choices?.[0]?.message?.content?.trim();
+    const text = completionText(json, cfg);
     if (!text) throw new Error('empty completion');
     return { text, source: config.provider };
   } catch (err) {
@@ -243,26 +274,35 @@ export async function summarise(text, { timeoutMs = 15000, agencyId = 1 } = {}) 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
+    const instruction = 'You summarise documents for a home-care billing office.';
+    const sourceText = `${PROMPT}\n\n${String(text).slice(0, 12000)}`;
+    const payload = cfg.responses
+      ? {
+          model: cfg.model,
+          input: `${instruction}\n\n${sourceText}`,
+          max_output_tokens: 200,
+        }
+      : {
+          model: cfg.model,
+          temperature: 0.2,
+          max_tokens: 200,
+          messages: [
+            { role: 'system', content: instruction },
+            { role: 'user', content: sourceText },
+          ],
+        };
     const res = await fetch(cfg.url, {
       method: 'POST',
       signal: controller.signal,
       headers: requestHeaders(cfg, config.key),
-      body: JSON.stringify({
-        model: cfg.model,
-        temperature: 0.2,
-        max_tokens: 200,
-        messages: [
-          { role: 'system', content: 'You summarise documents for a home-care billing office.' },
-          { role: 'user', content: `${PROMPT}\n\n${String(text).slice(0, 12000)}` },
-        ],
-      }),
+      body: JSON.stringify(payload),
     });
     if (!res.ok) {
       const body = await res.text().catch(() => '');
       throw new Error(`${config.provider} ${res.status}: ${body.slice(0, 160)}`);
     }
     const json = await res.json();
-    const summary = json?.choices?.[0]?.message?.content?.trim();
+    const summary = completionText(json, cfg);
     if (!summary) throw new Error('empty completion');
     return { summary, source: config.provider };
   } catch (err) {
