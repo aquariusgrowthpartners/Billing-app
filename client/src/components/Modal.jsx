@@ -1,4 +1,5 @@
 import React, { useEffect } from 'react';
+import { createPortal } from 'react-dom';
 
 /** Minimal accessible modal. Escape and backdrop click both close it. */
 export default function Modal({ title, subtitle, onClose, children, width = 560 }) {
@@ -10,7 +11,7 @@ export default function Modal({ title, subtitle, onClose, children, width = 560 
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
 
-  return (
+  return createPortal(
     <div
       className="modal-backdrop"
       onMouseDown={(e) => {
@@ -40,5 +41,6 @@ export default function Modal({ title, subtitle, onClose, children, width = 560 
         <div className="modal-body">{children}</div>
       </div>
     </div>
+  , document.body
   );
 }

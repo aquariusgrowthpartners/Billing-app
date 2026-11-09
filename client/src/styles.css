@@ -2222,11 +2222,11 @@ input.needs-value {
 /* the page itself supplies the rhythm, so cards stop adding their own */
 .home .card {
   margin: 0;
-  padding: 22px;
-  border: 1px solid #e3e8ef;
-  border-radius: 12px;
-  background: #fff;
-  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04), 0 1px 3px rgba(16, 24, 40, 0.06);
+  padding: 24px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow);
 }
 
 /* ------------------------------------------------------- type scale */
@@ -2796,9 +2796,9 @@ input.needs-value {
 
 #settings-page .card {
   padding: 24px;
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
 }
 /* the head now sits inside the card's own padding */
 #settings-page .card-head {
@@ -5967,5 +5967,309 @@ a,
   }
   .login-card {
     padding: 20px;
+  }
+}
+
+/* ==================================================================
+   PREMIUM UI — Google Drive-inspired surfaces, motion and typography
+   ================================================================== */
+
+:root {
+  --bg: #f8f9fa;
+  --surface: #ffffff;
+  --border: rgba(0, 0, 0, 0.06);
+  --border-strong: rgba(0, 0, 0, 0.12);
+  --text: #202124;
+  --muted: #5f6368;
+  --radius: 16px;
+  --radius-sm: 10px;
+  --shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  --shadow-hover: 0 8px 24px rgba(0, 0, 0, 0.08);
+  --shadow-press: 0 1px 2px rgba(0, 0, 0, 0.06);
+
+  --ds-page: #f8f9fa;
+  --ds-card: #ffffff;
+  --ds-border: rgba(0, 0, 0, 0.06);
+  --ds-card-pad: 24px;
+}
+
+[data-theme='dark'] {
+  --bg: #121212;
+  --surface: #1e1e1e;
+  --border: rgba(255, 255, 255, 0.06);
+  --border-strong: rgba(255, 255, 255, 0.12);
+  --text: #e8eaed;
+  --muted: #9aa0a6;
+  --shadow: 0 2px 8px rgba(0, 0, 0, 0.45);
+  --shadow-hover: 0 8px 24px rgba(0, 0, 0, 0.6);
+  --shadow-press: 0 1px 2px rgba(0, 0, 0, 0.5);
+
+  --ds-page: #121212;
+  --ds-card: #1e1e1e;
+  --ds-border: rgba(255, 255, 255, 0.06);
+  --ds-card-pad: 24px;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  line-height: 1.6;
+  letter-spacing: -0.006em;
+}
+
+h1,
+h2,
+h3,
+.page-head h1 {
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+}
+
+.topbar {
+  padding: 12px 24px;
+}
+
+.content {
+  padding: 24px;
+}
+
+.page {
+  gap: 16px;
+}
+
+/* ---- surfaces ---- */
+.card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  transition: box-shadow 180ms ease, transform 120ms ease;
+}
+
+.card:hover {
+  box-shadow: var(--shadow-hover);
+}
+
+.card:active {
+  transform: scale(0.995);
+  box-shadow: var(--shadow-press);
+}
+
+.card-head {
+  padding: 16px 24px;
+}
+
+.card-head h2 {
+  font-size: 16px;
+  letter-spacing: -0.01em;
+}
+
+.card-body,
+.form-card {
+  padding: 24px;
+}
+
+.inline-form {
+  padding: 20px 24px;
+}
+
+.ds-card {
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: var(--ds-card-pad);
+}
+
+/* Tappable list items get the Drive-style press feedback without changing
+   the desktop table rows (which stay compact and easy to scan). */
+.client-card,
+.claim-card,
+.task-card,
+.payer-card,
+.denial-card {
+  border-radius: 16px;
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
+  transition: box-shadow 180ms ease, transform 120ms ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.client-card,
+.claim-card {
+  padding: 20px 24px;
+}
+
+.task-card {
+  padding: 20px 24px;
+}
+
+.payer-card,
+.denial-card {
+  padding: 20px 24px;
+}
+
+.client-card:hover,
+.claim-card:hover,
+.task-card:hover,
+.payer-card:hover,
+.denial-card:hover {
+  box-shadow: var(--shadow-hover);
+}
+
+.client-card:active,
+.claim-card:active,
+.task-card:active,
+.payer-card:active,
+.denial-card:active {
+  transform: scale(0.98);
+  box-shadow: var(--shadow-press);
+}
+
+.client-card-name,
+.claim-card-name {
+  font-weight: 700;
+}
+
+.client-card-ma,
+.client-card-dob,
+.claim-card-meta,
+.task-card-meta {
+  color: var(--muted);
+}
+
+/* ---- page transition ---- */
+@keyframes premium-page-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.content > .page,
+.content > #error-boundary {
+  animation: premium-page-in 240ms cubic-bezier(0.2, 0.8, 0.3, 1) both;
+}
+
+/* ---- buttons: tactile press + material-style ripple ---- */
+.btn {
+  position: relative;
+  overflow: hidden;
+  border-radius: 10px;
+  transition: transform 120ms ease, box-shadow 160ms ease, background 160ms ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.btn::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 0;
+  height: 0;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.08);
+  opacity: 0;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  transition: width 320ms ease, height 320ms ease, opacity 520ms ease;
+}
+
+.btn.primary::after {
+  background: rgba(255, 255, 255, 0.28);
+}
+
+.btn:active {
+  transform: scale(0.98);
+}
+
+.btn:active::after {
+  width: 260px;
+  height: 260px;
+  opacity: 1;
+  transition: width 380ms ease, height 380ms ease, opacity 620ms ease;
+}
+
+/* ---- skeletons ---- */
+.sk-line {
+  background-size: 800px 100%;
+  animation: sk-shimmer 1.45s linear infinite;
+}
+
+/* ---- empty states ---- */
+.empty-state {
+  gap: 8px;
+  padding: 48px 24px;
+}
+
+.empty-state-icon {
+  width: 56px;
+  height: 56px;
+  border-radius: 16px;
+  background: var(--bg);
+  color: var(--muted);
+  font-size: 28px;
+  margin-bottom: 6px;
+}
+
+.empty-state-title {
+  font-size: 16px;
+  letter-spacing: -0.01em;
+}
+
+/* ---- mobile: glass topbar, sheet modals, roomier cards ---- */
+@media (max-width: 768px) {
+  .topbar {
+    background: rgba(255, 255, 255, 0.8);
+    -webkit-backdrop-filter: blur(14px) saturate(180%);
+    backdrop-filter: blur(14px) saturate(180%);
+    border-bottom-color: rgba(0, 0, 0, 0.06);
+  }
+
+  [data-theme='dark'] .topbar {
+    background: rgba(18, 18, 18, 0.8);
+    border-bottom-color: rgba(255, 255, 255, 0.08);
+  }
+
+  .content {
+    padding: 16px 16px 32px;
+  }
+
+  .card-head {
+    padding: 16px 24px;
+  }
+
+  .card-body,
+  .form-card {
+    padding: 24px;
+  }
+
+  .modal-backdrop {
+    align-items: flex-end;
+    padding: 0;
+  }
+
+  .modal {
+    border-radius: 20px 20px 0 0;
+    max-height: 92vh;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    animation: premium-sheet-up 280ms cubic-bezier(0.2, 0.8, 0.3, 1) both;
+  }
+
+  @keyframes premium-sheet-up {
+    from { opacity: 0; transform: translateY(100%); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .content > .page,
+  .content > #error-boundary,
+  .card,
+  .client-card,
+  .claim-card,
+  .task-card,
+  .payer-card,
+  .denial-card,
+  .btn,
+  .modal {
+    animation: none !important;
+    transition: none !important;
   }
 }
