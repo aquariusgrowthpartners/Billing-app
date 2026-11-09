@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, NavLink, useLocation, useNavigate } from 
 import { flushSync } from 'react-dom';
 import { ToastProvider } from './components/Toast.jsx';
 import SkeletonPage from './components/SkeletonPage.jsx';
+import GlobalSearch from './components/GlobalSearch.jsx';
 import Login from './pages/Login.jsx';
 import ChangePassword from './pages/ChangePassword.jsx';
 import { getToken, clearToken } from './api.js';
@@ -26,6 +27,7 @@ const Denials = lazy(() => import('./pages/Denials.jsx'));
 const Tasks = lazy(() => import('./pages/Tasks.jsx'));
 const AskDundas = lazy(() => import('./pages/AskDundas.jsx'));
 const SuperAdmin = lazy(() => import('./pages/SuperAdmin.jsx'));
+const Billing = lazy(() => import('./pages/Billing.jsx'));
 const Reports = lazy(() => import('./pages/Reports.jsx'));
 
 // React Router must know about the path Vite is mounted under (/billing/).
@@ -246,6 +248,7 @@ function AnimatedRoutes({ user }) {
             <Route path="/clients" element={<ClientList />} />
             <Route path="/clients/:id" element={<ClientProfile />} />
             <Route path="/claims" element={<ClaimsDashboard user={user} />} />
+            <Route path="/billing" element={<Billing />} />
             <Route path="/caretakers" element={<Caretakers />} />
             <Route path="/caretakers/:id" element={<CaretakerProfile />} />
             <Route path="/import-ra" element={<ImportRa />} />
@@ -459,6 +462,7 @@ export default function App() {
         <header className="topbar">
           {/* Brand left out on purpose: this is a client demo, so the nav is the
               first thing on screen rather than our product name. */}
+          <GlobalSearch />
           <button
             type="button"
             className="nav-toggle show-on-mobile"
@@ -492,6 +496,9 @@ export default function App() {
             </NavLink>
             <NavLink to="/claims" className={({ isActive }) => (isActive ? 'active' : '')}>
               Claims Dashboard
+            </NavLink>
+            <NavLink to="/billing" className={({ isActive }) => (isActive ? 'active' : '')}>
+              Billing
             </NavLink>
             <NavLink to="/caretakers" className={({ isActive }) => (isActive ? 'active' : '')}>
               Caretakers
@@ -557,6 +564,9 @@ export default function App() {
               </NavLink>
               <NavLink to="/claims" onClick={() => setNavOpen(false)}>
                 Claims Dashboard
+              </NavLink>
+              <NavLink to="/billing" onClick={() => setNavOpen(false)}>
+                Billing
               </NavLink>
               <NavLink to="/caretakers" onClick={() => setNavOpen(false)}>
                 Caretakers

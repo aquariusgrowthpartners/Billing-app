@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import api from '../api.js';
 import { toast } from '../components/Toast.jsx';
-import { MODES, PRESETS, getStored, setTheme, resolveHex, getContrastColor } from '../theme.js';
+import { MODES, PRESETS, getStored, setTheme, resolveHex, getContrastColor, darken } from '../theme.js';
 import { clearToken } from '../api.js';
 import { download, renderTemplate, SAMPLE_PARTS } from '../download.js';
 import Modal from '../components/Modal.jsx';
@@ -347,6 +347,8 @@ export default function Settings() {
       </div>
 
       {error && <div className="alert error">{error}</div>}
+
+      {settings && <ProfileSettingsCard settings={settings} />}
 
       {/* ------------------------------------------------ app settings */}
       {settings && (
@@ -1993,6 +1995,142 @@ function AccountSecurityCard() {
  * and per-device) and mirrors the choice into the settings table so it becomes
  * the default for a new browser.
  */
+/* ---------------------------------------------------- agency profile */
+
+const MOCK_USERS = [
+  { name: 'James Anderson', email: 'james@aquariusgp.com', role: 'Owner' },
+  { name: 'Demo User', email: 'demo@dundas.com', role: 'Administrator' },
+  { name: 'Billing Team', email: 'billing@dundas.com', role: 'Member' },
+];
+
+function ProfileSettingsCard({ settings }) {
+  const [form, setForm] = useState({
+    agency_name: '',
+    contact_email: '',
+    brand_color: '#1f5fd6',
+  });
+  const [loaded, setLoaded] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!settings || loaded) return;
+    let saved = null;
+    try {
+      saved = JSON.parse(localStorage.getItem('billing_profile') || 'null');
+    } catch {
+      saved = null;
+    }
+    setForm({
+      agency_name: saved?.agency_name || settings.agency_name || '',
+      contact_email: saved?.contact_email || '',
+      brand_color: saved?.brand_color || resolveHex(settings.theme_color),
+    });
+    setLoaded(true);
+  }, [settings, loaded]);
+
+  function save(e) {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      localStorage.setItem('billing_profile', JSON.stringify(form));
+      const color = resolveHex(form.brand_color);
+      document.documentElement.style.setProperty('--accent', color);
+      document.documentElement.style.setProperty('--accent-dark', darken(color));
+      toast.success('Agency profile saved on this device.');
+    } catch {
+      toast.error('Could not save the profile in this browser.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <section className="card" id="agency-profile">
+      <div className="card-head">
+        <div>
+          <h2>Agency Profile</h2>
+          <p className="muted small" style={{ margin: '2px 0 0' }}>
+            Contact and branding details. Saved locally until the account service is enabled.
+          </p>
+        </div>
+      </div>
+      <form className="card-body" onSubmit={save}>
+        <div className="grid-3 profile-grid">
+          <label>
+            Agency Name
+            <input
+              id="profile-agency-name"
+              value={form.agency_name}
+              onChange={(e) => setForm((f) => ({ ...f, agency_name: e.target.value }))}
+              placeholder="Dundas Home Care"
+            />
+          </label>
+          <label>
+            Contact Email
+            <input
+              id="profile-contact-email"
+              type="email"
+              autoComplete="email"
+              value={form.contact_email}
+              onChange={(e) => setForm((f) => ({ ...f, contact_email: e.target.value }))}
+              placeholder="billing@agency.com"
+            />
+          </label>
+          <label>
+            Branding Color
+            <span className="profile-color-field">
+              <input
+                id="profile-brand-color"
+                type="color"
+                value={resolveHex(form.brand_color)}
+                onChange={(e) => setForm((f) => ({ ...f, brand_color: e.target.value }))}
+              />
+              <code>{resolveHex(form.brand_color)}</code>
+            </span>
+          </label>
+        </div>
+        <div className="form-actions">
+          <button className="btn primary" id="profile-save" disabled={saving}>
+            {saving ? 'Saving…' : 'Save Profile'}
+          </button>
+        </div>
+      </form>
+
+      <div className="manage-users" id="manage-users">
+        <div className="manage-users-head">
+          <div>
+            <h3>Manage Users</h3>
+            <p className="muted small">Invite teammates and control their access.</p>
+          </div>
+          <button
+            type="button"
+            className="btn"
+            id="invite-user"
+            onClick={() => toast.info('User invitations are coming soon.')}
+          >
+            + Invite User
+          </button>
+        </div>
+        <ul className="manage-users-list">
+          {MOCK_USERS.map((user) => (
+            <li key={user.email}>
+              <span className="manage-user-avatar" aria-hidden="true">
+                {user.name.split(' ').map((part) => part[0]).join('').slice(0, 2)}
+              </span>
+              <span className="manage-user-copy">
+                <strong>{user.name}</strong>
+                <span>{user.email}</span>
+              </span>
+              <span className="pill">{user.role}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </section>
+  );
+}
+
+
 function AppearanceCard({ settings }) {
   const stored = getStored();
   const [mode, setMode] = useState(stored.mode ?? settings.theme_mode ?? 'light');

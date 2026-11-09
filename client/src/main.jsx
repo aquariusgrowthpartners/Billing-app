@@ -92,3 +92,13 @@ initTheme().finally(() => {
     </React.StrictMode>
   );
 });
+
+// PWA: installable standalone app on iOS/Android. Register only in production
+// so Vite dev reloads are never intercepted by a stale shell cache.
+if ('serviceWorker' in navigator && import.meta.env.PROD) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker
+      .register(`${import.meta.env.BASE_URL}sw.js`)
+      .catch((err) => console.warn('[pwa] service worker registration failed:', err));
+  });
+}

@@ -129,6 +129,7 @@ export const api = {
   explainDenial: (id) => request(`/denials/${id}/explain`, { method: 'POST' }),
   ask: (query) => request('/ask', { method: 'POST', body: JSON.stringify({ query }) }),
   ytdClaims: () => request('/metrics/ytd-claims'),
+  search: (q) => request(`/search?q=${encodeURIComponent(q)}`),
   verifyRa: (file) => {
     const body = new FormData();
     body.append('file', file);

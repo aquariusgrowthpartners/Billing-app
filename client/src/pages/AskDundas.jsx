@@ -537,7 +537,17 @@ export default function AskDundas() {
               {verifying ? 'Verifying…' : 'Verify Document'}
             </button>
 
-            {verifyResult && (
+            {verifyResult?.status === 'extracted' && (
+              <div className="ask-extracted-result" id="ask-extracted-result">
+                <strong>RA text extracted</strong>
+                <p>Review the extracted text below before it is sent for AI verification.</p>
+                <pre className="ask-extracted-text" tabIndex={0} aria-label="Extracted RA text">
+                  {verifyResult.raw_text}
+                </pre>
+              </div>
+            )}
+
+            {verifyResult && verifyResult.status !== 'extracted' && (
               <div
                 className={`ask-verify-result ${verificationPassed ? 'ok' : 'failed'}`}
                 role="status"

@@ -23,9 +23,25 @@ function allowedFile(file) {
   );
 }
 
+/**
+ * Build the structured prompt that a future model call will receive.
+ * Kept server-side so the Azure request shape stays out of the client.
+ */
+function buildVerificationPrompt(rawText) {
+  return [
+    'You are verifying a home-care Remittance Advice (RA) against the agency records.',
+    'Return valid JSON with this shape:',
+    '{"status":"verified"|"failed","discrepancies":[{"field":"...","expected":"...","found":"..."}]}',
+    'Only flag discrepancies supported by the extracted text.',
+    '',
+    'RAW RA TEXT:',
+    rawText.slice(0, 16000),
+  ].join('\n');
+}
+
 /** POST /api/ai/verify-ra — multipart field name: file */
 router.post('/verify-ra', (req, res) => {
-  upload.single('file')(req, res, (err) => {
+  upload.single('file')(req, res, async (err) => {
     if (err) {
       const message =
         err.code === 'LIMIT_FILE_SIZE'
@@ -38,14 +54,43 @@ router.post('/verify-ra', (req, res) => {
       return res.status(400).json({ error: 'Upload a PDF or image file.' });
     }
 
+    const file = {
+      name: req.file.originalname,
+      mime: req.file.mimetype,
+      size: req.file.size,
+    };
+
+    if (req.file.mimetype !== 'application/pdf' && !/\.pdf$/i.test(file.name)) {
+      return res.status(422).json({
+        error: 'Image OCR is not enabled yet. Upload the RA as a PDF for text extraction.',
+        file,
+      });
+    }
+
+    let rawText = '';
+    try {
+      const { PDFParse } = await import('pdf-parse');
+      const parser = new PDFParse({ data: req.file.buffer });
+      try {
+        const result = await parser.getText();
+        rawText = String(result?.text ?? '').trim();
+      } finally {
+        await parser.destroy?.();
+      }
+    } catch (parseError) {
+      console.warn(`[ai] RA extraction failed: ${parseError.message}`);
+      return res.status(422).json({ error: 'Could not read any text from that PDF.', file });
+    }
+
+    if (!rawText) {
+      return res.status(422).json({ error: 'The PDF contains no extractable text.', file });
+    }
+
     res.json({
-      status: 'verified',
-      discrepancies: [],
-      file: {
-        name: req.file.originalname,
-        mime: req.file.mimetype,
-        size: req.file.size,
-      },
+      status: 'extracted',
+      raw_text: rawText,
+      ai_prompt: buildVerificationPrompt(rawText),
+      file,
       checked_at: new Date().toISOString(),
     });
   });
