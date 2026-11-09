@@ -23,6 +23,72 @@ const blankForm = {
   ai_key_set: false,
 };
 
+function DataHealthCard() {
+  const [audit, setAudit] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      setAudit(await api.auditData());
+      setError(null);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const metrics = [
+    ['Total clients', audit?.total_clients],
+    ['Total claims', audit?.total_claims],
+    ['RAs processed', audit?.total_ras_processed],
+    ['Orphaned claims', audit?.orphaned_claims],
+  ];
+
+  return (
+    <section className="card" id="data-health">
+      <div className="card-head">
+        <div>
+          <h2>Data Health</h2>
+          <p className="muted small" style={{ margin: '2px 0 0' }}>
+            Cross-checks clients, claims and processed RAs across the platform.
+          </p>
+        </div>
+        <button className="btn" id="data-health-run" onClick={load} disabled={loading}>
+          {loading ? 'Checking…' : 'Run Integrity Check'}
+        </button>
+      </div>
+      <div className="card-body">
+        {error && <div className="alert error">{error}</div>}
+        <div className="data-health-grid" aria-live="polite">
+          {metrics.map(([label, value], index) => (
+            <div
+              className={`data-health-metric${
+                index === 3 && Number(value) > 0 ? ' danger' : ''
+              }`}
+              key={label}
+            >
+              <span>{label}</span>
+              <strong>{loading ? '—' : (value ?? 0)}</strong>
+            </div>
+          ))}
+        </div>
+        {audit?.generated_at && (
+          <p className="muted small" style={{ margin: 0 }}>
+            Last checked {new Date(audit.generated_at).toLocaleString()}
+          </p>
+        )}
+      </div>
+    </section>
+  );
+}
+
 /**
  * Platform-owner view.
  *
@@ -191,6 +257,8 @@ export default function SuperAdmin() {
           </table>
         </div>
       </section>
+
+      <DataHealthCard />
 
       <section className="card" id="superadmin-demo-ai">
         <div className="card-head">

@@ -107,6 +107,51 @@ function splitClientName(value) {
   return { last, first: parts.join(' ') };
 }
 
+function addDays(isoDate, days) {
+  const d = new Date(`${isoDate}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+function normalizeName(value) {
+  return String(value ?? '')
+    .toLowerCase()
+    .replace(/[^a-z0-9 ]/g, ' ')
+    .split(/\s+/)
+    .filter(Boolean)
+    .sort()
+    .join(' ');
+}
+
+function levenshtein(a, b) {
+  const m = a.length;
+  const n = b.length;
+  if (!m) return n;
+  if (!n) return m;
+  let prev = Array.from({ length: n + 1 }, (_, i) => i);
+  for (let i = 1; i <= m; i += 1) {
+    const row = [i];
+    for (let j = 1; j <= n; j += 1) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      row[j] = Math.min(row[j - 1] + 1, prev[j] + 1, prev[j - 1] + cost);
+    }
+    prev = row;
+  }
+  return prev[n];
+}
+
+/** 0..1 similarity; sorted tokens make "Last, First" == "First Last". */
+function nameSimilarity(a, b) {
+  const left = normalizeName(a);
+  const right = normalizeName(b);
+  if (!left || !right) return 0;
+  const distance = levenshtein(left, right);
+  return 1 - distance / Math.max(left.length, right.length);
+}
+
+const NAME_MATCH_THRESHOLD = 0.8;
+const DATE_WINDOW_DAYS = 14;
+
 const DB_CLAIM_SELECT = `
   SELECT cl.id, cl.claim_name, cl.status, cl.period_start, cl.period_end,
          cl.paid_amount, cl.total_dollars,
@@ -115,68 +160,46 @@ const DB_CLAIM_SELECT = `
     JOIN clients cu ON cu.id = cl.client_id AND cu.agency_id = cl.agency_id
 `;
 
-/** Find the claim a single extracted RA record refers to. */
+/**
+ * Find the closest claim for an extracted RA record.
+ *
+ * The query is a tenant-scoped ±14 day window. The extracted patient name is
+ * compared against each database client name with Levenshtein similarity; the
+ * best score above 80% wins. Provider/agency names naturally score poorly
+ * against patient rows and are rejected.
+ */
 function findClaimForRecord(record, agencyId) {
-  const member = String(record?.member_id ?? record?.memberId ?? '').trim();
-  const parsedName = splitClientName(record?.client_name ?? record?.clientName);
   const range = parseDateRange(record?.date_of_service ?? record?.dateOfService);
+  if (!range.start) return null;
 
-  // The model sometimes returns the claim name in the member_id field.
-  if (member) {
-    const byName = db
-      .prepare(`${DB_CLAIM_SELECT} WHERE cl.agency_id = ? AND lower(cl.claim_name) = lower(?) LIMIT 1`)
-      .get(agencyId, member);
-    if (byName) return byName;
+  const raName = record?.client_name ?? record?.clientName;
+  if (!normalizeName(raName)) return null;
+
+  const from = addDays(range.start, -DATE_WINDOW_DAYS);
+  const to = addDays(range.end || range.start, DATE_WINDOW_DAYS);
+  const candidates = db
+    .prepare(
+      `${DB_CLAIM_SELECT}
+        WHERE cl.agency_id = ?
+          AND cl.period_start <= ?
+          AND cl.period_end >= ?
+        ORDER BY cl.period_start DESC, cl.id DESC`
+    )
+    .all(agencyId, to, from);
+
+  let best = null;
+  let bestScore = 0;
+  for (const claim of candidates) {
+    const dbName = `${claim.first_name ?? ''} ${claim.last_name ?? ''}`;
+    const score = nameSimilarity(raName, dbName);
+    if (score > bestScore) {
+      best = claim;
+      bestScore = score;
+    }
   }
 
-  let client = null;
-  if (member) {
-    client = db
-      .prepare(
-        `SELECT id, first_name, last_name, ma_number
-           FROM clients
-          WHERE agency_id = ? AND lower(COALESCE(ma_number, '')) = lower(?)
-          LIMIT 1`
-      )
-      .get(agencyId, member);
-  }
-
-  if (!client && parsedName?.last) {
-    client = db
-      .prepare(
-        `SELECT id, first_name, last_name, ma_number
-           FROM clients
-          WHERE agency_id = ?
-            AND lower(last_name) = lower(?)
-            AND lower(COALESCE(first_name, '')) LIKE lower(?)
-          ORDER BY id DESC
-          LIMIT 1`
-      )
-      .get(agencyId, parsedName.last, `%${parsedName.first}%`);
-  }
-
-  if (!client) return null;
-
-  const params = [agencyId, client.id];
-  let dateSql = '';
-  if (range.start && range.end) {
-    dateSql = ' AND cl.period_start <= ? AND cl.period_end >= ?';
-    params.push(range.end, range.start);
-  } else if (range.start) {
-    dateSql = ' AND cl.period_start <= ? AND cl.period_end >= ?';
-    params.push(range.start, range.start);
-  }
-
-  return (
-    db
-      .prepare(
-        `${DB_CLAIM_SELECT}
-          WHERE cl.agency_id = ? AND cl.client_id = ?${dateSql}
-          ORDER BY cl.period_start DESC
-          LIMIT 1`
-      )
-      .get(...params) ?? null
-  );
+  if (!best || bestScore < NAME_MATCH_THRESHOLD) return null;
+  return best;
 }
 
 /** Compare one extracted record with its DB claim. */
@@ -261,7 +284,7 @@ async function processRaFile(file, agencyId) {
     )}`,
     {
       system:
-        'You are an expert medical billing auditor. Extract the Member ID, Client Name, Date of Service, and Amount Paid from the RA text. Return ONLY a JSON array using the keys member_id, client_name, date_of_service, amount_paid. Do not include markdown formatting.',
+        'You are an expert medical billing auditor. Extract the Member ID, PATIENT/CLIENT name, Date of Service, and Amount Paid from the RA text. Do NOT extract the Provider or Agency name from the top of the letter. You are looking for the PATIENT/CLIENT name and MEMBER ID. If the extracted name matches the Agency name, ignore it and look further down the document. Return ONLY a JSON array using the keys member_id, client_name, date_of_service, amount_paid. If no patient/client records are present, return []. Do not include markdown formatting.',
       timeoutMs: 60000,
       agencyId,
     }

@@ -50,6 +50,34 @@ function problemsFor(row) {
 
 const decorate = (row) => ({ ...row, problems: problemsFor(row) });
 
+/** GET /api/admin/audit-data — platform data-integrity summary (Agency 1 only). */
+router.get('/audit-data', (req, res) => {
+  const user = req.user;
+  const isSuperAdmin =
+    user && ['admin', 'superadmin'].includes(user.role) &&
+    (user.agency_id === 1 || user.role === 'superadmin');
+  if (!isSuperAdmin) return res.status(403).json({ error: 'Super admin access is required.' });
+
+  const count = (sql) => Number(db.prepare(sql).get()?.n ?? 0);
+  const totalClients = count('SELECT COUNT(*) AS n FROM clients');
+  const totalClaims = count('SELECT COUNT(*) AS n FROM claims');
+  const totalRas = count('SELECT COUNT(*) AS n FROM ra_imports');
+  const orphanedClaims = count(
+    `SELECT COUNT(*) AS n
+       FROM claims cl
+       LEFT JOIN clients c ON c.id = cl.client_id AND c.agency_id = cl.agency_id
+      WHERE c.id IS NULL`
+  );
+
+  res.json({
+    total_clients: totalClients,
+    total_claims: totalClaims,
+    total_ras_processed: totalRas,
+    orphaned_claims: orphanedClaims,
+    generated_at: new Date().toISOString(),
+  });
+});
+
 /** GET /api/admin/orphaned-entries — the full report. */
 /**
  * GET /api/admin/claims-dump
