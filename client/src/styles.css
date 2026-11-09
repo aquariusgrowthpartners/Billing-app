@@ -29,7 +29,7 @@ html {
    the top. A fixed-height nested scroll container breaks that gesture. */
 body,
 #root {
-  min-height: 100vh;
+  min-height: 100dvh;
 }
 
 body {
@@ -62,7 +62,7 @@ body {
 /* ---------------------------------------------------------------- layout */
 
 .app {
-  min-height: 100vh;
+  min-height: 100dvh;
   display: flex;
   flex-direction: column;
 }
@@ -6563,4 +6563,36 @@ textarea:focus {
   .ask-composer {
     padding: 12px;
   }
+}
+
+
+/* ==================================================================
+   ASK DUNDAS — keep browser chrome/keyboard from covering the composer
+   ================================================================== */
+
+.ask-page {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.ask-page[data-keyboard-open='true'] {
+  padding-bottom: 0;
+}
+
+.ask-composer {
+  position: relative;
+  z-index: 50;
+  overflow: visible;
+  background-color: var(--surface);
+  border-top: 1px solid var(--border);
+}
+
+@media (max-width: 768px) {
+  .ask-composer {
+    z-index: 50;
+    padding-bottom: 12px;
+  }
+}
+
+body {
+  overscroll-behavior-y: contain;
 }

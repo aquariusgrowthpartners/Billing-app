@@ -183,11 +183,9 @@ export default function AskDundas() {
     }
   }
 
-  function onKeyDown(e) {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      ask();
-    }
+  function onSubmit(e) {
+    e.preventDefault();
+    ask();
   }
 
   return (
@@ -195,6 +193,7 @@ export default function AskDundas() {
       className="page wide ask-page"
       id="ask-page"
       ref={pageRef}
+      data-keyboard-open={keyboardHeight > 0 ? 'true' : 'false'}
       style={{
         '--ask-page-top': `${pageTop}px`,
         '--ask-keyboard-height': `${keyboardHeight}px`,
@@ -284,37 +283,36 @@ export default function AskDundas() {
         )}
       </div>
 
-      <div
+      <form
         className="ask-composer"
         id="ask-composer"
-        style={{
-          marginBottom: keyboardHeight > 0 ? `${keyboardHeight}px` : 0,
-          paddingBottom:
-            keyboardHeight > 0
-              ? '12px'
-              : 'calc(12px + env(safe-area-inset-bottom, 0px))',
-        }}
+        onSubmit={onSubmit}
+        style={{ marginBottom: keyboardHeight > 0 ? `${keyboardHeight}px` : 0 }}
       >
         <div className="ask-input-row">
           <input
             ref={inputRef}
             id="ask-input"
             className="ask-input"
+            name="question"
+            inputMode="text"
+            autoComplete="off"
+            autoCorrect="off"
+            enterKeyHint="send"
             placeholder="Ask a question about your data…"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={onKeyDown}
           />
           <button
+            type="submit"
             className="btn primary ask-send"
             id="ask-send"
             disabled={asking || !query.trim()}
-            onClick={() => ask()}
           >
             {asking ? '…' : 'Send'}
           </button>
         </div>
-      </div>
+      </form>
     </div>
   );
 }
