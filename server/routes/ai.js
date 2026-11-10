@@ -783,30 +783,54 @@ export function docIntelTableRows(tables) {
       if (!grid.has(row)) grid.set(row, new Map());
       grid.get(row).set(col, String(cell?.content ?? '').trim());
     }
+    const tableClient = cells
+      .map((cell) => String(cell?.content ?? '').trim())
+      .map((value) => value.match(/^PATIENT\s*:\s*([^\n]+)/im)?.[1]?.trim())
+      .find(Boolean) ?? null;
     const ordered = [...grid.keys()].sort((a, b) => a - b);
-    for (const rowIndex of ordered) {
-      const values = grid.get(rowIndex);
-      const all = [...values.entries()].sort((a, b) => a[0] - b[0]).map(([, v]) => v);
-      const sequence = all.find((value) => /^\d{2}$/.test(value));
-      const dateValue = all.find((value) => /\d{2}-\d{2}-\d{2}/.test(value));
-      if (!sequence || !dateValue) continue;
-      const decimals = all
+    let current = null;
+    const flush = () => {
+      if (!current) return;
+      const decimals = current.values
         .map((value) => String(value).match(/-?\d[\d,]*\.\d{2}/)?.[0])
         .filter(Boolean)
         .map((value) => Number(value.replace(/,/g, '')))
         .filter(Number.isFinite);
-      if (decimals.length < 2) continue;
-      // Structured cells: CHARGE is the first decimal, PAYMENT is the last.
-      // The adjustment cell in between is never used as payment.
-      const date = parseDateRange(dateValue).start;
-      if (!date) continue;
-      rows.push({
-        tableIndex,
-        date,
-        paid: decimals[decimals.length - 1],
-        charge: decimals[0],
-      });
+      if (decimals.length >= 2) {
+        rows.push({
+          tableIndex,
+          client_name: tableClient,
+          date: current.date,
+          // CHARGE is the first decimal; PAYMENT is the last decimal across
+          // continuation rows. The adjustment cell is never used as payment.
+          paid: decimals[decimals.length - 1],
+          charge: decimals[0],
+        });
+      }
+      current = null;
+    };
+
+    for (const rowIndex of ordered) {
+      const values = [...grid.get(rowIndex).entries()]
+        .sort((a, b) => a[0] - b[0])
+        .map(([, value]) => value);
+      // Doc Intel sometimes puts the sequence and both dates in the same cell
+      // ("12 02-12-26 02-12-26"), so inspect the first cell rather than
+      // requiring a standalone two-digit cell.
+      const hasSequence = /^\d{2}(?:\s|$)/.test(values[0] ?? '');
+      const dateValue = values.find((value) => /\d{2}-\d{2}-\d{2}/.test(value));
+      if (hasSequence && dateValue) {
+        flush();
+        current = { date: parseDateRange(dateValue).start, values: [...values] };
+        continue;
+      }
+      // Continuation of a service row (split by Doc Intel). Do not append a
+      // totals/PAT RESP row to the last service line.
+      if (current && !/TOTAL|PAT\s+RESP/i.test(values.join(' '))) {
+        current.values.push(...values);
+      }
     }
+    flush();
   });
   return rows;
 }
@@ -851,6 +875,214 @@ function docIntelTableTotals(tables) {
 }
 
 /**
+ * Map Doc Intel layout tables plus parsed client metadata into daily RA
+ * records. Reused by the HTTP pipeline and the 22-document regression suite.
+ */
+export function buildDocIntelRecords(extracted) {
+  const rawText = String(extracted?.text ?? '').trim();
+  const parsed = parseRemittance(rawText);
+  const tableRows = docIntelTableRows(extracted?.tables);
+  const tableTotals = docIntelTableTotals(extracted?.tables);
+  console.log(`[DOC-INTEL] Structured table rows: ${tableRows.length}`);
+  const tableIndices = [...new Set(tableRows.map((row) => row.tableIndex))].sort(
+    (a, b) => a - b
+  );
+  const nameKey = (name) =>
+    normalizeName(name)
+      .split(' ')
+      .filter((part) => part.length > 1)
+      .sort()
+      .join(' ');
+  const clientByKey = new Map();
+  const looksLikeClient = (candidate) =>
+    candidate?.client_name &&
+    !/[|]|CLAIM TYPE|PAYEE ID|PROV ID|CTRL NBR|ADJ RSN/i.test(candidate.client_name);
+  for (const client of (parsed.clients ?? []).filter(
+    (candidate) =>
+      candidate.dos_start &&
+      candidate.dos_end &&
+      candidate.line_items?.length &&
+      looksLikeClient(candidate)
+  )) {
+    // Doc Intel's table text can produce a second, partial client block. Keep
+    // the fullest block for the same first/last name, and discard partial
+    // blocks when the table names the real client.
+    const key = nameKey(client.client_name);
+    const current = clientByKey.get(key);
+    if (!current || (client.line_items?.length ?? 0) > (current.line_items?.length ?? 0)) {
+      clientByKey.set(key, client);
+    }
+  }
+  const allClientKeys = [...clientByKey.keys()];
+  const validClients = [...clientByKey.entries()]
+    .filter(([key]) => {
+      // "MATTSON" is a partial OCR block of "MATTSON SAMANTHA A"; drop it when
+      // the fuller block exists.
+      return !allClientKeys.some(
+        (other) =>
+          other !== key &&
+          other.startsWith(`${key} `) &&
+          (clientByKey.get(other)?.line_items?.length ?? 0) >=
+            (clientByKey.get(key)?.line_items?.length ?? 0)
+      );
+    })
+    .map(([, client]) => client);
+  // Match each table to a parsed client using its PATIENT cell when present,
+  // then its printed total and date range. This survives split tables that do
+  // not repeat the patient header on a continuation page.
+  const tableRecords = [];
+  const seenClientDates = new Set();
+  for (const index of tableIndices) {
+    const rows = tableRows.filter((row) => row.tableIndex === index);
+    if (!rows.length) continue;
+    const tableClient = looksLikeClient({ client_name: rows.find((row) => row.client_name)?.client_name })
+      ? rows.find((row) => row.client_name)?.client_name
+      : null;
+    const tableKey = tableClient ? nameKey(tableClient) : null;
+    const total = tableTotals.get(index) ?? {};
+    const tableDates = rows.map((row) => row.date).filter(Boolean).sort();
+    const tableStart = tableDates[0] ?? null;
+    const tableEnd = tableDates[tableDates.length - 1] ?? null;
+    const scored = validClients
+      .map((candidate) => {
+        const key = nameKey(candidate.client_name);
+        let score = 0;
+        if (tableKey) {
+          if (key === tableKey) score += 10;
+          else if (key.startsWith(`${tableKey} `) || tableKey.startsWith(`${key} `)) score += 6;
+          else return null;
+        }
+        if (candidate.dos_start === tableStart && candidate.dos_end === tableEnd) score += 3;
+        if (Number.isFinite(total.paid) && Number(candidate.claim_total_paid) === Number(total.paid)) {
+          score += 5;
+        }
+        return { candidate, score };
+      })
+      .filter(Boolean)
+      .sort((a, b) => b.score - a.score);
+    const client = scored[0]?.candidate;
+    if (!client) continue;
+    const tableDateSet = new Set(rows.map((row) => row.date));
+    const lowerBound = tableStart ? addDays(tableStart, -1) : client.dos_start;
+    const missingItems = (client.line_items ?? []).filter(
+      (item) =>
+        item.date &&
+        (!lowerBound || item.date >= lowerBound) &&
+        (!tableEnd || item.date <= tableEnd) &&
+        !tableDateSet.has(item.date)
+    );
+    const periodDates = [...tableDates, ...missingItems.map((item) => item.date)];
+    const periodStart = periodDates.sort()[0] ?? client.dos_start;
+    const periodEnd = periodDates[periodDates.length - 1] ?? client.dos_end;
+    for (const row of rows) {
+      const clientDateKey = `${nameKey(client.client_name)}|${row.date}`;
+      if (seenClientDates.has(clientDateKey)) continue;
+      seenClientDates.add(clientDateKey);
+      tableRecords.push({
+        client_name: client.client_name,
+        member_id: client.patient_id ?? null,
+        claim_status: client.claim_status ?? null,
+        claim_total_paid: total.paid ?? client.claim_total_paid ?? client.total_payment ?? null,
+        claim_total_charge:
+          total.charge ?? client.claim_total_charge ?? client.total_charge ?? null,
+        claim_period_start: periodStart ?? client.dos_start ?? row.date,
+        claim_period_end: periodEnd ?? client.dos_end ?? row.date,
+        date_of_service: row.date,
+        amount_paid: row.paid,
+        charge_amount: row.charge,
+        procedure_code: null,
+      });
+    }
+    // A table split across a page can omit a service row. Backfill only the
+    // missing dates from the parser's line items; the printed table total
+    // remains authoritative.
+    for (const item of missingItems) {
+      const clientDateKey = `${nameKey(client.client_name)}|${item.date}`;
+      if (seenClientDates.has(clientDateKey)) continue;
+      seenClientDates.add(clientDateKey);
+      tableRecords.push({
+        client_name: client.client_name,
+        member_id: client.patient_id ?? null,
+        claim_status: client.claim_status ?? null,
+        claim_total_paid: total.paid ?? client.claim_total_paid ?? client.total_payment ?? null,
+        claim_total_charge:
+          total.charge ?? client.claim_total_charge ?? client.total_charge ?? null,
+        claim_period_start:
+          periodStart && item.date >= periodStart ? periodStart : item.date,
+        claim_period_end: periodEnd ?? item.date,
+        date_of_service: item.date,
+        amount_paid: item.paid,
+        charge_amount: item.billed,
+        procedure_code: item.procedure_code ?? null,
+      });
+    }
+  }
+  if (tableRecords.length) {
+    return { records: tableRecords, rawText, parsed, tableRows };
+  }
+
+  const alignedTables = tableIndices.length === validClients.length;
+  const records = [];
+
+  for (const [clientIndex, client] of validClients.entries()) {
+    const clientKey = nameKey(client.client_name);
+    const matchingTableIndex = tableIndices.find((index) =>
+      tableRows.some(
+        (row) => row.tableIndex === index && row.client_name && nameKey(row.client_name) === clientKey
+      )
+    );
+    const tableIndex = matchingTableIndex ?? (alignedTables ? tableIndices[clientIndex] : null);
+    const tableRowsForClient = tableIndex != null
+      ? tableRows.filter((row) => row.tableIndex === tableIndex)
+      : [];
+    const tableTotal = tableIndex != null ? tableTotals.get(tableIndex) ?? {} : {};
+    console.log(
+      `[PARSER-TOTALS] Client: ${client.client_name ?? 'unknown'}. Period: ${
+        client.dos_start ?? '?'
+      } to ${client.dos_end ?? '?'}. Extracted TOTAL PAYMENT: ${
+        tableTotal.paid ?? client.claim_total_paid ?? client.total_payment ?? 'null'
+      }`
+    );
+    const sourceItems = tableRowsForClient.length
+      ? tableRowsForClient
+      : (client.line_items ?? []).map((item) => ({
+          date: item.date,
+          paid: item.paid,
+          charge: item.billed,
+        }));
+    const seenDates = new Set();
+    for (const item of sourceItems) {
+      const rawDate = item.date;
+      const dateOfService = /^\d{4}-\d{2}-\d{2}$/.test(String(rawDate ?? ''))
+        ? rawDate
+        : (() => {
+            const match = /^(\d{2})-(\d{2})-(\d{2})$/.exec(String(rawDate ?? ''));
+            return match ? `20${match[3]}-${match[1]}-${match[2]}` : null;
+          })();
+      if (!dateOfService || seenDates.has(dateOfService)) continue;
+      seenDates.add(dateOfService);
+      records.push({
+        client_name: client.client_name,
+        member_id: client.patient_id ?? null,
+        claim_status: client.claim_status ?? null,
+        claim_total_paid:
+          tableTotal.paid ?? client.claim_total_paid ?? client.total_payment ?? null,
+        claim_total_charge:
+          tableTotal.charge ?? client.claim_total_charge ?? client.total_charge ?? null,
+        claim_period_start: client.dos_start ?? dateOfService,
+        claim_period_end: client.dos_end ?? dateOfService,
+        date_of_service: dateOfService,
+        amount_paid: item.paid,
+        charge_amount: item.charge ?? item.billed ?? null,
+        procedure_code: item.procedure_code ?? null,
+      });
+    }
+  }
+
+  return { records, rawText, parsed, tableRows };
+}
+
+/**
  * Process one uploaded RA file with the shared single-file/bulk pipeline.
  */
 async function processRaFile(file, agencyId) {
@@ -876,69 +1108,7 @@ async function processRaFile(file, agencyId) {
       throw err;
     }
 
-    const parsed = parseRemittance(rawText);
-    const tableRows = docIntelTableRows(extracted?.tables);
-    const tableTotals = docIntelTableTotals(extracted?.tables);
-    console.log(`[DOC-INTEL] Structured table rows: ${tableRows.length}`);
-    const tableIndices = [...new Set(tableRows.map((row) => row.tableIndex))].sort(
-      (a, b) => a - b
-    );
-    const validClients = (parsed.clients ?? []).filter(
-      (client) => client.dos_start && client.dos_end && client.line_items?.length
-    );
-    const alignedTables = tableIndices.length === validClients.length;
-    const records = [];
-
-    for (const [clientIndex, client] of validClients.entries()) {
-      const tableIndex = tableIndices[clientIndex];
-      const tableRowsForClient = alignedTables
-        ? tableRows.filter((row) => row.tableIndex === tableIndex)
-        : tableRows.filter(
-            (row) =>
-              row.client_name &&
-              normalizeName(row.client_name) === normalizeName(client.client_name)
-          );
-      const tableTotal = tableTotals.get(tableIndex) ?? {};
-      console.log(
-        `[PARSER-TOTALS] Client: ${client.client_name ?? 'unknown'}. Period: ${
-          client.dos_start ?? '?'
-        } to ${client.dos_end ?? '?'}. Extracted TOTAL PAYMENT: ${
-          tableTotal.paid ?? client.claim_total_paid ?? client.total_payment ?? 'null'
-        }`
-      );
-      const sourceItems = tableRowsForClient.length
-        ? tableRowsForClient
-        : (client.line_items ?? []).map((item) => ({
-            date: item.date,
-            paid: item.paid,
-            charge: item.billed,
-          }));
-      const seenDates = new Set();
-      for (const item of sourceItems) {
-        const rawDate = item.date;
-        const dateOfService = /^\d{4}-\d{2}-\d{2}$/.test(String(rawDate ?? ''))
-          ? rawDate
-          : (() => {
-              const match = /^(\d{2})-(\d{2})-(\d{2})$/.exec(String(rawDate ?? ''));
-              return match ? `20${match[3]}-${match[1]}-${match[2]}` : null;
-            })();
-        if (!dateOfService || seenDates.has(dateOfService)) continue;
-        seenDates.add(dateOfService);
-        records.push({
-          client_name: client.client_name,
-          member_id: client.patient_id ?? null,
-          claim_status: client.claim_status ?? null,
-          claim_total_paid:
-            tableTotal.paid ?? client.claim_total_paid ?? client.total_payment ?? null,
-          claim_total_charge:
-            tableTotal.charge ?? client.claim_total_charge ?? client.total_charge ?? null,
-          date_of_service: dateOfService,
-          amount_paid: item.paid,
-          charge_amount: item.charge ?? item.billed ?? null,
-          procedure_code: item.procedure_code ?? null,
-        });
-      }
-    }
+    const { records } = buildDocIntelRecords(extracted);
 
     if (!records.length) {
       const err = new Error(
