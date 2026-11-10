@@ -1297,6 +1297,7 @@ export default function AskDundas() {
                                 label={BULK_GROUP_LABELS[key]}
                                 entries={bulkGroups[key]}
                                 attention
+                                onAskWhy={askAboutDiscrepancy}
                               />
                             ))}
                           </section>
@@ -1312,6 +1313,7 @@ export default function AskDundas() {
                                 groupKey={key}
                                 label={BULK_GROUP_LABELS[key]}
                                 entries={bulkGroups[key]}
+                                onAskWhy={askAboutDiscrepancy}
                               />
                             ))}
                           </details>
@@ -1361,7 +1363,7 @@ export default function AskDundas() {
   );
 }
 
-function BulkGroupSection({ groupKey, label, entries, attention = false }) {
+function BulkGroupSection({ groupKey, label, entries, attention = false, onAskWhy }) {
   return (
     <section
       className={`ask-bulk-group${attention ? ' attention' : ''}`}
@@ -1415,6 +1417,17 @@ function BulkGroupSection({ groupKey, label, entries, attention = false }) {
                         {claim.discrepancy && (
                           <p className="ask-bulk-claim-note">{claim.discrepancy}</p>
                         )}
+                        {(claim.status === 'mismatch' ||
+                          claim.status === 'missing_in_db') &&
+                          onAskWhy && (
+                            <button
+                              type="button"
+                              className="btn tiny ask-ai-why"
+                              onClick={() => onAskWhy(ra, db)}
+                            >
+                              Ask AI Why
+                            </button>
+                          )}
                       </div>
                     );
                   })

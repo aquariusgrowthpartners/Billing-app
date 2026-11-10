@@ -433,7 +433,10 @@ export function groupRecordsByClaim(records, agencyId) {
 
   for (const input of records) {
     const record = normalizeRaRecord(input);
-    const amount = parseCurrency(record.amount_paid);
+    const statusText = String(record.claim_status ?? record.claimStatus ?? '').toUpperCase();
+    const isDenied = statusText.includes('DENIED') || statusText.includes('DENY');
+    const amount = isDenied ? 0 : parseCurrency(record.amount_paid);
+    if (isDenied) record.amount_paid = 0;
     if (!Number.isFinite(amount)) {
       console.warn(`[VISION-MISSING-AMOUNT] ${JSON.stringify(input)}`);
       const claim = findClaimForRecord(record, agencyId);
@@ -447,15 +450,14 @@ export function groupRecordsByClaim(records, agencyId) {
     }
     const claim = findClaimForRecord(record, agencyId);
     if (!claim) {
-      const statusText = String(record.claim_status ?? record.claimStatus ?? '').toUpperCase();
-      if ((statusText.includes('DENIED') || statusText.includes('DENY')) && amount === 0) {
+      if (isDenied) {
         deniedSuccess.push({
           ra_data: record,
           db_data: null,
           status: 'denied_success',
           matched_to_db: false,
           is_denied: true,
-          discrepancy: 'Denied at $0.00 — no payment was expected.',
+          discrepancy: 'Claim was denied by the state. No payment expected.',
         });
         continue;
       }
@@ -508,7 +510,7 @@ export function groupRecordsByClaim(records, agencyId) {
           let discrepancy = null;
           if (denied) {
             status = 'matched_denied';
-            discrepancy = 'Denied by the payer — matched to the DB claim.';
+            discrepancy = 'Claim was denied by the state. No payment expected.';
           } else if (reversal) {
             status = 'matched_reversal';
             discrepancy = `Reversal matched: The state took back ${money(Math.abs(raAmount))}.`;
@@ -559,7 +561,7 @@ export function groupRecordsByClaim(records, agencyId) {
           daily.find((day) => day.status === 'matched_reversal')?.discrepancy ?? null;
       } else if (statuses.has('matched_denied')) {
         status = 'matched_denied';
-        discrepancy = 'Denied by the payer — matched to the DB claim.';
+        discrepancy = 'Claim was denied by the state. No payment expected.';
       }
 
       const hasReversal = daily.some((day) => day.is_reversal);
@@ -640,7 +642,7 @@ export function groupRecordsByClaim(records, agencyId) {
       discrepancy = 'Could not parse amount';
     } else if (isDenied) {
       status = 'matched_denied';
-      discrepancy = 'Denied by the payer — matched to the DB claim.';
+      discrepancy = 'Claim was denied by the state. No payment expected.';
     } else if (isReversal) {
       const takenBack = roundMoney(Math.abs(raTotal));
       status = 'matched_reversal';
