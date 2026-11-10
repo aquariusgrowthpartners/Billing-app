@@ -8636,3 +8636,39 @@ body {
   background: #2e1a3d;
   color: #d8b4fe;
 }
+
+.ask-vision-badge.paid,
+.ask-vision-badge.rebilled {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+[data-theme='dark'] .ask-vision-badge.paid,
+[data-theme='dark'] .ask-vision-badge.rebilled {
+  background: #14351f;
+  color: #86efac;
+}
+
+.ask-vision-badge.denied {
+  background: #ffedd5;
+  color: #c2410c;
+}
+
+[data-theme='dark'] .ask-vision-badge.denied {
+  background: #3b2412;
+  color: #fdba74;
+}
+
+.ask-vision-claim-status {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.ask-vision-summary {
+  display: block;
+  margin-top: 2px;
+}

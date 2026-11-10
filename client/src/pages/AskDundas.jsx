@@ -116,8 +116,11 @@ const SUGGESTIONS = [
 
 const VISION_STATUS_LABEL = {
   match: 'Match',
+  paid: 'Paid',
   mismatch: 'Mismatch',
   reversal: 'Reversal',
+  denied: 'Denied',
+  rebilled: 'Rebilled',
   missing_in_db: 'Missing in DB',
   needs_review: 'Needs review',
   unmatched_ra: 'Unmatched RA',
@@ -142,7 +145,11 @@ function bulkFileStatus(entry) {
   if (entry?.status === 'error') return 'missing_in_db';
   const records = Array.isArray(entry?.records) ? entry.records : [];
   if (!records.length) return 'missing_in_db';
-  if (records.every((record) => record.status === 'match')) return 'match';
+  if (records.every((record) => ['match', 'paid', 'rebilled'].includes(record.status))) {
+    return records.some((record) => record.status === 'rebilled') ? 'rebilled' : 'match';
+  }
+  if (records.some((record) => record.status === 'reversal')) return 'reversal';
+  if (records.some((record) => record.status === 'denied')) return 'denied';
   if (records.some((record) => record.status === 'missing_in_db')) return 'missing_in_db';
   return 'mismatch';
 }
@@ -375,9 +382,16 @@ export default function AskDundas() {
 
   const debugEnabled = debugMode || import.meta.env.DEV;
   const bulkResults = Array.isArray(bulkJob?.results) ? bulkJob.results : [];
-  const bulkGroups = { match: [], mismatch: [], missing_in_db: [] };
+  const bulkGroups = {
+    match: [],
+    rebilled: [],
+    mismatch: [],
+    reversal: [],
+    denied: [],
+    missing_in_db: [],
+  };
   for (const entry of bulkResults) bulkGroups[bulkFileStatus(entry)].push(entry);
-  const bulkVerified = bulkGroups.match.length;
+  const bulkVerified = bulkGroups.match.length + bulkGroups.rebilled.length;
   const bulkReview = bulkResults.length - bulkVerified;
 
   const latestAiId = messages.reduce(
@@ -385,11 +399,30 @@ export default function AskDundas() {
     null
   );
   const visionRecords = Array.isArray(verifyResult?.records) ? verifyResult.records : [];
-  const visionNeedsReview = visionRecords.filter((record) => record.status !== 'match').length;
+  const reviewStatuses = new Set(['mismatch', 'missing_in_db', 'needs_review', 'denied', 'reversal']);
+  const visionNeedsReview = visionRecords.filter((record) =>
+    reviewStatuses.has(record.status)
+  ).length;
+  const visionCounts = {
+    paid: visionRecords.filter((record) => record.status === 'paid').length,
+    rebilled: visionRecords.filter((record) => record.status === 'rebilled').length,
+    mismatch: visionRecords.filter((record) => record.status === 'mismatch').length,
+    reversal: visionRecords.filter((record) => record.status === 'reversal').length,
+    denied: visionRecords.filter((record) => record.status === 'denied').length,
+  };
   const verificationPassed =
     verifyResult?.status === 'success' &&
     visionRecords.length > 0 &&
     visionNeedsReview === 0;
+  const categorySummary = [
+    visionCounts.paid ? `${visionCounts.paid} Paid` : '',
+    visionCounts.rebilled ? `${visionCounts.rebilled} Rebilled` : '',
+    visionCounts.mismatch ? `${visionCounts.mismatch} Mismatches` : '',
+    visionCounts.reversal ? `${visionCounts.reversal} Reversals` : '',
+    visionCounts.denied ? `${visionCounts.denied} Denials` : '',
+  ]
+    .filter(Boolean)
+    .join(', ');
   const visionEmpty = verifyResult?.status === 'success' && visionRecords.length === 0;
   const visionRawText =
     typeof verifyResult?.raw_text === 'string' ? verifyResult.raw_text : '';
@@ -831,6 +864,9 @@ export default function AskDundas() {
                           visionRecords.length
                         )} ${visionNeedsReview === 1 ? 'needs' : 'need'} attention.`}
                   </strong>
+                  {categorySummary && (
+                    <span className="muted small ask-vision-summary">{categorySummary}</span>
+                  )}
                   {verifyResult.file?.name && (
                     <span className="muted small">{verifyResult.file.name}</span>
                   )}
@@ -920,6 +956,11 @@ export default function AskDundas() {
                                     <span className="ask-vision-sub">
                                       {ra.member_id ?? ra.memberId ?? '—'}
                                     </span>
+                                    {ra.claim_status && (
+                                      <span className="ask-vision-sub ask-vision-claim-status">
+                                        {ra.claim_status}
+                                      </span>
+                                    )}
                                   </td>
                                   <td>{claimPeriodText(ra)}</td>
                                   <td className="num">{visionAmount(ra)}</td>
@@ -1008,6 +1049,9 @@ export default function AskDundas() {
                               {ra.member_id ?? ra.memberId ?? '—'} ·{' '}
                               {claimPeriodText(ra)}
                             </div>
+                            {ra.claim_status && (
+                              <div className="ask-vision-claim-status">{ra.claim_status}</div>
+                            )}
                             <div className="ask-vision-card-amounts">
                               <span>RA Paid {visionAmount(ra)}</span>
                               <span>DB Paid {dbAmountText(db.paid_amount)}</span>
@@ -1188,8 +1232,11 @@ export default function AskDundas() {
 
                         <div className="ask-bulk-groups">
                           {[
-                            ['match', 'Match'],
+                            ['match', 'Paid'],
+                            ['rebilled', 'Rebilled'],
                             ['mismatch', 'Mismatch'],
+                            ['reversal', 'Reversal'],
+                            ['denied', 'Denied'],
                             ['missing_in_db', 'Missing'],
                           ].map(([key, label]) =>
                             bulkGroups[key].length ? (

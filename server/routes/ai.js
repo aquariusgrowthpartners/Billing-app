@@ -488,13 +488,27 @@ export function groupRecordsByClaim(records, agencyId) {
     const chargeTotal = roundMoney(charges.reduce((sum, amount) => sum + amount, 0));
     const dbAmount = parseCurrency(claim.paid_amount);
     const primary = eligible[0];
+    const claimStatus = String(primary.claim_status ?? primary.claimStatus ?? '').toUpperCase();
+    const isReversal = claimStatus.includes('REVERSAL') || claimStatus.includes('REVERSED') || raTotal < 0;
+    const isDenied = claimStatus.includes('DENIED') || claimStatus.includes('DENY');
+    const hasPriorDenial = db
+      .prepare(
+        `SELECT 1 FROM claims
+          WHERE client_id = ? AND agency_id = ?
+            AND status IN ('reversal', 'denied', 'Reversed')
+            AND period_start <= ? AND period_end >= ?
+          LIMIT 1`
+      )
+      .get(claim.client_id, agencyId, periodEnd, periodStart);
     let status;
     let discrepancy = null;
-    const isReversal = raTotal < 0;
 
     if (!amounts.length || !Number.isFinite(dbAmount)) {
       status = 'mismatch';
       discrepancy = 'Could not parse amount';
+    } else if (isDenied) {
+      status = 'denied';
+      discrepancy = 'Denied by the payer.';
     } else if (isReversal) {
       const takenBack = roundMoney(Math.abs(raTotal));
       status = 'reversal';
@@ -504,8 +518,11 @@ export function groupRecordsByClaim(records, agencyId) {
           : `Reversal: The state took back ${money(takenBack)}; DB shows ${money(
               dbAmount
             )}.`;
+    } else if (Math.abs(raTotal - dbAmount) < 0.01 && hasPriorDenial) {
+      status = 'rebilled';
+      discrepancy = null;
     } else if (Math.abs(raTotal - dbAmount) < 0.01) {
-      status = 'match';
+      status = 'paid';
     } else {
       status = 'mismatch';
       discrepancy = `Amount mismatch: RA total ${money(raTotal)}, DB ${money(dbAmount)}.`;
@@ -514,6 +531,7 @@ export function groupRecordsByClaim(records, agencyId) {
     results.push({
       ra_data: {
         ...primary,
+        claim_status: claimStatus || primary.claim_status || null,
         amount_paid: raTotal,
         charge_amount: chargeTotal,
         date_of_service:
@@ -621,6 +639,7 @@ async function processRaFile(file, agencyId) {
         records.push({
           client_name: client.client_name,
           member_id: client.patient_id ?? null,
+          claim_status: client.claim_status ?? null,
           date_of_service: dateOfService,
           amount_paid: item.paid,
           charge_amount: item.billed,
