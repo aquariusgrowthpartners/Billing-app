@@ -91,23 +91,47 @@ export function cleanMinnesotaText(rawText) {
  * It zips the date column to the amount column by index.
  */
 export function parseMinnesotaTable(cleanText) {
-  const dates = String(cleanText ?? '').match(/\d{2}-\d{2}-\d{2}/g) ?? [];
-  const amounts = String(cleanText ?? '').match(/\d+\.\d{2}/g) ?? [];
-  if (!dates.length || !amounts.length) return [];
-  if (Math.abs(dates.length - amounts.length) > 1) return [];
+  const text = String(cleanText ?? '');
+  const rows = [];
+  const rowRe =
+    /^\s*(\d{2})\s+(\d{2}-\d{2}-\d{2})\b[\s\S]*?(?=^\s*\d{2}\s+\d{2}-\d{2}-\d{2}\b|^\s*TOTAL\s+(?:CHARGE|PAYMENT)|^\s*PATIENT\s*:|(?![\s\S]))/gim;
+  for (const match of text.matchAll(rowRe)) {
+    const row = match[0];
+    const decimals = row.match(/-?\d+\.\d{2}/g) ?? [];
+    if (decimals.length < 2) continue;
+    // MHCP prints CHARGE before the adjustment and PAYMENT last. Taking the
+    // last decimal is the strict payment column; the first is the charge.
+    const charge = Number(decimals[0]);
+    const paid = Number(decimals[decimals.length - 1]);
+    const date = toISODate(match[2]);
+    if (!date || !Number.isFinite(paid)) continue;
+    rows.push({
+      date_of_service: date,
+      amount_paid: paid,
+      charge_amount: Number.isFinite(charge) ? charge : null,
+    });
+  }
 
-  const count = Math.min(dates.length, amounts.length);
-  return dates
-    .slice(0, count)
-    .map((date, index) => ({
-      date_of_service: toISODate(date),
-      amount_paid: Number(amounts[index]),
-    }))
-    .filter(
-      (record) =>
-        record.date_of_service &&
-        Number.isFinite(record.amount_paid)
-    );
+  // One service row per date; if the OCR emitted duplicate rows, sum them.
+  const byDate = new Map();
+  for (const row of rows) {
+    const current = byDate.get(row.date_of_service);
+    if (!current) {
+      byDate.set(row.date_of_service, { ...row });
+    } else {
+      current.amount_paid = Number(
+        (current.amount_paid + row.amount_paid).toFixed(2)
+      );
+      if (row.charge_amount != null) {
+        current.charge_amount = Number(
+          ((current.charge_amount ?? 0) + row.charge_amount).toFixed(2)
+        );
+      }
+    }
+  }
+  return [...byDate.values()].filter(
+    (record) => record.date_of_service && Number.isFinite(record.amount_paid)
+  );
 }
 
 /**
@@ -333,12 +357,30 @@ function nameKey(name) {
 export function parseBlock(block) {
   // The multi-line scanner first; the one-line reader is the fallback for
   // advices whose fields genuinely sit on one line.
-  let lineItems = parseServiceLines(block);
-  if (!lineItems.length) {
-    for (const line of block.split('\n')) {
-      const item = parseLineItem(line);
-      if (item) lineItems.push(item);
-    }
+  const lineItems = parseServiceLines(block);
+  const seenDates = new Set(lineItems.map((item) => item.date).filter(Boolean));
+
+  // A mixed-layout advice can parse some rows with the strict scanner and
+  // leave others behind. Fill only the missing dates from the other readers.
+  for (const line of block.split('\n')) {
+    const item = parseLineItem(line);
+    if (!item || !item.date || seenDates.has(item.date)) continue;
+    lineItems.push(item);
+    seenDates.add(item.date);
+  }
+  for (const row of parseMinnesotaTable(block)) {
+    if (seenDates.has(row.date_of_service)) continue;
+    lineItems.push({
+      date: row.date_of_service,
+      procedure_code: null,
+      modifier: '',
+      units: null,
+      minutes_worked: null,
+      hours_worked: null,
+      billed: row.charge_amount,
+      paid: row.amount_paid,
+    });
+    seenDates.add(row.date_of_service);
   }
 
   const dates = lineItems.map((i) => i.date).filter(Boolean).sort();

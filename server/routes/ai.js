@@ -549,19 +549,23 @@ export function groupRecordsByClaim(records, agencyId) {
       const statuses = new Set(daily.map((day) => day.status));
       let status = 'paid';
       let discrepancy = null;
-      if (statuses.has('mismatch')) {
-        status = 'mismatch';
-        const difference = roundMoney(Math.abs(raTotal - dbTotal));
-        discrepancy = `Amount mismatch: RA total ${money(raTotal)}, DB total ${money(
-          dbTotal
-        )} (Difference: ${money(difference)}).`;
-      } else if (statuses.has('matched_reversal')) {
+      if (statuses.has('matched_reversal')) {
         status = 'matched_reversal';
         discrepancy =
           daily.find((day) => day.status === 'matched_reversal')?.discrepancy ?? null;
       } else if (statuses.has('matched_denied')) {
         status = 'matched_denied';
         discrepancy = 'Claim was denied by the state. No payment expected.';
+      } else if (
+        !Number.isFinite(raTotal) ||
+        !Number.isFinite(dbTotal) ||
+        Math.abs(raTotal - dbTotal) >= 0.01
+      ) {
+        status = 'mismatch';
+        const difference = roundMoney(Math.abs(raTotal - dbTotal));
+        discrepancy = `Amount mismatch: RA total ${money(raTotal)}, DB total ${money(
+          dbTotal
+        )} (Difference: ${money(difference)}).`;
       }
 
       const hasReversal = daily.some((day) => day.is_reversal);
