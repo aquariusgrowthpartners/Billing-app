@@ -244,6 +244,12 @@ db.exec(`
     generated_pdf_path TEXT,
     -- When the claim's totals were last re-aggregated from its day entries.
     last_regenerated_at TEXT,
+    -- Structured RA values for audit and Pre-Check. client_id remains canonical.
+    client_name_raw   TEXT,
+    member_id         TEXT,
+    date_of_service   TEXT,
+    charge_amount     REAL,
+    procedure_code    TEXT,
     ra_import_id      INTEGER,
     agency_id         INTEGER NOT NULL DEFAULT 1,
     created_at        TEXT NOT NULL DEFAULT (datetime('now'))
@@ -594,6 +600,12 @@ addColumnIfMissing('claims', 'variance_days', 'INTEGER');
 addColumnIfMissing('claims', 'local_pdf_path', 'TEXT');
 addColumnIfMissing('claims', 'generated_pdf_path', 'TEXT');
 addColumnIfMissing('claims', 'last_regenerated_at', 'TEXT');
+// Structured RA fields: additive only; client_id remains the canonical link.
+addColumnIfMissing('claims', 'client_name_raw', 'TEXT');
+addColumnIfMissing('claims', 'member_id', 'TEXT');
+addColumnIfMissing('claims', 'date_of_service', 'TEXT');
+addColumnIfMissing('claims', 'charge_amount', 'REAL');
+addColumnIfMissing('claims', 'procedure_code', 'TEXT');
 
 // Case managers are assigned to a client; caretakers are recorded per day.
 const caseManagerColumn = addReferenceColumn('clients', 'case_manager_id', 'case_managers');

@@ -9,6 +9,7 @@ import multer from 'multer';
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { PDFDocument, degrees } from 'pdf-lib';
 import { ZipArchive } from 'archiver';
 import { storeUpload, readStored, deleteUploadIfUnreferenced, storageUsed } from '../raStore.js';
 import { markOrphanedImports } from '../denials.js';
@@ -50,6 +51,27 @@ const NOT_AN_RA =
   'Could not extract data from this PDF. Please confirm it is a valid MHCP Remittance Advice file.';
 
 const isPdf = (buf) => Buffer.isBuffer(buf) && buf.subarray(0, 5).toString('latin1') === '%PDF-';
+
+/** Normalize sideways/scanned page rotation before the text parser sees it. */
+async function rotateImportPdf(buffer) {
+  try {
+    const pdf = await PDFDocument.load(buffer);
+    let changed = false;
+    for (const page of pdf.getPages()) {
+      const rawAngle = page.getRotation()?.angle ?? 0;
+      const angle = ((rawAngle % 360) + 360) % 360;
+      if (angle !== 0) {
+        console.log(`[IMPORT-ROTATION] Detected rotation: ${angle} degrees. Rotated to 0.`);
+        page.setRotation(degrees(0));
+        changed = true;
+      }
+    }
+    return changed ? Buffer.from(await pdf.save()) : buffer;
+  } catch (err) {
+    console.warn(`[IMPORT-ROTATION] Could not normalize PDF: ${err.message}`);
+    return buffer;
+  }
+}
 
 /* --------------------------------------------------------------- matching */
 
@@ -406,6 +428,7 @@ async function parseRaBuffer(buffer, agencyId = null) {
 
 async function parseRaBufferInner(buffer, stored, agencyId = null) {
   if (!isPdf(buffer)) throw new Error('That file is not a PDF.');
+  buffer = await rotateImportPdf(buffer);
   let text;
   try {
     // pdf-parse is ESM-only with no default export, so it is pulled in here.
@@ -1492,8 +1515,9 @@ router.post('/', (req, res) => {
 
     let text;
     try {
+      const rotated = await rotateImportPdf(req.file.buffer);
       const { PDFParse } = await import('pdf-parse');
-      const parser = new PDFParse({ data: req.file.buffer });
+      const parser = new PDFParse({ data: rotated });
       try {
         const result = await parser.getText();
         text = result?.text ?? '';
@@ -1672,11 +1696,13 @@ function agreementFor(clientId, date, agencyId) {
 const CLAIM_INSERT_SQL = `INSERT INTO claims
     (claim_name, client_id, agreement_id, period_start, period_end,
      total_units, total_dollars, status, paid_date, paid_amount, source, ra_import_id,
-     ra_claim_number, agency_id)
+     ra_claim_number, client_name_raw, member_id, date_of_service, charge_amount,
+     procedure_code, agency_id)
   VALUES
     (@claim_name, @client_id, @agreement_id, @period_start, @period_end,
      @total_units, @total_dollars, 'Paid', @paid_date, @paid_amount, 'ra_import', @ra_import_id,
-     @ra_claim_number, @agency)`;
+     @ra_claim_number, @client_name_raw, @member_id, @date_of_service, @charge_amount,
+     @procedure_code, @agency)`;
 
 const DAY_ENTRY_INSERT_SQL = `INSERT INTO day_entries
     (client_id, agreement_id, caretaker_id, work_date, minutes_worked, units,
@@ -1925,7 +1951,7 @@ router.post('/save', (req, res) => {
         } else if (resolution === 'overwrite') {
           const old = db
             .prepare(`SELECT local_pdf_path, generated_pdf_path FROM claims WHERE id = ? AND agency_id = ?`)
-            .get(found.existing_claim.id);
+            .get(found.existing_claim.id, req.agencyId);
           db.prepare(`DELETE FROM claims WHERE id = ? AND agency_id = ?`).run(found.existing_claim.id, req.agencyId);
           // PDFs are files, so they are removed after the transaction commits.
           for (const path of [old?.local_pdf_path, old?.generated_pdf_path]) {
@@ -1951,6 +1977,32 @@ router.post('/save', (req, res) => {
           ? null
           : Number(row.total_payment);
 
+      const lineDates = [
+        ...new Set(lineItems.map((item) => item.date).filter(Boolean)),
+      ].sort();
+      const procedureCodes = [
+        ...new Set(lineItems.map((item) => item.procedure_code).filter(Boolean)),
+      ];
+      const calculatedCharge = round2(
+        lineItems.reduce((sum, item) => sum + (Number(item.billed) || 0), 0)
+      );
+      const chargeAmount =
+        lineItems.length > 0
+          ? calculatedCharge
+          : row.total_charge === null || row.total_charge === undefined || row.total_charge === ''
+            ? null
+            : Number(row.total_charge);
+      const dateOfService =
+        lineDates.length === 1
+          ? lineDates[0]
+          : lineDates.length === 0 && dosStart && dosStart === dosEnd
+            ? dosStart
+            : null;
+      const procedureCode =
+        procedureCodes.length > 0
+          ? procedureCodes.join(', ')
+          : row.procedure_code ?? null;
+
       /* ---------------------------------------------------------- claims */
       let claimId = null;
 
@@ -1969,8 +2021,22 @@ router.post('/save', (req, res) => {
         if (existing) {
           // Name and submitted_date are deliberately preserved.
           db.prepare(
-            `UPDATE claims SET status = 'Paid', paid_date = ?, paid_amount = ? WHERE id = ? AND agency_id = ?`
-            ).run(today, paidAmount, existing.id, req.agencyId);
+            `UPDATE claims
+                SET status = 'Paid', paid_date = ?, paid_amount = ?,
+                    client_name_raw = ?, member_id = ?, date_of_service = ?,
+                    charge_amount = ?, procedure_code = ?
+              WHERE id = ? AND agency_id = ?`
+          ).run(
+            today,
+            paidAmount,
+            row.client_name ?? `${client.first_name} ${client.last_name}`,
+            row.member_id ?? client.ma_number ?? null,
+            dateOfService,
+            chargeAmount,
+            procedureCode,
+            existing.id,
+            req.agencyId
+          );
           claimId = existing.id;
           summary.updated_claims += 1;
         }
@@ -2000,6 +2066,11 @@ router.post('/save', (req, res) => {
           paid_amount: paidAmount,
           ra_import_id: raImportId,
           ra_claim_number: row.claim_number ?? null,
+          client_name_raw: row.client_name ?? `${client.first_name} ${client.last_name}`,
+          member_id: row.member_id ?? client.ma_number ?? null,
+          date_of_service: dateOfService,
+          charge_amount: chargeAmount,
+          procedure_code: procedureCode,
             agency: req.agencyId,
         });
         logStatement('INSERT claim', CLAIM_INSERT_SQL, params);
@@ -2103,13 +2174,14 @@ router.post('/save', (req, res) => {
         if (claim?.period_start && claim?.period_end) {
           // Only entries this import created are linked: attaching a manual
           // entry to a claim would be modifying user-entered data.
-          summary.linked_entries += db
+          const linked = db
             .prepare(
               `UPDATE day_entries SET claim_id = ?
                WHERE client_id = ? AND claim_id IS NULL AND source = 'ra_import'
                    AND work_date >= ? AND work_date <= ? AND agency_id = ?`
             )
-              .run(claimId, clientId, claim.period_start, claim.period_end, req.agencyId)
+            .run(claimId, clientId, claim.period_start, claim.period_end, req.agencyId);
+          summary.linked_entries += linked.changes;
         }
       }
     }
@@ -2203,9 +2275,24 @@ router.post('/save', (req, res) => {
     }
     markOrphanedImports(req.agencyId);
   } catch (e) {
-    console.error('[import-ra] save failed:', e.message);
+    console.error('[import-ra] save failed:', e.stack || e.message);
     return res.status(500).json({ error: `Import failed: ${e.message}` });
   }
+
+  // Claims are the source of truth for both the Home YTD card and each client's
+  // profile totals; recompute here so a successful save is observable in logs.
+  const yearStart = `${new Date().getFullYear()}-01-01`;
+  const ytd = db
+    .prepare(
+      `SELECT COUNT(*) AS count, COALESCE(SUM(paid_amount), 0) AS total
+         FROM claims
+        WHERE agency_id = ? AND status = 'Paid' AND paid_date >= ?`
+    )
+    .get(req.agencyId, yearStart);
+  console.log(
+    `[PROPAGATION] Updated YTD for Agency ${req.agencyId}. ` +
+      `claims=${ytd.count} total=$${round2(ytd.total).toFixed(2)}`
+  );
 
   // The rows are gone for good now, so their PDF files can go too.
   for (const rel of orphanedPdfs) {

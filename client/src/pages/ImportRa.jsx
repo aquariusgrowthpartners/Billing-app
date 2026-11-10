@@ -32,6 +32,7 @@ function toRow(block, sourceFile) {
     // denied/reversed rows are archived, never billed
     denial: block.paid === false,
     client_name: block.client_name,
+    member_id: block.patient_id ?? block.member_id ?? null,
     claim_number: block.claim_number,
     rendered_provider_name: block.rendered_provider_name ?? block.rendered_provider ?? null,
     // REND PROV ID is the caregiver's NPI — the key the backend matches on.
@@ -104,6 +105,38 @@ export default function ImportRa() {
     () => (rows ?? []).filter((r) => !r.client_id && r.action !== 'skip').length,
     [rows]
   );
+
+  const precheckRows = useMemo(() => {
+    const out = [];
+    for (const row of rows ?? []) {
+      const items = row.line_items?.length
+        ? row.line_items
+        : [
+            {
+              date: row.dos_start,
+              procedure_code: '',
+              billed: row.total_charge,
+              paid: row.total_payment,
+            },
+          ];
+      for (const [index, item] of items.entries()) {
+        out.push({
+          key: `${row.key}-${index}`,
+          date: item.date ?? row.dos_start ?? '',
+          client_name: row.client_name ?? '—',
+          member_id: row.member_id ?? '—',
+          charge: item.billed,
+          paid: item.paid,
+          code: item.procedure_code ?? '',
+        });
+        if (out.length >= 5) return out;
+      }
+    }
+    return out;
+  }, [rows]);
+
+  const moneyOrDash = (value) =>
+    value === null || value === undefined || value === '' ? '—' : formatMoney(Number(value));
 
   async function loadClients() {
     const d = await api.searchClients('', { includeInactive: true, limit: 200 });
@@ -329,6 +362,7 @@ export default function ImportRa() {
       const payload = rows.map((r) => ({
         client_id: r.client_id ? Number(r.client_id) : null,
         client_name: r.client_name,
+        member_id: r.member_id ?? null,
         // MUST ride the payload: the per-file overwrite id and the per-file
         // audit rows are both keyed on it, and it was being dropped here.
         source_file: r.source_file ?? null,
@@ -717,6 +751,65 @@ export default function ImportRa() {
             )}
           </div>
         )}
+
+      {rows && (
+        <section className="card" id="ra-precheck">
+          <div className="card-head">
+            <div>
+              <h2>Pre-Check Validation</h2>
+              <p className="muted small" style={{ margin: '2px 0 0' }}>
+                First {precheckRows.length} extracted row{precheckRows.length === 1 ? '' : 's'}.
+                Nothing is written until you confirm.
+              </p>
+            </div>
+            <span className="pill ok">Pre-Check</span>
+          </div>
+          <div className="table-scroll">
+            <table className="table" id="ra-precheck-table">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Client Name</th>
+                  <th>Member ID</th>
+                  <th className="num">Charge</th>
+                  <th className="num">Paid</th>
+                  <th>Code</th>
+                </tr>
+              </thead>
+              <tbody>
+                {precheckRows.map((row) => (
+                  <tr key={row.key}>
+                    <td>{row.date || '—'}</td>
+                    <td>{row.client_name}</td>
+                    <td className="mono">{row.member_id}</td>
+                    <td className="num">{moneyOrDash(row.charge)}</td>
+                    <td className="num">{moneyOrDash(row.paid)}</td>
+                    <td className="mono">{row.code || '—'}</td>
+                  </tr>
+                ))}
+                {!precheckRows.length && (
+                  <tr>
+                    <td colSpan={6} className="empty">
+                      No extracted rows.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+          <div className="card-body" style={{ display: 'flex', justifyContent: 'flex-end' }}>
+            <button
+              className="btn primary"
+              id="ra-precheck-confirm"
+              onClick={saveAll}
+              disabled={saving || unmatched > 0}
+              title={unmatched > 0 ? 'Resolve every unmatched row first' : ''}
+            >
+              {saving ? 'Saving…' : 'Confirm & Save to Database'}
+            </button>
+          </div>
+        </section>
+      )}
 
       {rows && (
         <section className="card" id="ra-review">
