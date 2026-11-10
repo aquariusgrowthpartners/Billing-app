@@ -247,7 +247,10 @@ function normalizeRaRecord(record) {
       'date_of_service',
       'dateOfService',
       'Date of Service',
+      'Dates of Service',
+      'Date(s) of Service',
       'date of service',
+      'dates of service',
       'DOS'
     ),
     amount_paid: value('amount_paid', 'amountPaid', 'Amount Paid', 'amount paid', 'Paid Amount'),
