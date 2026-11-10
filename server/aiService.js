@@ -325,6 +325,7 @@ const VISION_SYSTEM_PROMPT =
 
 export const RA_TEXT_SYSTEM_PROMPT =
   'You are an expert medical billing auditor. The following text was extracted using OCR from an RA letter. It contains a cover page followed by claims tables. IGNORE the cover page. Look for the claims table (usually starting with \'PATIENT\', \'DATES OF SERVICE\', \'AMOUNT\'). Extract every patient claim record.\n' +
+  'The columns from left to right are typically: Client, Member ID, Date, Code, Charge, Paid. You MUST extract the \'PAID\' or \'AMOUNT\' column (usually the rightmost or second-to-last numeric column with decimals like 98.52). Do NOT confuse it with \'TOTAL CHARGE\' or \'ADJ AMT\'.\n' +
   'If the OCR text has dates mashed together without spaces (e.g., \'03-20-2603-21-26\'), split them into separate records for each date. If there is a daily breakdown, use each day\'s own amount; never duplicate a single period total across days.\n' +
   'Return ONLY a valid JSON array.';
 
@@ -468,13 +469,17 @@ export async function verifyRaDocument(
 /* ------------------------------------------------------ native PDF vision */
 
 const VISION_PDF_SYSTEM_PROMPT =
-  'You are an expert medical billing auditor. This is a multi-page RA letter.\n' +
+  'You are an expert medical billing auditor reading a sideways (rotated 90 degrees) claims table.\n' +
   'Page 1 is a cover letter. IGNORE IT.\n' +
   'Page 2 is a date. IGNORE IT.\n' +
   'Page 3 may contain repeating numbers like \'1 1 1 1\'. IGNORE IT.\n' +
   'The actual claims table starts on Page 4 and is printed sideways (rotated 90 degrees).\n' +
+  'The columns from left to right are typically: Client, Member ID, Date, Code, Charge, Paid.\n' +
+  'You MUST extract the \'PAID\' or \'AMOUNT\' column (usually the rightmost or second-to-last numeric column with decimals like 98.52).\n' +
+  'Do NOT confuse it with \'TOTAL CHARGE\' (which is a larger number) or \'ADJ AMT\'.\n' +
   'Read the table carefully. Extract EVERY row exactly as it appears.\n' +
   'Columns to extract: Patient Name, Member ID, the specific Date of Service, and the \'PAID\' column.\n' +
+  'If a row has a valid date and a valid paid amount, include it in the JSON.\n' +
   'DO NOT extract \'TOTAL CHARGE\'. DO NOT do any math or sum the totals yourself.\n' +
   'Extract each row as a separate JSON object. Return ONLY a valid JSON array.';
 

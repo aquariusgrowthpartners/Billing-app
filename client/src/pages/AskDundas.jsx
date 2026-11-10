@@ -118,6 +118,7 @@ const VISION_STATUS_LABEL = {
   match: 'Match',
   mismatch: 'Mismatch',
   missing_in_db: 'Missing in DB',
+  needs_review: 'Needs review',
   unmatched_ra: 'Unmatched RA',
 };
 

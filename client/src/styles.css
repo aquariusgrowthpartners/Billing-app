@@ -8423,3 +8423,13 @@ body {
   color: var(--err-fg);
   overflow-wrap: anywhere;
 }
+
+.ask-vision-badge.needs_review {
+  background: #fff7ed;
+  color: #b45309;
+}
+
+[data-theme='dark'] .ask-vision-badge.needs_review {
+  background: #3a2a12;
+  color: #fbbf24;
+}

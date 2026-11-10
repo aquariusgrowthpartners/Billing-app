@@ -344,9 +344,22 @@ function roundMoney(value) {
 function groupRecordsByClaim(records, agencyId) {
   const groups = new Map();
   const unmatched = [];
+  const needsReview = [];
 
   for (const input of records) {
     const record = normalizeRaRecord(input);
+    const amount = parseCurrency(record.amount_paid);
+    if (!Number.isFinite(amount)) {
+      console.warn(`[VISION-MISSING-AMOUNT] ${JSON.stringify(input)}`);
+      const claim = findClaimForRecord(record, agencyId);
+      needsReview.push({
+        ra_data: record,
+        db_data: claim ?? null,
+        status: 'needs_review',
+        discrepancy: 'AI could not extract the paid amount for this date.',
+      });
+      continue;
+    }
     const claim = findClaimForRecord(record, agencyId);
     if (!claim) {
       unmatched.push(record);
@@ -373,7 +386,7 @@ function groupRecordsByClaim(records, agencyId) {
     groups.get(key).records.push(record);
   }
 
-  const results = [];
+  const results = [...needsReview];
   for (const { claim, records: claimRecords } of groups.values()) {
     const periodStart = parseDateRange(claim.period_start).start;
     const periodEnd = parseDateRange(claim.period_end).end;
