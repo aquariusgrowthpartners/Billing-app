@@ -387,6 +387,9 @@ export default function ClientProfile() {
             {' · '}
             {client.active ? 'Active' : 'Inactive'}
           </p>
+          <span className="pill muted client-id-badge" id="client-id-badge">
+            Client ID: {client.id}
+          </span>
         </div>
         {savedFlash && <span className="pill ok">{savedFlash}</span>}
       </div>
