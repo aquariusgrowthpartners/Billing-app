@@ -368,8 +368,10 @@ function groupRecordsByClaim(records, agencyId) {
     const periodEnd = parseDateRange(claim.period_end).end;
     const eligible = periodStart && periodEnd
       ? claimRecords.filter((record) => {
-          const date = parseDateRange(record.date_of_service).start;
-          return date && date >= periodStart && date <= periodEnd;
+          const range = parseDateRange(record.date_of_service);
+          const start = range.start;
+          const end = range.end || range.start;
+          return start && end && start <= periodEnd && end >= periodStart;
         })
       : claimRecords;
 
