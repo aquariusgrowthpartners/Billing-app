@@ -899,6 +899,13 @@ async function processRaFile(file, agencyId) {
               normalizeName(row.client_name) === normalizeName(client.client_name)
           );
       const tableTotal = tableTotals.get(tableIndex) ?? {};
+      console.log(
+        `[PARSER-TOTALS] Client: ${client.client_name ?? 'unknown'}. Period: ${
+          client.dos_start ?? '?'
+        } to ${client.dos_end ?? '?'}. Extracted TOTAL PAYMENT: ${
+          tableTotal.paid ?? client.claim_total_paid ?? client.total_payment ?? 'null'
+        }`
+      );
       const sourceItems = tableRowsForClient.length
         ? tableRowsForClient
         : (client.line_items ?? []).map((item) => ({
