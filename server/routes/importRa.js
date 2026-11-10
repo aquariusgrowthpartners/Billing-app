@@ -409,7 +409,7 @@ function purgeImport(importId, agencyId) {
  * Throws with a friendly message rather than answering, so both the single and
  * batch routes can decide what a failure means for them.
  */
-async function parseRaBuffer(buffer, agencyId = null) {
+export async function parseRaBuffer(buffer, agencyId = null) {
   // The bytes are kept BEFORE any validation, so a file that fails to parse is
   // still on disk to debug later.
   let stored = { hash: null, path: null };

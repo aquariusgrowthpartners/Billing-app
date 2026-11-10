@@ -14,10 +14,10 @@ import pLimit from 'p-limit';
 import { PDFDocument, degrees } from 'pdf-lib';
 import {
   extractRaWithAzureDocIntel,
-  extractRaWithAzureVision,
   complete,
   RA_TEXT_SYSTEM_PROMPT,
 } from '../aiService.js';
+import { parseRaBuffer } from './importRa.js';
 import db from '../db.js';
 
 const router = express.Router();
@@ -543,22 +543,42 @@ async function processRaFile(file, agencyId) {
     file.mimetype === 'application/pdf' || /\.pdf$/i.test(file.originalname || '');
 
   if (isPdf) {
-    console.log('[VISION-PDF] Native PDF (input_file) used');
-    const uprightBuffer = await normalizePdfRotation(file.buffer);
-    const vision = await extractRaWithAzureVision(
-      uprightBuffer.toString('base64'),
-      agencyId
-    );
-    if (vision.error) {
-      const err = new Error(vision.error);
-      err.status = /too large/i.test(vision.error)
-        ? 413
-        : /quota|unavailable|missing|configured/i.test(vision.error)
-          ? 503
-          : 502;
+    let parsed;
+    try {
+      parsed = await parseRaBuffer(file.buffer, agencyId);
+    } catch {
+      const err = new Error(
+        'Could not parse RA document. Please ensure it is a valid format.'
+      );
+      err.status = 422;
       throw err;
     }
-    const records = Array.isArray(vision.records) ? vision.records : [];
+
+    const records = [];
+    for (const client of parsed.clients ?? []) {
+      for (const item of client.line_items ?? []) {
+        records.push({
+          client_name: client.client_name,
+          member_id: client.patient_id ?? null,
+          date_of_service: item.date ?? null,
+          amount_paid: item.paid,
+          charge_amount: item.billed,
+          procedure_code: item.procedure_code ?? null,
+        });
+      }
+    }
+
+    if (!records.length) {
+      const err = new Error(
+        'Could not parse RA document. Please ensure it is a valid format.'
+      );
+      err.status = 422;
+      throw err;
+    }
+
+    console.log(
+      `[VERIFY-EXTRACTION] Extracted ${records.length} records using Import parser.`
+    );
     return {
       records: groupRecordsByClaim(
         expandConcatenatedDateRecords(records),

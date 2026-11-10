@@ -427,7 +427,7 @@ export default function AskDundas() {
           if (isPdfFile) {
             setDocIntelDebug({
               nativeVision: true,
-              message: 'Vision API (Native PDF) used',
+              message: 'Import parser (pdf-parse + rotation) used',
             });
           } else {
             setDocIntelDebug(await api.testDocIntel(verifyFile));
