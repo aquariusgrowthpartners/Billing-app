@@ -278,15 +278,16 @@ async function processRaFile(file, agencyId) {
   }
 
   const completion = await complete(
-    `Here is the raw text extracted from an RA letter. Parse it into JSON.\n\n${rawText.slice(
+    `Here is the text extracted from an RA letter:\n\n${rawText.slice(
       0,
       16000
-    )}`,
+    )}\n\nExtract the records.`,
     {
       system:
-        'You are an expert medical billing auditor. Extract the Member ID, PATIENT/CLIENT name, Date of Service, and Amount Paid from the RA text. Do NOT extract the Provider or Agency name from the top of the letter. You are looking for the PATIENT/CLIENT name and MEMBER ID. If the extracted name matches the Agency name, ignore it and look further down the document. Return ONLY a JSON array using the keys member_id, client_name, date_of_service, amount_paid. If no patient/client records are present, return []. Do not include markdown formatting.',
+        'You are an expert medical billing auditor. Extract the Patient/Client Name, Member ID, Date of Service, and Amount Paid from the provided text. Return ONLY a valid JSON array. Example: [{"client_name": "...", "member_id": "...", "date_of_service": "...", "amount_paid": "..."}]. If the document is entirely empty or contains zero billing records, return [].',
       timeoutMs: 60000,
       agencyId,
+      maxOutputTokens: 4000,
     }
   );
 
@@ -298,9 +299,13 @@ async function processRaFile(file, agencyId) {
 
   const records = parseJsonRecords(completion.text);
   if (!records) {
+    console.warn('[AI-EMPTY-RESPONSE] Could not parse AI response:', completion.text);
     const err = new Error('Azure text completion returned no JSON records.');
     err.status = 502;
     throw err;
+  }
+  if (records.length === 0) {
+    console.warn('[AI-EMPTY-RESPONSE]', completion.text);
   }
 
   return records.map((record) => verifyRecord(record, agencyId));

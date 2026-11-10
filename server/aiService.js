@@ -204,7 +204,10 @@ export function firstTwoSentences(text, maxChars = 320) {
  * Free-form completion against the configured provider.
  * Returns { text, source }. Never throws — provider problems come back as text.
  */
-export async function complete(userPrompt, { system, timeoutMs = 20000, agencyId = 1 } = {}) {
+export async function complete(
+  userPrompt,
+  { system, timeoutMs = 20000, agencyId = 1, maxOutputTokens = 700 } = {}
+) {
   const config = aiConfig(agencyId);
   if (config.disabled) return { text: AI_DISABLED_MESSAGE, source: 'disabled' };
   if (!config.enabled) return { text: NO_KEY, source: 'none' };
@@ -222,12 +225,12 @@ export async function complete(userPrompt, { system, timeoutMs = 20000, agencyId
       ? {
           model: cfg.model,
           input: `${systemPrompt}\n\n${prompt}`,
-          max_output_tokens: 700,
+          max_output_tokens: maxOutputTokens,
         }
       : {
           model: cfg.model,
           temperature: 0.3,
-          max_tokens: 700,
+          max_tokens: maxOutputTokens,
           messages: [
             { role: 'system', content: systemPrompt },
             { role: 'user', content: prompt },
