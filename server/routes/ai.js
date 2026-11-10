@@ -331,40 +331,80 @@ function stripCoverPages(text) {
   };
 }
 
+function cleanRaText(rawText) {
+  if (rawText.length < 400) return { text: rawText, hadCover: false };
+  return stripCoverPages(rawText);
+}
+
 /**
  * Process one uploaded RA file with the shared single-file/bulk pipeline:
  * Azure Document Intelligence → text completion → claim comparison.
  */
 async function processRaFile(file, agencyId) {
-  const extracted = await extractRaWithAzureDocIntel(
-    file.buffer,
-    file.mimetype || 'application/pdf'
-  );
-  const rawText = String(extracted?.text ?? '').trim();
-  const { text: claimText, hadCover } = stripCoverPages(rawText);
+  const isPdf =
+    file.mimetype === 'application/pdf' || /\.pdf$/i.test(file.originalname || '');
+  let rawText = '';
+
+  if (isPdf) {
+    try {
+      const { PDFParse } = await import('pdf-parse');
+      const parser = new PDFParse({ data: file.buffer });
+      try {
+        const result = await parser.getText();
+        rawText = String(result?.text ?? '').trim();
+      } finally {
+        await parser.destroy?.();
+      }
+    } catch (err) {
+      const e = new Error(`Could not extract text from this PDF: ${err.message}`);
+      e.status = 422;
+      throw e;
+    }
+    console.log(`[PARSER] Extracted raw text length: ${rawText.length} characters`);
+    console.log(`[PARSER] Text sample: ${rawText.slice(0, 500)}`);
+    if (!rawText) {
+      const err = new Error('No extractable text found in this PDF.');
+      err.status = 422;
+      throw err;
+    }
+  } else {
+    // Doc Intel remains the image-only path; PDFs use pdf-parse above.
+    const extracted = await extractRaWithAzureDocIntel(
+      file.buffer,
+      file.mimetype || 'image/png'
+    );
+    rawText = String(extracted?.text ?? '').trim();
+  }
+
+  const clean = cleanRaText(rawText);
+  const claimText = clean.text;
   console.log(
-    `[DOC-INTEL] Cover marker found: ${hadCover}; claim text length after removal: ${claimText.length} characters`
+    `[PARSER] Clean text length: ${claimText.length} characters; cover marker found: ${clean.hadCover}`
   );
 
-  if (hadCover && claimText.length < 50) {
+  if (clean.hadCover && claimText.length < 50) {
     const err = new Error('Document appears to contain only cover pages. No claim data found.');
     err.status = 422;
     throw err;
   }
 
-  const useVisionFallback = !hadCover && rawText.length < 400;
+  // PDFs always go through the parser + completion path. Vision is retained
+  // only for image uploads whose Doc Intel text is too short.
+  const useVisionFallback = !isPdf && !clean.hadCover && rawText.length < 400;
   console.log(
-    `[DOC-INTEL] Final text length: ${claimText.length} characters. Triggering Vision fallback: ${useVisionFallback}`
+    `[${isPdf ? 'PARSER' : 'DOC-INTEL'}] Final text length: ${
+      claimText.length
+    } characters. Triggering Vision fallback: ${useVisionFallback}`
   );
 
   if (useVisionFallback) {
-    console.log('[VISION-FALLBACK] Sending PDF directly to Azure Vision');
+    console.log('[VISION-FALLBACK] Sending image directly to Azure Vision');
     const vision = await verifyRaDocument(
       file.buffer.toString('base64'),
-      file.mimetype || 'application/pdf',
+      file.mimetype || 'image/png',
       agencyId,
       60000,
-      'This is a multi-page RA letter. Read all pages and extract the Patient Name, Member ID, Date of Service, and Amount Paid. Return JSON.'
+      'This is an RA letter. Read all text and extract the Patient Name, Member ID, Date of Service, and Amount Paid. Return JSON.'
     );
     if (vision.error) {
       const err = new Error(`Vision fallback failed: ${vision.error}`);
@@ -381,7 +421,7 @@ async function processRaFile(file, agencyId) {
   const completion = await complete(
     `Here is the text extracted from an RA letter:\n\n${claimText.slice(
       0,
-      16000
+      15000
     )}\n\nExtract the records.`,
     {
       system: RA_TEXT_SYSTEM_PROMPT,

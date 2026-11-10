@@ -324,11 +324,7 @@ const VISION_SYSTEM_PROMPT =
   'You are an expert medical billing auditor. The attached image is an RA (Remittance Advice) letter. It may be physically rotated sideways or upside down. Read the text regardless of orientation. Extract the Member ID, PATIENT/CLIENT name, Date of Service, and Amount Paid. Do NOT extract the Provider or Agency name from the top of the letter. You are looking for the PATIENT/CLIENT name and MEMBER ID. If the extracted name matches the Agency name, ignore it and look further down the document. Return ONLY a JSON array of extracted records, or [] if none. Do not include markdown formatting.';
 
 export const RA_TEXT_SYSTEM_PROMPT =
-  'You are an expert medical billing auditor. Extract the Patient/Client Name, Member ID, Date of Service, and Amount Paid from the provided text.\n' +
-  'CRITICAL: Page 1 is always a cover letter (Remittance Advice Message). The actual claim data begins on Page 2 and continues on subsequent pages.\n' +
-  'IGNORE the cover page. Do NOT extract the Provider name (e.g., DUNDAS HOME CARE LLC) as a client.\n' +
-  'If you find actual patient claim records with amounts, extract them. If the entire document contains only cover page notices and no claim data, return [].\n' +
-  'Return ONLY a valid JSON array.';
+  'You are an expert medical billing auditor. I have extracted raw text from a multi-page RA letter using a parser. The text may have messy formatting, missing spaces, or weird line breaks. Search the entire text for Patient/Client Names, Member IDs, Dates of Service, and Amounts Paid. Ignore the provider (e.g., DUNDAS HOME CARE LLC). Return a JSON array of the claims you find.';
 
 function parseVisionJson(text) {
   const cleaned = String(text ?? '')
