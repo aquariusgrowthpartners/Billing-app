@@ -213,10 +213,16 @@ function findClaimForRecord(record, agencyId) {
  */
 function normalizeRaRecord(record) {
   if (!record || typeof record !== 'object') return record;
+  const normalizeKey = (key) => String(key).toLowerCase().replace(/[^a-z0-9]/g, '');
   const value = (...keys) => {
-    for (const key of keys) {
-      const candidate = record[key];
-      if (candidate !== undefined && candidate !== null && String(candidate).trim() !== '') {
+    const aliases = new Set(keys.map(normalizeKey));
+    for (const [key, candidate] of Object.entries(record)) {
+      if (
+        aliases.has(normalizeKey(key)) &&
+        candidate !== undefined &&
+        candidate !== null &&
+        String(candidate).trim() !== ''
+      ) {
         return candidate;
       }
     }
@@ -232,6 +238,7 @@ function normalizeRaRecord(record) {
       'Client Name',
       'PATIENT/CLIENT',
       'Patient/Client',
+      'Patient/Client Name',
       'Patient Name',
       'patient_name',
       'Client'
