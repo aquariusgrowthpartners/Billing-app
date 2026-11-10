@@ -379,6 +379,7 @@ export async function verifyRaDocument(
   if (!cfg) return { error: 'Azure Vision endpoint or deployment is missing.' };
 
   const imageUrl = `data:${mimeType || 'image/png'};base64,${imageBase64}`;
+  const isPdf = /application\/pdf/i.test(String(mimeType ?? ''));
   const extractInstruction =
     instruction ||
     'Extract every RA record you can read. Use these keys: member_id, client_name, date_of_service, amount_paid. Return only the JSON array.';
@@ -391,7 +392,13 @@ export async function verifyRaDocument(
             role: 'user',
             content: [
               { type: 'input_text', text: extractInstruction },
-              { type: 'input_image', image_url: imageUrl, detail: 'high' },
+              isPdf
+                ? {
+                    type: 'input_file',
+                    filename: 'ra-letter.pdf',
+                    file_data: imageUrl,
+                  }
+                : { type: 'input_image', image_url: imageUrl, detail: 'high' },
             ],
           },
         ],
@@ -406,7 +413,12 @@ export async function verifyRaDocument(
             role: 'user',
             content: [
               { type: 'text', text: extractInstruction },
-              { type: 'image_url', image_url: { url: imageUrl, detail: 'high' } },
+              isPdf
+                ? {
+                    type: 'file',
+                    file: { filename: 'ra-letter.pdf', file_data: imageUrl },
+                  }
+                : { type: 'image_url', image_url: { url: imageUrl, detail: 'high' } },
             ],
           },
         ],
