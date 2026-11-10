@@ -144,6 +144,21 @@ function bulkFileStatus(entry) {
   return 'mismatch';
 }
 
+function claimPeriodText(record) {
+  const start = record?.claim_period_start;
+  const end = record?.claim_period_end;
+  if (start && end) {
+    const fmt = (value) => {
+      const date = new Date(`${value}T00:00:00`);
+      return Number.isNaN(date.getTime())
+        ? value
+        : date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    };
+    return `${fmt(start)} – ${fmt(end)}`;
+  }
+  return record?.date_of_service ?? record?.dateOfService ?? '—';
+}
+
 function visionAmount(record) {
   const value = record?.amount_paid ?? record?.amountPaid;
   if (value === null || value === undefined || value === '') return '—';
@@ -854,9 +869,9 @@ export default function AskDundas() {
                         <thead>
                           <tr>
                             <th>Client</th>
-                            <th>Date of Service</th>
-                            <th className="num">RA Amount</th>
-                            <th className="num">DB Amount</th>
+                            <th>Claim Period</th>
+                            <th className="num">RA Total</th>
+                            <th className="num">DB Total</th>
                             <th>Status</th>
                           </tr>
                         </thead>
@@ -876,7 +891,7 @@ export default function AskDundas() {
                                       {ra.member_id ?? ra.memberId ?? '—'}
                                     </span>
                                   </td>
-                                  <td>{ra.date_of_service ?? ra.dateOfService ?? '—'}</td>
+                                  <td>{claimPeriodText(ra)}</td>
                                   <td className="num">{visionAmount(ra)}</td>
                                   <td className="num">{dbAmountText(db.paid_amount)}</td>
                                   <td>
@@ -912,11 +927,11 @@ export default function AskDundas() {
                             </div>
                             <div className="ask-vision-card-meta">
                               {ra.member_id ?? ra.memberId ?? '—'} ·{' '}
-                              {ra.date_of_service ?? ra.dateOfService ?? '—'}
+                              {claimPeriodText(ra)}
                             </div>
                             <div className="ask-vision-card-amounts">
-                              <span>RA {visionAmount(ra)}</span>
-                              <span>DB {dbAmountText(db.paid_amount)}</span>
+                              <span>RA Total {visionAmount(ra)}</span>
+                              <span>DB Total {dbAmountText(db.paid_amount)}</span>
                             </div>
                             {record.discrepancy && (
                               <p className="ask-vision-card-note">{record.discrepancy}</p>

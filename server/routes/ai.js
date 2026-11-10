@@ -333,6 +333,102 @@ function verifyRecord(record, agencyId) {
   };
 }
 
+function roundMoney(value) {
+  return Math.round((Number(value) + Number.EPSILON) * 100) / 100;
+}
+
+/**
+ * Group daily RA records by their DB claim, sum only dates inside the claim
+ * period, and compare the aggregate to the claim total.
+ */
+function groupRecordsByClaim(records, agencyId) {
+  const groups = new Map();
+  const missing = [];
+
+  for (const input of records) {
+    const record = normalizeRaRecord(input);
+    const claim = findClaimForRecord(record, agencyId);
+    if (!claim) {
+      missing.push({
+        ra_data: record,
+        db_data: null,
+        status: 'missing_in_db',
+        discrepancy: 'No matching claim found in the database.',
+      });
+      continue;
+    }
+    const key = String(claim.id);
+    if (!groups.has(key)) groups.set(key, { claim, records: [] });
+    groups.get(key).records.push(record);
+  }
+
+  const results = [];
+  for (const { claim, records: claimRecords } of groups.values()) {
+    const periodStart = parseDateRange(claim.period_start).start;
+    const periodEnd = parseDateRange(claim.period_end).end;
+    const eligible = periodStart && periodEnd
+      ? claimRecords.filter((record) => {
+          const date = parseDateRange(record.date_of_service).start;
+          return date && date >= periodStart && date <= periodEnd;
+        })
+      : claimRecords;
+
+    if (periodStart && periodEnd && eligible.length === 0) {
+      for (const record of claimRecords) {
+        missing.push({
+          ra_data: record,
+          db_data: claim,
+          status: 'missing_in_db',
+          discrepancy: 'No RA date falls inside this claim period.',
+        });
+      }
+      continue;
+    }
+
+    const amounts = eligible
+      .map((record) => parseCurrency(record.amount_paid))
+      .filter(Number.isFinite);
+    const raTotal = roundMoney(amounts.reduce((sum, amount) => sum + amount, 0));
+    const dbAmount = parseCurrency(claim.paid_amount);
+    const primary = eligible[0];
+    let status;
+    let discrepancy = null;
+
+    if (!amounts.length || !Number.isFinite(dbAmount)) {
+      status = 'mismatch';
+      discrepancy = 'Could not parse amount';
+    } else if (Math.abs(raTotal - dbAmount) < 0.01) {
+      status = 'match';
+    } else {
+      status = 'mismatch';
+      discrepancy = `Amount mismatch: RA total ${money(raTotal)}, DB ${money(dbAmount)}.`;
+    }
+
+    results.push({
+      ra_data: {
+        ...primary,
+        amount_paid: raTotal,
+        date_of_service:
+          periodStart && periodEnd ? `${periodStart} to ${periodEnd}` : primary.date_of_service,
+        claim_period_start: periodStart,
+        claim_period_end: periodEnd,
+        daily_records: eligible.map((record) => ({
+          date_of_service: record.date_of_service,
+          amount_paid: parseCurrency(record.amount_paid),
+        })),
+      },
+      db_data: claim,
+      status,
+      discrepancy,
+    });
+  }
+
+  console.log(
+    `[RA] Grouped ${records.length} RA record(s) into ${results.length} claim result(s) and ${missing.length} unmatched record(s).`
+  );
+  return [...results, ...missing];
+}
+
 function parseJsonRecords(text) {
   const cleaned = String(text ?? '')
     .replace(/^```(?:json)?\s*/i, '')
@@ -456,8 +552,9 @@ async function processRaFile(file, agencyId) {
     }
     const visionRecords = Array.isArray(vision.records) ? vision.records : [];
     return {
-      records: expandConcatenatedDateRecords(visionRecords).map((record) =>
-        verifyRecord(record, agencyId)
+      records: groupRecordsByClaim(
+        expandConcatenatedDateRecords(visionRecords),
+        agencyId
       ),
       rawText,
     };
@@ -498,8 +595,9 @@ async function processRaFile(file, agencyId) {
   }
 
   return {
-    records: expandConcatenatedDateRecords(records).map((record) =>
-      verifyRecord(record, agencyId)
+    records: groupRecordsByClaim(
+      expandConcatenatedDateRecords(records),
+      agencyId
     ),
     rawText,
   };
