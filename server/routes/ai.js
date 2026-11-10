@@ -10,7 +10,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import pLimit from 'p-limit';
-import { PDFDocument, degrees } from 'pdf-lib';
+import { normalizePdfRotation, extractPdfPage } from '../pdfImage.js';
 import {
   extractRaWithAzureDocIntel,
   extractRaWithAzureVision,
@@ -201,15 +201,33 @@ function findClaimForRecord(record, agencyId) {
 
   let best = null;
   let bestScore = 0;
+  let bestOverlapping = null;
+  let bestOverlappingScore = 0;
+
   for (const claim of candidates) {
     const dbName = `${claim.first_name ?? ''} ${claim.last_name ?? ''}`;
     const score = nameSimilarity(raName, dbName);
+    const claimStart = parseDateRange(claim.period_start).start;
+    const claimEnd = parseDateRange(claim.period_end).end;
+    const overlaps =
+      claimStart &&
+      claimEnd &&
+      range.start <= claimEnd &&
+      (range.end || range.start) >= claimStart;
+
+    if (overlaps && score > bestOverlappingScore) {
+      bestOverlapping = claim;
+      bestOverlappingScore = score;
+    }
     if (score > bestScore) {
       best = claim;
       bestScore = score;
     }
   }
 
+  if (bestOverlapping && bestOverlappingScore >= NAME_MATCH_THRESHOLD) {
+    return bestOverlapping;
+  }
   if (!best || bestScore < NAME_MATCH_THRESHOLD) return null;
   return best;
 }
@@ -349,7 +367,7 @@ function roundMoney(value) {
  * Group daily RA records by their DB claim, sum only dates inside the claim
  * period, and compare the aggregate to the claim total.
  */
-function groupRecordsByClaim(records, agencyId) {
+export function groupRecordsByClaim(records, agencyId) {
   const groups = new Map();
   const unmatched = [];
   const needsReview = [];
@@ -507,35 +525,7 @@ function parseJsonRecords(text) {
 }
 
 /**
- * Normalize PDF page rotation metadata before sending the file to Vision.
- * pdf-lib preserves the page content while changing each page's rotation to 0.
- */
-async function normalizePdfRotation(buffer) {
-  try {
-    const pdf = await PDFDocument.load(buffer);
-    let changed = false;
-    for (const page of pdf.getPages()) {
-      const rawAngle = page.getRotation()?.angle ?? 0;
-      const angle = ((rawAngle % 360) + 360) % 360;
-      if (angle !== 0) {
-        console.log(
-          `[PDF-ROTATION] Detected rotation: ${angle} degrees. Rotated to 0.`
-        );
-        page.setRotation(degrees(0));
-        changed = true;
-      }
-    }
-    if (!changed) return buffer;
-    return Buffer.from(await pdf.save());
-  } catch (err) {
-    console.warn(`[PDF-ROTATION] Could not normalize PDF: ${err.message}`);
-    return buffer;
-  }
-}
-
-/**
- * Process one uploaded RA file with the shared single-file/bulk pipeline:
- * Azure Document Intelligence → text completion → claim comparison.
+ * Process one uploaded RA file with the shared single-file/bulk pipeline.
  */
 async function processRaFile(file, agencyId) {
   const isPdf =
@@ -543,9 +533,11 @@ async function processRaFile(file, agencyId) {
 
   if (isPdf) {
     const uprightBuffer = await normalizePdfRotation(file.buffer);
+    const pagePdf = await extractPdfPage(uprightBuffer, 3);
     const vision = await extractRaWithAzureVision(
-      uprightBuffer.toString('base64'),
-      agencyId
+      pagePdf.toString('base64'),
+      agencyId,
+      'application/pdf'
     );
     if (vision.error) {
       const err = new Error(vision.error);

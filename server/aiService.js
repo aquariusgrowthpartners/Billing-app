@@ -475,7 +475,11 @@ const VISION_PDF_SYSTEM_PROMPT =
  * Send the original PDF to Azure OpenAI's native file input. This avoids
  * per-page OCR limits and keeps all pages available to the model.
  */
-export async function extractRaWithAzureVision(pdfBase64, agencyId = 1) {
+export async function extractRaWithAzureVision(
+  imageOrPdfBase64,
+  agencyId = 1,
+  mimeType = 'application/pdf'
+) {
   const config = aiConfig(agencyId);
   if (config.disabled) return { error: AI_DISABLED_MESSAGE };
   if (!config.enabled) return { error: NO_KEY };
@@ -486,13 +490,14 @@ export async function extractRaWithAzureVision(pdfBase64, agencyId = 1) {
   const cfg = providerConfig(config.provider, config.azureEndpoint, config.azureDeployment);
   if (!cfg) return { error: 'Azure Vision endpoint or deployment is missing.' };
 
-  const base64 = String(pdfBase64 ?? '').replace(/^data:application\/pdf;base64,/, '');
-  if (!base64) return { error: 'The PDF file is empty.' };
+  const base64 = String(imageOrPdfBase64 ?? '').replace(/^data:[^;]+;base64,/, '');
+  if (!base64) return { error: 'The file is empty.' };
   if (base64.length > 28 * 1024 * 1024) {
-    return { error: 'The PDF is too large for native Vision processing (max 20 MB).' };
+    return { error: 'The file is too large for Vision processing (max 20 MB).' };
   }
 
-  const fileData = `data:application/pdf;base64,${base64}`;
+  const isPdf = /application\/pdf/i.test(String(mimeType));
+  const dataUrl = `data:${mimeType};base64,${base64}`;
   const payload = cfg.responses
     ? {
         model: cfg.model,
@@ -503,13 +508,21 @@ export async function extractRaWithAzureVision(pdfBase64, agencyId = 1) {
             content: [
               {
                 type: 'input_text',
-                text: 'Read all pages of this RA PDF and extract every patient claim record.',
+                text: isPdf
+                  ? 'Read all pages of this RA PDF and extract every patient claim record.'
+                  : 'Read this RA page image and extract every patient claim record.',
               },
-              {
-                type: 'input_file',
-                filename: 'document.pdf',
-                file_data: fileData,
-              },
+              isPdf
+                ? {
+                    type: 'input_file',
+                    filename: 'document.pdf',
+                    file_data: dataUrl,
+                  }
+                : {
+                    type: 'input_image',
+                    image_url: dataUrl,
+                    detail: 'high',
+                  },
             ],
           },
         ],
@@ -525,12 +538,19 @@ export async function extractRaWithAzureVision(pdfBase64, agencyId = 1) {
             content: [
               {
                 type: 'text',
-                text: 'Read all pages of this RA PDF and extract every patient claim record.',
+                text: isPdf
+                  ? 'Read all pages of this RA PDF and extract every patient claim record.'
+                  : 'Read this RA page image and extract every patient claim record.',
               },
-              {
-                type: 'file',
-                file: { filename: 'document.pdf', file_data: fileData },
-              },
+              isPdf
+                ? {
+                    type: 'file',
+                    file: { filename: 'document.pdf', file_data: dataUrl },
+                  }
+                : {
+                    type: 'image_url',
+                    image_url: { url: dataUrl, detail: 'high' },
+                  },
             ],
           },
         ],
