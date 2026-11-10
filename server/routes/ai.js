@@ -134,6 +134,21 @@ function normalizeName(value) {
     .join(' ');
 }
 
+/** Possible surnames in a full name or a first-last alternative name. */
+function lastNameCandidates(value) {
+  const tokens = String(value ?? '')
+    .toLowerCase()
+    .replace(/[^a-z0-9 ]/g, ' ')
+    .split(/\s+/)
+    .filter(Boolean);
+  if (!tokens.length) return [];
+  return [...new Set([tokens[0], tokens[tokens.length - 1]])];
+}
+
+function sameSurname(a, b) {
+  return levenshtein(String(a), String(b)) <= 1;
+}
+
 function levenshtein(a, b) {
   const m = a.length;
   const n = b.length;
@@ -210,6 +225,15 @@ function findClaimForRecord(record, agencyId) {
       .split(',')
       .map((name) => name.trim())
       .filter(Boolean);
+    const raLasts = lastNameCandidates(raName);
+    const dbLasts = [
+      ...lastNameCandidates(claim.last_name),
+      ...alternativeNames.flatMap((name) => lastNameCandidates(name)),
+    ].filter(Boolean);
+    // Rule 1: no surname gate, no match — never inspect the first name.
+    if (!raLasts.some((raLast) => dbLasts.some((dbLast) => sameSurname(raLast, dbLast)))) {
+      continue;
+    }
     const score = Math.max(
       nameSimilarity(raName, primaryName),
       ...alternativeNames.map((name) => nameSimilarity(raName, name))

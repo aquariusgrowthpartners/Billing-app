@@ -176,8 +176,10 @@ export function matchClient(name, patientId = null, agencyId = null) {
   const scoreParts = (candidateLast, candidateFirst, candidateMiddle) => {
     const cl = norm(candidateLast);
     if (!cl) return null;
-    const similarity = 1 - editDistance(last, cl) / Math.max(last.length, cl.length);
-    if (similarity < 0.8) return null;
+    const lastDistance = editDistance(last, cl);
+    // Last name is the safety gate: more than one edit is a different person.
+    if (lastDistance > 1) return null;
+    const similarity = 1 - lastDistance / Math.max(last.length, cl.length);
 
     const cf = norm(candidateFirst);
     if (!cf) return null;
