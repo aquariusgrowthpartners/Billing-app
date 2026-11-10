@@ -8,6 +8,7 @@
  */
 import db from './db.js';
 import { DocumentAnalysisClient, AzureKeyCredential } from '@azure/ai-form-recognizer';
+import { PDFDocument } from 'pdf-lib';
 
 const PROVIDERS = {
   deepseek: {
@@ -680,8 +681,39 @@ export async function extractRaWithAzureDocIntel(fileBuffer, mimeType) {
       new Uint8Array(fileBuffer)
     );
     const result = await poller.pollUntilDone();
-    const pages = Array.isArray(result?.pages) ? result.pages : [];
-    const tables = Array.isArray(result?.tables) ? result.tables : [];
+    const pages = Array.isArray(result?.pages) ? [...result.pages] : [];
+    const tables = Array.isArray(result?.tables) ? [...result.tables] : [];
+    let totalPageCount = pages.length;
+    try {
+      const pdf = await PDFDocument.load(fileBuffer);
+      totalPageCount = pdf.getPageCount();
+    } catch {
+      /* images have no page count */
+    }
+
+    // Some Doc Intel tiers cap a single request at two pages. Continue with
+    // explicit 2-page ranges until every page has been analyzed.
+    let nextPage = pages.length + 1;
+    while (pages.length > 0 && nextPage <= totalPageCount) {
+      const endPage = Math.min(totalPageCount, nextPage + 1);
+      console.log(`[DOC-INTEL] Analyzing remaining pages ${nextPage}-${endPage}`);
+      const morePoller = await client.beginAnalyzeDocument(
+        'prebuilt-layout',
+        new Uint8Array(fileBuffer),
+        { pages: `${nextPage}-${endPage}` }
+      );
+      const more = await morePoller.pollUntilDone();
+      const before = pages.length;
+      for (const page of more?.pages ?? []) {
+        if (!pages.some((p) => Number(p.pageNumber) === Number(page.pageNumber))) {
+          pages.push(page);
+        }
+      }
+      for (const table of more?.tables ?? []) tables.push(table);
+      if (pages.length === before) break;
+      nextPage = Math.max(...pages.map((p) => Number(p.pageNumber) || 0), before) + 1;
+    }
+    pages.sort((a, b) => Number(a.pageNumber) - Number(b.pageNumber));
     console.log(`[DOC-INTEL] Pages requested: all; result pages: ${pages.length}`);
     console.log(`[DOC-INTEL] Total pages processed: ${pages.length}`);
     pages.forEach((page, index) => {
