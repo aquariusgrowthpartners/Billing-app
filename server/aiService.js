@@ -468,7 +468,15 @@ export async function verifyRaDocument(
 /* ------------------------------------------------------ native PDF vision */
 
 const VISION_PDF_SYSTEM_PROMPT =
-  'You are an expert medical billing auditor. This is a multi-page RA letter. It contains a cover page followed by claims tables that may be sideways or upside down. Read all pages. Extract every patient claim record (Patient Name, Member ID, Dates of Service, Amount Paid). Ignore the provider name. Return ONLY a valid JSON array.';
+  'You are an expert medical billing auditor. This is a multi-page RA letter.\n' +
+  'Page 1 is a cover letter. IGNORE IT.\n' +
+  'Page 2 is a date. IGNORE IT.\n' +
+  'Page 3 may contain repeating numbers like \'1 1 1 1\'. IGNORE IT.\n' +
+  'The actual claims table starts on Page 4 and is printed sideways (rotated 90 degrees).\n' +
+  'Read the table carefully. Extract EVERY row exactly as it appears.\n' +
+  'Columns to extract: Patient Name, Member ID, the specific Date of Service, and the \'PAID\' column.\n' +
+  'DO NOT extract \'TOTAL CHARGE\'. DO NOT do any math or sum the totals yourself.\n' +
+  'Extract each row as a separate JSON object. Return ONLY a valid JSON array.';
 
 /**
  * Send the original PDF to Azure OpenAI's native file input. This avoids
@@ -565,10 +573,21 @@ export async function extractRaWithAzureVision(pdfBase64, agencyId = 1) {
 
     const json = await res.json();
     const text = completionText(json, cfg);
-    const records = parseVisionJson(text);
-    if (!records) {
-      console.warn('[ai] Azure native PDF Vision returned non-JSON output');
-      return { error: 'Azure Vision returned an unreadable response.' };
+    console.log(`[VISION-RAW] ${text}`);
+    let records;
+    try {
+      const cleaned = String(text ?? '')
+        .replace(/^```(?:json)?\s*/i, '')
+        .replace(/\s*```$/i, '')
+        .trim();
+      records = JSON.parse(cleaned);
+      if (!Array.isArray(records)) throw new Error('Vision response is not an array.');
+    } catch {
+      console.warn('[ai] Azure native PDF Vision returned invalid JSON');
+      return {
+        error:
+          'The AI failed to return valid JSON. It may have been confused by the document layout.',
+      };
     }
     return { records };
   } catch (err) {

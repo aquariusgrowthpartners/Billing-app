@@ -500,7 +500,7 @@ async function processRaFile(file, agencyId) {
       agencyId
     );
     if (vision.error) {
-      const err = new Error(`Vision API failed: ${vision.error}`);
+      const err = new Error(vision.error);
       err.status = /too large/i.test(vision.error)
         ? 413
         : /quota|unavailable|missing|configured/i.test(vision.error)
