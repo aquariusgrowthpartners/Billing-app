@@ -75,8 +75,13 @@ export const MINUTES_PER_UNIT = 15;
 export function cleanMinnesotaText(rawText) {
   let text = String(rawText ?? '');
   const pages = text.split('===== Page ');
-  if (pages.length > 2) {
-    text = pages.slice(2).join('===== Page ');
+  if (pages.length > 1) {
+    const tablePages = pages.filter((page) => {
+      const dates = (page.match(/\d{2}-\d{2}-\d{2}/g) || []).length;
+      const amounts = (page.match(/\d+\.\d{2}/g) || []).length;
+      return dates >= 3 && amounts >= 3;
+    });
+    text = tablePages.join('===== Page ');
   }
   return text.replace(/^(?:\d+\s+)+\d+$/gm, '');
 }

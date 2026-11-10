@@ -1,8 +1,8 @@
 /**
  * AI-adjacent file endpoints.
  *
- * RA verification normalizes PDF page rotation, then sends the upright PDF to
- * Azure Vision; images continue through Document Intelligence.
+ * PDF verification uses the same parser as Import RA; images continue through
+ * Document Intelligence.
  */
 import express from 'express';
 import multer from 'multer';
@@ -10,13 +10,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import pLimit from 'p-limit';
-import { normalizePdfRotation, extractPdfPages } from '../pdfImage.js';
 import {
   extractRaWithAzureDocIntel,
-  extractRaWithAzureVision,
   complete,
   RA_TEXT_SYSTEM_PROMPT,
 } from '../aiService.js';
+import { parseRaBuffer } from './importRa.js';
 import db from '../db.js';
 
 const router = express.Router();
@@ -364,6 +363,20 @@ function roundMoney(value) {
 }
 
 /**
+ * Explain why a parsed RA row could not be attached to a DB claim.
+ */
+function logMatchFail(record, claim = null) {
+  const dbDates = claim
+    ? `${claim.period_start ?? '?'}..${claim.period_end ?? '?'}`
+    : 'none';
+  console.warn(
+    `[MATCH-FAIL] Client: ${record?.client_name ?? 'unknown'}, RA Date: ${
+      record?.date_of_service ?? 'unknown'
+    }, DB Dates Searched: ${dbDates}, RA Amount: ${record?.amount_paid ?? 'unknown'}`
+  );
+}
+
+/**
  * Group daily RA records by their DB claim, sum only dates inside the claim
  * period, and compare the aggregate to the claim total.
  */
@@ -388,6 +401,7 @@ export function groupRecordsByClaim(records, agencyId) {
     }
     const claim = findClaimForRecord(record, agencyId);
     if (!claim) {
+      logMatchFail(record);
       unmatched.push(record);
       continue;
     }
@@ -403,6 +417,7 @@ export function groupRecordsByClaim(records, agencyId) {
       (recordStart && recordEnd && recordStart <= periodEnd && recordEnd >= periodStart);
 
     if (!fallsInside) {
+      logMatchFail(record, claim);
       unmatched.push(record);
       continue;
     }
@@ -426,6 +441,7 @@ export function groupRecordsByClaim(records, agencyId) {
       : claimRecords;
 
     if (periodStart && periodEnd && eligible.length === 0) {
+      for (const record of claimRecords) logMatchFail(record, claim);
       unmatched.push(...claimRecords);
       continue;
     }
@@ -532,25 +548,49 @@ async function processRaFile(file, agencyId) {
     file.mimetype === 'application/pdf' || /\.pdf$/i.test(file.originalname || '');
 
   if (isPdf) {
-    const uprightBuffer = await normalizePdfRotation(file.buffer);
-    const pagePdf = await extractPdfPages(uprightBuffer, 3);
-    const vision = await extractRaWithAzureVision(
-      pagePdf.toString('base64'),
-      agencyId,
-      'application/pdf'
-    );
-    if (vision.error) {
-      const err = new Error(vision.error);
-      err.status = /too large/i.test(vision.error)
-        ? 413
-        : /quota|unavailable|missing|configured/i.test(vision.error)
-          ? 503
-          : 502;
+    let parsed;
+    try {
+      parsed = await parseRaBuffer(file.buffer, agencyId);
+    } catch {
+      const err = new Error(
+        'Could not parse RA document. Please ensure it is a valid format.'
+      );
+      err.status = 422;
       throw err;
     }
 
-    const records = Array.isArray(vision.records) ? vision.records : [];
-    console.log(`[VERIFY-EXTRACTION] Extracted ${records.length} records using Vision API.`);
+    const records = [];
+    for (const client of parsed.clients ?? []) {
+      for (const item of client.line_items ?? []) {
+        const rawDate = item.date;
+        const dateOfService = /^\d{4}-\d{2}-\d{2}$/.test(String(rawDate ?? ''))
+          ? rawDate
+          : (() => {
+              const match = /^(\d{2})-(\d{2})-(\d{2})$/.exec(String(rawDate ?? ''));
+              return match ? `20${match[3]}-${match[1]}-${match[2]}` : null;
+            })();
+        records.push({
+          client_name: client.client_name,
+          member_id: client.patient_id ?? null,
+          date_of_service: dateOfService,
+          amount_paid: item.paid,
+          charge_amount: item.billed,
+          procedure_code: item.procedure_code ?? null,
+        });
+      }
+    }
+
+    if (!records.length) {
+      const err = new Error(
+        'Could not parse RA document. Please ensure it is a valid format.'
+      );
+      err.status = 422;
+      throw err;
+    }
+
+    console.log(
+      `[VERIFY-EXTRACTION] Extracted ${records.length} records using Import parser.`
+    );
     console.log(
       `[VERIFY-EXTRACTION] Sample records: ${JSON.stringify(records.slice(0, 3))}`
     );
