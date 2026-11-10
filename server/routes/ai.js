@@ -14,7 +14,6 @@ import pLimit from 'p-limit';
 import {
   extractRaWithAzureDocIntel,
   complete,
-  verifyRaDocument,
   RA_TEXT_SYSTEM_PROMPT,
 } from '../aiService.js';
 import db from '../db.js';
@@ -485,115 +484,25 @@ function parseJsonRecords(text) {
   return null;
 }
 
-const COVER_MARKER = 'REMITTANCE ADVICE MESSAGE';
-
-/**
- * Minnesota RAs put a "Remittance Advice Message" cover page before the
- * claims. Drop everything through the LAST marker so only claim data reaches
- * the text completion model.
- */
-function stripCoverPages(text) {
-  const source = String(text ?? '');
-  const index = source.toLowerCase().lastIndexOf(COVER_MARKER.toLowerCase());
-  if (index === -1) return { text: source.trim(), hadCover: false };
-  return {
-    text: source.slice(index + COVER_MARKER.length).trim(),
-    hadCover: true,
-  };
-}
-
-function cleanRaText(rawText) {
-  if (rawText.length < 400) return { text: rawText, hadCover: false };
-  return stripCoverPages(rawText);
-}
-
 /**
  * Process one uploaded RA file with the shared single-file/bulk pipeline:
  * Azure Document Intelligence → text completion → claim comparison.
  */
 async function processRaFile(file, agencyId) {
-  const isPdf =
-    file.mimetype === 'application/pdf' || /\.pdf$/i.test(file.originalname || '');
-  let rawText = '';
-
-  if (isPdf) {
-    try {
-      const { PDFParse } = await import('pdf-parse');
-      const parser = new PDFParse({ data: file.buffer });
-      try {
-        const result = await parser.getText();
-        rawText = String(result?.text ?? '').trim();
-      } finally {
-        await parser.destroy?.();
-      }
-    } catch (err) {
-      const e = new Error(`Could not extract text from this PDF: ${err.message}`);
-      e.status = 422;
-      throw e;
-    }
-    console.log(`[PARSER] Extracted raw text length: ${rawText.length} characters`);
-    console.log(`[PARSER] Text sample: ${rawText.slice(0, 500)}`);
-    if (!rawText) {
-      const err = new Error('No extractable text found in this PDF.');
-      err.status = 422;
-      throw err;
-    }
-  } else {
-    // Doc Intel remains the image-only path; PDFs use pdf-parse above.
-    const extracted = await extractRaWithAzureDocIntel(
-      file.buffer,
-      file.mimetype || 'image/png'
-    );
-    rawText = String(extracted?.text ?? '').trim();
-  }
-
-  const clean = cleanRaText(rawText);
-  const claimText = clean.text;
-  console.log(
-    `[PARSER] Clean text length: ${claimText.length} characters; cover marker found: ${clean.hadCover}`
-  );
-
-  if (clean.hadCover && claimText.length < 50) {
-    const err = new Error('Document appears to contain only cover pages. No claim data found.');
-    err.status = 422;
+  const mimeType =
+    file.mimetype ||
+    (/\.pdf$/i.test(file.originalname || '') ? 'application/pdf' : 'image/png');
+  const extracted = await extractRaWithAzureDocIntel(file.buffer, mimeType);
+  const rawText = String(extracted?.text ?? '').trim();
+  if (!rawText) {
+    const err = new Error('Azure Document Intelligence failed to read this file.');
+    err.status = 502;
     throw err;
   }
-
-  // PDFs always go through the parser + completion path. Vision is retained
-  // only for image uploads whose Doc Intel text is too short.
-  const useVisionFallback = !isPdf && !clean.hadCover && rawText.length < 400;
-  console.log(
-    `[${isPdf ? 'PARSER' : 'DOC-INTEL'}] Final text length: ${
-      claimText.length
-    } characters. Triggering Vision fallback: ${useVisionFallback}`
-  );
-
-  if (useVisionFallback) {
-    console.log('[VISION-FALLBACK] Sending image directly to Azure Vision');
-    const vision = await verifyRaDocument(
-      file.buffer.toString('base64'),
-      file.mimetype || 'image/png',
-      agencyId,
-      60000,
-      'This is an RA letter. Read all text and extract the Patient Name, Member ID, Date of Service, and Amount Paid. Return JSON.'
-    );
-    if (vision.error) {
-      const err = new Error(`Vision fallback failed: ${vision.error}`);
-      err.status = vision.error.includes('quota') ? 503 : 502;
-      throw err;
-    }
-    const visionRecords = Array.isArray(vision.records) ? vision.records : [];
-    return {
-      records: groupRecordsByClaim(
-        expandConcatenatedDateRecords(visionRecords),
-        agencyId
-      ),
-      rawText,
-    };
-  }
+  console.log(`[DOC-INTEL] Final text length: ${rawText.length} characters`);
 
   const completion = await complete(
-    `Here is the text extracted from an RA letter:\n\n${claimText.slice(
+    `Here is the text extracted from an RA letter:\n\n${rawText.slice(
       0,
       15000
     )}\n\nExtract the records.`,

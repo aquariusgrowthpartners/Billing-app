@@ -324,11 +324,8 @@ const VISION_SYSTEM_PROMPT =
   'You are an expert medical billing auditor. The attached image is an RA (Remittance Advice) letter. It may be physically rotated sideways or upside down. Read the text regardless of orientation. Extract the Member ID, PATIENT/CLIENT name, Date of Service, and Amount Paid. Do NOT extract the Provider or Agency name from the top of the letter. You are looking for the PATIENT/CLIENT name and MEMBER ID. If the extracted name matches the Agency name, ignore it and look further down the document. Return ONLY a JSON array of extracted records, or [] if none. Do not include markdown formatting.';
 
 export const RA_TEXT_SYSTEM_PROMPT =
-  'You are an expert medical billing auditor. Extract the Patient Name, Member ID, Date of Service, and Amount Paid.\n' +
-  'CRITICAL: The raw text may have dates mashed together without spaces (e.g., \'03-20-2603-21-26\'). You MUST split these into individual records for each date.\n' +
-  'Do NOT return a single record with a massive date string. Create a separate JSON object for EACH date.\n' +
-  'If the document lists a daily breakdown, extract each day as a separate record with that day\'s amount. Do not sum them yourself.\n' +
-  'If the document only lists one total for a claim period (no daily breakdown), return ONE record with that total; do not duplicate the total for every day.\n' +
+  'You are an expert medical billing auditor. The following text was extracted using OCR from an RA letter. It contains a cover page followed by claims tables. IGNORE the cover page. Look for the claims table (usually starting with \'PATIENT\', \'DATES OF SERVICE\', \'AMOUNT\'). Extract every patient claim record.\n' +
+  'If the OCR text has dates mashed together without spaces (e.g., \'03-20-2603-21-26\'), split them into separate records for each date. If there is a daily breakdown, use each day\'s own amount; never duplicate a single period total across days.\n' +
   'Return ONLY a valid JSON array.';
 
 function parseVisionJson(text) {
