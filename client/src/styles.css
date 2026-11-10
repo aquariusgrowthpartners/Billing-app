@@ -8676,3 +8676,101 @@ body {
   display: block;
   margin-top: 2px;
 }
+
+.ask-vision-badge.denied_success {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+[data-theme='dark'] .ask-vision-badge.denied_success {
+  background: #14351f;
+  color: #86efac;
+}
+
+.ask-batch-summary {
+  margin: 0 0 14px;
+  padding: 14px 16px;
+  border: 1px solid #bfdbfe;
+  border-radius: 12px;
+  background: #eff6ff;
+}
+
+.ask-batch-summary h3 {
+  margin: 0 0 6px;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #1d4ed8;
+}
+
+.ask-batch-summary p {
+  margin: 0;
+  color: #1e3a8a;
+  line-height: 1.5;
+}
+
+.ask-bulk-attention {
+  margin-top: 14px;
+  padding: 12px;
+  border: 1px solid #fecaca;
+  border-radius: 12px;
+  background: #fef2f2;
+}
+
+.ask-bulk-attention > h3 {
+  margin: 0 0 10px;
+  color: #b91c1c;
+  font-size: 14px;
+}
+
+.ask-bulk-attention > h3 span {
+  display: inline-flex;
+  margin-left: 6px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: #b91c1c;
+  color: white;
+  font-size: 11px;
+}
+
+.ask-bulk-success {
+  margin-top: 14px;
+  padding: 10px 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 12px;
+  background: #f3f4f6;
+}
+
+.ask-bulk-success > summary {
+  cursor: pointer;
+  color: #4b5563;
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.ask-bulk-success .ask-bulk-group {
+  margin-top: 10px;
+}
+
+.ask-bulk-group.attention h3 {
+  color: #b91c1c;
+}
+
+[data-theme='dark'] .ask-batch-summary {
+  background: #172554;
+  border-color: #1e3a8a;
+}
+
+[data-theme='dark'] .ask-batch-summary p {
+  color: #dbeafe;
+}
+
+[data-theme='dark'] .ask-bulk-attention {
+  background: #3f1616;
+  border-color: #7f1d1d;
+}
+
+[data-theme='dark'] .ask-bulk-success {
+  background: #1f2937;
+  border-color: #374151;
+}

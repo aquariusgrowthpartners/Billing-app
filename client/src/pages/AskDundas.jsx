@@ -114,6 +114,15 @@ const SUGGESTIONS = [
   'Show top clients',
 ];
 
+const BULK_GROUP_LABELS = {
+  match: 'Paid',
+  rebilled: 'Rebilled',
+  mismatch: 'Mismatch',
+  reversal: 'Reversal',
+  denied: 'Denied',
+  missing_in_db: 'Missing',
+};
+
 const VISION_STATUS_LABEL = {
   match: 'Match',
   paid: 'Paid',
@@ -122,6 +131,7 @@ const VISION_STATUS_LABEL = {
   denied: 'Denied',
   matched_reversal: 'Matched Reversal',
   matched_denied: 'Matched Denial',
+  denied_success: 'Denied $0',
   rebilled: 'Rebilled',
   missing_in_db: 'Missing in DB',
   needs_review: 'Needs review',
@@ -149,7 +159,14 @@ function bulkFileStatus(entry) {
   if (!records.length) return 'missing_in_db';
   if (
     records.every((record) =>
-      ['match', 'paid', 'rebilled', 'matched_reversal', 'matched_denied'].includes(record.status)
+      [
+        'match',
+        'paid',
+        'rebilled',
+        'matched_reversal',
+        'matched_denied',
+        'denied_success',
+      ].includes(record.status)
     )
   ) {
     return records.some((record) => record.status === 'rebilled') ? 'rebilled' : 'match';
@@ -399,6 +416,10 @@ export default function AskDundas() {
   for (const entry of bulkResults) bulkGroups[bulkFileStatus(entry)].push(entry);
   const bulkVerified = bulkGroups.match.length + bulkGroups.rebilled.length;
   const bulkReview = bulkResults.length - bulkVerified;
+  const bulkErrorKeys = ['mismatch', 'reversal', 'denied', 'missing_in_db'].filter(
+    (key) => bulkGroups[key].length
+  );
+  const bulkSuccessKeys = ['match', 'rebilled'].filter((key) => bulkGroups[key].length);
 
   const latestAiId = messages.reduce(
     (id, message) => (message.role === 'ai' ? message.id : id),
@@ -414,6 +435,7 @@ export default function AskDundas() {
     rebilled: visionRecords.filter((record) => record.status === 'rebilled').length,
     matchedReversal: visionRecords.filter((record) => record.status === 'matched_reversal').length,
     matchedDenied: visionRecords.filter((record) => record.status === 'matched_denied').length,
+    deniedSuccess: visionRecords.filter((record) => record.status === 'denied_success').length,
     mismatch: visionRecords.filter((record) => record.status === 'mismatch').length,
     reversal: visionRecords.filter((record) => record.status === 'reversal').length,
     denied: visionRecords.filter((record) => record.status === 'denied').length,
@@ -427,6 +449,7 @@ export default function AskDundas() {
     visionCounts.rebilled ? `${visionCounts.rebilled} Rebilled` : '',
     visionCounts.matchedReversal ? `${visionCounts.matchedReversal} Matched Reversals` : '',
     visionCounts.matchedDenied ? `${visionCounts.matchedDenied} Matched Denials` : '',
+    visionCounts.deniedSuccess ? `${visionCounts.deniedSuccess} Successful Denials` : '',
     visionCounts.mismatch ? `${visionCounts.mismatch} Mismatches` : '',
     visionCounts.reversal ? `${visionCounts.reversal} Reversals` : '',
     visionCounts.denied ? `${visionCounts.denied} Denials` : '',
@@ -1226,6 +1249,12 @@ export default function AskDundas() {
 
                     {bulkJob.status === 'completed' && (
                       <>
+                        {bulkJob.summary && (
+                          <section className="ask-batch-summary" id="ask-batch-summary">
+                            <h3>Batch Summary</h3>
+                            <p>{bulkJob.summary}</p>
+                          </section>
+                        )}
                         <div
                           className={`ask-verify-result ${bulkReview === 0 ? 'ok' : 'failed'}`}
                           role="status"
@@ -1253,88 +1282,40 @@ export default function AskDundas() {
                           </div>
                         </div>
 
-                        <div className="ask-bulk-groups">
-                          {[
-                            ['match', 'Paid'],
-                            ['rebilled', 'Rebilled'],
-                            ['mismatch', 'Mismatch'],
-                            ['reversal', 'Reversal'],
-                            ['denied', 'Denied'],
-                            ['missing_in_db', 'Missing'],
-                          ].map(([key, label]) =>
-                            bulkGroups[key].length ? (
-                              <section className="ask-bulk-group" key={key}>
-                                <h3>
-                                  {label} <span>{bulkGroups[key].length}</span>
-                                </h3>
-                                <ul className="ask-bulk-detail-list">
-                                  {bulkGroups[key].map((entry, index) => (
-                                    <li key={`${entry.file_name}-${index}`}>
-                                      <details className="ask-bulk-file-detail">
-                                        <summary className="ask-bulk-file-summary">
-                                          <span className="ask-bulk-file-detail-name">
-                                            {entry.file_name}
-                                          </span>
-                                          <svg
-                                            className="ask-bulk-chevron"
-                                            viewBox="0 0 24 24"
-                                            width="16"
-                                            height="16"
-                                            fill="none"
-                                            aria-hidden="true"
-                                          >
-                                            <path
-                                              d="M6 9l6 6 6-6"
-                                              stroke="currentColor"
-                                              strokeWidth="2"
-                                              strokeLinecap="round"
-                                              strokeLinejoin="round"
-                                            />
-                                          </svg>
-                                        </summary>
-                                        <div className="ask-bulk-file-claims">
-                                          {entry.error && (
-                                            <p className="ask-bulk-claim-error">{entry.error}</p>
-                                          )}
-                                          {(entry.records ?? []).length ? (
-                                            entry.records.map((claim, claimIndex) => {
-                                              const ra = claim.ra_data ?? claim;
-                                              const db = claim.db_data ?? {};
-                                              return (
-                                                <div
-                                                  className="ask-bulk-claim-card"
-                                                  key={`${entry.file_name}-claim-${claimIndex}`}
-                                                >
-                                                  <div className="ask-bulk-claim-top">
-                                                    <strong>
-                                                      {ra.client_name ?? ra.clientName ?? '—'}
-                                                    </strong>
-                                                    <span>{claimPeriodText(ra)}</span>
-                                                  </div>
-                                                  <div className="ask-bulk-claim-amounts">
-                                                    <span>RA {visionAmount(ra)}</span>
-                                                    <span>DB {dbAmountText(db.paid_amount)}</span>
-                                                  </div>
-                                                  {claim.discrepancy && (
-                                                    <p className="ask-bulk-claim-note">
-                                                      {claim.discrepancy}
-                                                    </p>
-                                                  )}
-                                                </div>
-                                              );
-                                            })
-                                          ) : (
-                                            <p className="muted small">No claim records.</p>
-                                          )}
-                                        </div>
-                                      </details>
-                                    </li>
-                                  ))}
-                                </ul>
-                              </section>
-                            ) : null
-                          )}
-                        </div>
+                        {bulkErrorKeys.length > 0 && (
+                          <section className="ask-bulk-attention" id="bulk-attention">
+                            <h3>
+                              Attention Required <span>{bulkErrorKeys.reduce(
+                                (total, key) => total + bulkGroups[key].length,
+                                0
+                              )}</span>
+                            </h3>
+                            {bulkErrorKeys.map((key) => (
+                              <BulkGroupSection
+                                key={key}
+                                groupKey={key}
+                                label={BULK_GROUP_LABELS[key]}
+                                entries={bulkGroups[key]}
+                                attention
+                              />
+                            ))}
+                          </section>
+                        )}
+                        {bulkSuccessKeys.length > 0 && (
+                          <details className="ask-bulk-success" id="bulk-success">
+                            <summary>
+                              {bulkVerified} Successful File{bulkVerified === 1 ? '' : 's'}
+                            </summary>
+                            {bulkSuccessKeys.map((key) => (
+                              <BulkGroupSection
+                                key={key}
+                                groupKey={key}
+                                label={BULK_GROUP_LABELS[key]}
+                                entries={bulkGroups[key]}
+                              />
+                            ))}
+                          </details>
+                        )}
                       </>
                     )}
                   </div>
@@ -1377,6 +1358,75 @@ export default function AskDundas() {
         </div>
       </form>
     </div>
+  );
+}
+
+function BulkGroupSection({ groupKey, label, entries, attention = false }) {
+  return (
+    <section
+      className={`ask-bulk-group${attention ? ' attention' : ''}`}
+      data-group={groupKey}
+    >
+      <h3>
+        {label} <span>{entries.length}</span>
+      </h3>
+      <ul className="ask-bulk-detail-list">
+        {entries.map((entry, index) => (
+          <li key={`${entry.file_name}-${index}`}>
+            <details className="ask-bulk-file-detail">
+              <summary className="ask-bulk-file-summary">
+                <span className="ask-bulk-file-detail-name">{entry.file_name}</span>
+                <svg
+                  className="ask-bulk-chevron"
+                  viewBox="0 0 24 24"
+                  width="16"
+                  height="16"
+                  fill="none"
+                  aria-hidden="true"
+                >
+                  <path
+                    d="M6 9l6 6 6-6"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              </summary>
+              <div className="ask-bulk-file-claims">
+                {entry.error && <p className="ask-bulk-claim-error">{entry.error}</p>}
+                {(entry.records ?? []).length ? (
+                  entry.records.map((claim, claimIndex) => {
+                    const ra = claim.ra_data ?? claim;
+                    const db = claim.db_data ?? {};
+                    return (
+                      <div
+                        className="ask-bulk-claim-card"
+                        key={`${entry.file_name}-claim-${claimIndex}`}
+                      >
+                        <div className="ask-bulk-claim-top">
+                          <strong>{ra.client_name ?? ra.clientName ?? '—'}</strong>
+                          <span>{claimPeriodText(ra)}</span>
+                        </div>
+                        <div className="ask-bulk-claim-amounts">
+                          <span>RA {visionAmount(ra)}</span>
+                          <span>DB {dbAmountText(db.paid_amount)}</span>
+                        </div>
+                        {claim.discrepancy && (
+                          <p className="ask-bulk-claim-note">{claim.discrepancy}</p>
+                        )}
+                      </div>
+                    );
+                  })
+                ) : (
+                  <p className="muted small">No claim records.</p>
+                )}
+              </div>
+            </details>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 

@@ -429,6 +429,7 @@ export function groupRecordsByClaim(records, agencyId) {
   const groups = new Map();
   const unmatched = [];
   const needsReview = [];
+  const deniedSuccess = [];
 
   for (const input of records) {
     const record = normalizeRaRecord(input);
@@ -446,6 +447,18 @@ export function groupRecordsByClaim(records, agencyId) {
     }
     const claim = findClaimForRecord(record, agencyId);
     if (!claim) {
+      const statusText = String(record.claim_status ?? record.claimStatus ?? '').toUpperCase();
+      if ((statusText.includes('DENIED') || statusText.includes('DENY')) && amount === 0) {
+        deniedSuccess.push({
+          ra_data: record,
+          db_data: null,
+          status: 'denied_success',
+          matched_to_db: false,
+          is_denied: true,
+          discrepancy: 'Denied at $0.00 — no payment was expected.',
+        });
+        continue;
+      }
       logMatchFail(record);
       unmatched.push(record);
       continue;
@@ -474,7 +487,7 @@ export function groupRecordsByClaim(records, agencyId) {
     groups.get(key).records.push({ record, claim });
   }
 
-  const results = [...needsReview];
+  const results = [...needsReview, ...deniedSuccess];
   for (const { claim, records: groupedRecords } of groups.values()) {
     const dailyGroup = groupedRecords.some((entry) => entry.claim.date_of_service);
     const claimRecords = groupedRecords.map((entry) => entry.record);
@@ -923,6 +936,74 @@ router.post('/test-doc-intel', (req, res) => {
 const JOB_TIMEOUT_MS = 30 * 60 * 1000;
 console.warn('[bulk] in-memory RA queue enabled (concurrency 2); jobs will be lost on restart.');
 
+const bulkSummaryCache = new Map();
+
+function bulkSummaryCounts(results) {
+  const records = results.flatMap((entry) => entry.records ?? []);
+  const count = (status) => records.filter((record) => record.status === status).length;
+  return {
+    files: results.length,
+    records: records.length,
+    paid: count('paid') + count('match') + count('rebilled'),
+    matched_reversals: count('matched_reversal'),
+    matched_denials: count('matched_denied'),
+    denied_success: count('denied_success'),
+    mismatches: count('mismatch'),
+    missing: count('missing_in_db') + count('needs_review'),
+    total_paid: roundMoney(
+      records.reduce((sum, record) => sum + (Number(record.ra_data?.amount_paid) || 0), 0)
+    ),
+    errors: records
+      .filter((record) =>
+        ['mismatch', 'missing_in_db', 'needs_review'].includes(record.status)
+      )
+      .map((record) => ({
+        client: record.ra_data?.client_name ?? record.client_name ?? 'Unknown client',
+        status: record.status,
+        discrepancy: record.discrepancy ?? '',
+      })),
+  };
+}
+
+async function summarizeBulkResults(jobId, results, agencyId) {
+  if (bulkSummaryCache.has(jobId)) return bulkSummaryCache.get(jobId);
+  const counts = bulkSummaryCounts(results);
+  const errorLines = counts.errors
+    .slice(0, 12)
+    .map((error) => `- ${error.client}: ${error.discrepancy || error.status}`)
+    .join('\n');
+  const fallback = `Processed ${counts.files} file${
+    counts.files === 1 ? '' : 's'
+  }. Found ${counts.mismatches} mismatch${counts.mismatches === 1 ? '' : 'es'} and ${
+    counts.missing
+  } missing claim${counts.missing === 1 ? '' : 's'}.`;
+  const prompt = `RA batch result:
+Files processed: ${counts.files}
+Claims processed: ${counts.records}
+Total RA paid: ${money(counts.total_paid)}
+Paid/matched: ${counts.paid}
+Matched reversals: ${counts.matched_reversals}
+Matched denials: ${counts.matched_denials}
+Successful $0 denials: ${counts.denied_success}
+Mismatches: ${counts.mismatches}
+Missing: ${counts.missing}
+${errorLines ? `Critical errors:\n${errorLines}` : 'No critical errors.'}
+
+Write a plain-English summary in 2 sentences. Highlight the most critical errors, naming the client and dollar amount when available. If there are no errors, say the batch matched cleanly.`;
+  const { text } = await complete(prompt, {
+    system:
+      'You are a billing assistant. Summarize this RA batch processing result in 2 sentences. Highlight the most critical errors (e.g., "Samantha Mattson was short-paid by $92.54").',
+    agencyId,
+    timeoutMs: 15000,
+    maxOutputTokens: 220,
+  });
+  const summary =
+    text && !/^AI Summary unavailable/i.test(text) ? text.trim() : fallback;
+  const payload = { summary, source: summary === fallback ? 'fallback' : 'ai' };
+  bulkSummaryCache.set(jobId, payload);
+  return payload;
+}
+
 function jobIsTimedOut(row) {
   if (!row || !['queued', 'processing'].includes(row.status)) return false;
   const created = Date.parse(`${String(row.created_at).replace(' ', 'T')}Z`);
@@ -1113,7 +1194,7 @@ router.post(
 );
 
 /** GET /api/ai/verify-ra-bulk/:jobId — tenant-scoped progress/results. */
-router.get('/verify-ra-bulk/:jobId', (req, res) => {
+router.get('/verify-ra-bulk/:jobId', async (req, res) => {
   let row = db
     .prepare(
       `SELECT id, status, total_files, processed_files, results_json, error, created_at
@@ -1135,12 +1216,20 @@ router.get('/verify-ra-bulk/:jobId', (req, res) => {
       .get(req.params.jobId, req.agencyId);
   }
 
+  const results = parseResults(row.results_json);
+  const bulkSummary =
+    row.status === 'completed'
+      ? await summarizeBulkResults(row.id, results, req.agencyId)
+      : null; 
+
   res.json({
     status: row.status,
     total_files: row.total_files,
     processed_files: row.processed_files,
-    results: parseResults(row.results_json),
+    results,
     error: row.error,
+    summary: bulkSummary?.summary ?? null,
+    summary_source: bulkSummary?.source ?? null,
   });
 });
 
