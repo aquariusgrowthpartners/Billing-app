@@ -466,6 +466,10 @@ export default function ClientProfile() {
                   value={client.dob ? formatLongDate(client.dob) : '—'}
                 />
                 <Field label="MA number" value={client.ma_number ?? '—'} mono />
+                <Field
+                  label="Alternative names"
+                  value={client.alternative_names ?? '—'}
+                />
                 <Field label="Diagnosis Code (DX)" value={client.diagnosis_code ?? '—'} mono />
                 <Field label="Status" value={client.active ? 'Active' : 'Inactive'} />
               </div>
@@ -1125,6 +1129,7 @@ function ClientEditForm({ client, onSaved, onCancel }) {
     ma_number: client.ma_number ?? '',
     middle_initial: client.middle_initial ?? '',
     diagnosis_code: client.diagnosis_code ?? '',
+    alternative_names: client.alternative_names ?? '',
     notes: client.notes ?? '',
   });
   const [error, setError] = useState(null);
@@ -1148,6 +1153,7 @@ function ClientEditForm({ client, onSaved, onCancel }) {
         ma_number: form.ma_number.trim() || null,
         middle_initial: form.middle_initial.trim() || null,
         diagnosis_code: form.diagnosis_code.trim() || null,
+        alternative_names: form.alternative_names.trim() || null,
         notes: form.notes.trim() || null,
       });
       await onSaved?.();
@@ -1201,6 +1207,16 @@ function ClientEditForm({ client, onSaved, onCancel }) {
             value={form.ma_number}
             onChange={set('ma_number')}
             placeholder="123456789"
+          />
+        </label>
+        <label className="span-2">
+          Alternative Names / Nicknames{' '}
+          <span className="muted small">comma-separated, e.g. Sarah Sims, Sarah Nnadikwe</span>
+          <input
+            name="alternative_names"
+            value={form.alternative_names}
+            onChange={set('alternative_names')}
+            placeholder="Sarah Sims, Sarah Nnadikwe"
           />
         </label>
         <label className="span-2">

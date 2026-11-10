@@ -180,11 +180,11 @@ router.post('/', (req, res) => {
   const info = db
     .prepare(
       `INSERT INTO clients
-         (first_name, last_name, middle_initial, dob, ma_number, notes, active,
-          case_manager_id, diagnosis_code, agency_id)
+         (first_name, last_name, middle_initial, dob, ma_number, notes,
+          alternative_names, active, case_manager_id, diagnosis_code, agency_id)
        VALUES
-         (@first_name, @last_name, @middle_initial, @dob, @ma_number, @notes, @active,
-          @case_manager_id, @diagnosis_code, @agency)`
+         (@first_name, @last_name, @middle_initial, @dob, @ma_number, @notes,
+          @alternative_names, @active, @case_manager_id, @diagnosis_code, @agency)`
     )
     .run({
       first_name: first,
@@ -193,6 +193,9 @@ router.post('/', (req, res) => {
       dob: b.dob ?? null,
       ma_number: b.ma_number ?? null,
       notes: b.notes ?? null,
+      alternative_names: b.alternative_names
+        ? String(b.alternative_names).trim() || null
+        : null,
       active: b.active === false || b.active === 0 ? 0 : 1,
       case_manager_id: assigned.id,
       diagnosis_code: dx.ok,
@@ -211,7 +214,16 @@ function updateClient(req, res) {
   const existing = db.prepare(`SELECT * FROM clients WHERE id = ? AND agency_id = ?`).get(id, req.agencyId);
   if (!existing) return res.status(404).json({ error: 'Client not found' });
 
-  const fields = ['first_name', 'last_name', 'dob', 'ma_number', 'notes', 'active', 'archived'];
+  const fields = [
+    'first_name',
+    'last_name',
+    'dob',
+    'ma_number',
+    'notes',
+    'alternative_names',
+    'active',
+    'archived',
+  ];
   const DX_FIELD = 'diagnosis_code';
   const updates = {};
   for (const f of fields) {
@@ -253,8 +265,11 @@ function updateClient(req, res) {
   }
 
   // Cleared optional fields are stored as NULL, not empty strings.
-  for (const f of ['dob', 'ma_number', 'notes']) {
+  for (const f of ['dob', 'ma_number', 'notes', 'alternative_names']) {
     if (f in updates && (updates[f] === '' || updates[f] === undefined)) updates[f] = null;
+    if (f === 'alternative_names' && typeof updates[f] === 'string') {
+      updates[f] = updates[f].trim() || null;
+    }
   }
 
   if (typeof updates.active === 'boolean') updates.active = updates.active ? 1 : 0;

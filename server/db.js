@@ -159,6 +159,7 @@ db.exec(`
     dob           TEXT,
     ma_number     TEXT,
     notes         TEXT,
+    alternative_names TEXT,
     active        INTEGER NOT NULL DEFAULT 1,
     agency_id     INTEGER NOT NULL DEFAULT 1
   );
@@ -183,6 +184,12 @@ db.exec(`
     max_units_per_day         INTEGER,
     service_code              TEXT,
     payer_id                  INTEGER REFERENCES payers(id) ON DELETE SET NULL,
+    dhs_service_agreement_num TEXT,
+    service_code_with_modifier TEXT,
+    service_agreement_pdf_path TEXT,
+    authorized_total_amount   REAL,
+    service_agreement_id      INTEGER REFERENCES service_agreements(id) ON DELETE SET NULL,
+    superseded_at             TEXT,
     agency_id                 INTEGER NOT NULL DEFAULT 1
   );
 
@@ -606,6 +613,17 @@ addColumnIfMissing('claims', 'member_id', 'TEXT');
 addColumnIfMissing('claims', 'date_of_service', 'TEXT');
 addColumnIfMissing('claims', 'charge_amount', 'REAL');
 addColumnIfMissing('claims', 'procedure_code', 'TEXT');
+
+// Alternative client names used by Import/Verify fuzzy matching.
+addColumnIfMissing('clients', 'alternative_names', 'TEXT');
+
+// Service-agreement parent/link fields used by the Client Profile.
+addColumnIfMissing('agreements', 'dhs_service_agreement_num', 'TEXT');
+addColumnIfMissing('agreements', 'service_code_with_modifier', 'TEXT');
+addColumnIfMissing('agreements', 'service_agreement_pdf_path', 'TEXT');
+addColumnIfMissing('agreements', 'authorized_total_amount', 'REAL');
+addColumnIfMissing('agreements', 'superseded_at', 'TEXT');
+addReferenceColumn('agreements', 'service_agreement_id', 'service_agreements', 'SET NULL');
 
 // Case managers are assigned to a client; caretakers are recorded per day.
 const caseManagerColumn = addReferenceColumn('clients', 'case_manager_id', 'case_managers');

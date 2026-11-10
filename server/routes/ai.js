@@ -166,7 +166,8 @@ const DATE_WINDOW_DAYS = 14;
 const DB_CLAIM_SELECT = `
   SELECT cl.id, cl.claim_name, cl.status, cl.period_start, cl.period_end,
          cl.paid_amount, cl.total_dollars,
-         cu.id AS client_id, cu.first_name, cu.last_name, cu.ma_number
+         cu.id AS client_id, cu.first_name, cu.last_name, cu.ma_number,
+         cu.alternative_names
     FROM claims cl
     JOIN clients cu ON cu.id = cl.client_id AND cu.agency_id = cl.agency_id
 `;
@@ -204,8 +205,15 @@ function findClaimForRecord(record, agencyId) {
   let bestOverlappingScore = 0;
 
   for (const claim of candidates) {
-    const dbName = `${claim.first_name ?? ''} ${claim.last_name ?? ''}`;
-    const score = nameSimilarity(raName, dbName);
+    const primaryName = `${claim.first_name ?? ''} ${claim.last_name ?? ''}`;
+    const alternativeNames = String(claim.alternative_names ?? '')
+      .split(',')
+      .map((name) => name.trim())
+      .filter(Boolean);
+    const score = Math.max(
+      nameSimilarity(raName, primaryName),
+      ...alternativeNames.map((name) => nameSimilarity(raName, name))
+    );
     const claimStart = parseDateRange(claim.period_start).start;
     const claimEnd = parseDateRange(claim.period_end).end;
     const overlaps =

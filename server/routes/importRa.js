@@ -147,7 +147,7 @@ export function splitPatientName(name) {
 export function matchClient(name, patientId = null, agencyId = null) {
   const candidates = db
     .prepare(
-      `SELECT id, first_name, last_name, middle_initial, ma_number, active
+      `SELECT id, first_name, last_name, middle_initial, ma_number, alternative_names, active
        FROM clients
        WHERE COALESCE(archived, 0) = 0
          AND (? IS NULL OR agency_id = ?)`
@@ -173,37 +173,64 @@ export function matchClient(name, patientId = null, agencyId = null) {
   const { last, first, middle } = splitPatientName(name);
   if (!last || !first) return null;
 
-  let best = null;
-  for (const c of candidates) {
-    const cl = norm(c.last_name);
-    if (!cl) continue;
-
-    // Last name: exact, or within a single edit (typo tolerance).
+  const scoreParts = (candidateLast, candidateFirst, candidateMiddle) => {
+    const cl = norm(candidateLast);
+    if (!cl) return null;
     const similarity = 1 - editDistance(last, cl) / Math.max(last.length, cl.length);
-    if (similarity < 0.8) continue;
+    if (similarity < 0.8) return null;
 
-    // First name: exact, or the advice only gave an initial.
-    const cf = norm(c.first_name);
-    if (!cf) continue;
+    const cf = norm(candidateFirst);
+    if (!cf) return null;
     const firstExact = cf === first;
     const firstInitial = cf.startsWith(first[0]);
-    if (!firstExact && !firstInitial) continue;
+    if (!firstExact && !firstInitial) return null;
 
-    // Middle initial.
-    const cm = norm(c.middle_initial).replace(/\./g, '');
+    const cm = norm(candidateMiddle).replace(/\./g, '');
     let confidence = 'strong';
     if (middle) {
       if (cm) {
-        if (cm[0] !== middle[0]) continue; // both present, and they disagree
+        if (cm[0] !== middle[0]) return null;
       } else {
-        confidence = 'possible'; // on the advice but not on file
+        confidence = 'possible';
       }
     }
     if (!firstExact) confidence = 'possible';
     if (similarity < 1) confidence = 'possible';
 
     const score = similarity * 100 + (firstExact ? 20 : 10) + (middle && cm ? 5 : 0);
-    if (!best || score > best.score) best = { client: c, score, confidence };
+    return { score, confidence };
+  };
+
+  let best = null;
+  for (const c of candidates) {
+    const variants = [
+      { last: c.last_name, first: c.first_name, middle: c.middle_initial },
+    ];
+    for (const alternative of String(c.alternative_names ?? '')
+      .split(',')
+      .map((value) => value.trim())
+      .filter(Boolean)) {
+      const direct = splitPatientName(alternative);
+      if (direct.last && direct.first) variants.push(direct);
+      const words = alternative.split(/\s+/).filter(Boolean);
+      if (words.length >= 2) {
+        const reversed = splitPatientName(
+          `${words[words.length - 1]}, ${words.slice(0, -1).join(' ')}`
+        );
+        if (reversed.last && reversed.first) variants.push(reversed);
+      }
+    }
+
+    let clientBest = null;
+    for (const variant of variants) {
+      const scored = scoreParts(variant.last, variant.first, variant.middle);
+      if (scored && (!clientBest || scored.score > clientBest.score)) {
+        clientBest = scored;
+      }
+    }
+    if (clientBest && (!best || clientBest.score > best.score)) {
+      best = { client: c, ...clientBest };
+    }
   }
 
   if (!best) return null;
