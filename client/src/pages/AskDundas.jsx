@@ -356,7 +356,18 @@ export default function AskDundas() {
     visionRecords.length > 0 &&
     visionNeedsReview === 0;
   const visionEmpty = verifyResult?.status === 'success' && visionRecords.length === 0;
+  const visionRawText =
+    typeof verifyResult?.raw_text === 'string' ? verifyResult.raw_text : '';
   const recordWord = (n) => (n === 1 ? 'record' : 'records');
+
+  async function copyRawText() {
+    try {
+      await navigator.clipboard.writeText(visionRawText);
+      toast.success('Raw RA text copied.');
+    } catch {
+      toast.error('Could not copy the raw text.');
+    }
+  }
 
   function selectTab(next) {
     if (next === tab) return;
@@ -727,22 +738,44 @@ export default function AskDundas() {
 
             {Array.isArray(verifyResult?.records) &&
               (visionRecords.length === 0 ? (
-                <div className="ask-vision-empty" id="ask-vision-empty">
-                  <span className="ask-vision-empty-icon" aria-hidden="true">
-                    <svg viewBox="0 0 24 24" width="30" height="30" fill="none">
-                      <path
-                        d="M7 3.5h6.5L19 9v9.5a2 2 0 01-2 2H7a2 2 0 01-2-2v-13a2 2 0 012-2z"
-                        stroke="currentColor"
-                        strokeWidth="1.6"
-                        strokeLinejoin="round"
-                      />
-                      <path d="M13.5 3.5V9H19" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
-                      <path d="M8.5 15.5l2.4 2.4 4.4-5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
-                  </span>
-                  <h3>No records found in this document</h3>
-                  <p>Try uploading a different RA letter, or check that the file is legible.</p>
-                </div>
+                visionRawText ? (
+                  <div className="ask-ai-raw" id="ask-ai-raw">
+                    <div className="ask-ai-raw-head">
+                      <strong>AI could not format this document into JSON.</strong>
+                      <button
+                        type="button"
+                        className="btn tiny"
+                        id="copy-raw-ra-text"
+                        onClick={copyRawText}
+                      >
+                        Copy Raw Text
+                      </button>
+                    </div>
+                    <p className="muted small" style={{ margin: 0 }}>
+                      Here is the raw text extracted by Azure Document Intelligence:
+                    </p>
+                    <pre className="ask-ai-raw-text" tabIndex={0} aria-label="Raw extracted RA text">
+                      {visionRawText}
+                    </pre>
+                  </div>
+                ) : (
+                  <div className="ask-vision-empty" id="ask-vision-empty">
+                    <span className="ask-vision-empty-icon" aria-hidden="true">
+                      <svg viewBox="0 0 24 24" width="30" height="30" fill="none">
+                        <path
+                          d="M7 3.5h6.5L19 9v9.5a2 2 0 01-2 2H7a2 2 0 01-2-2v-13a2 2 0 012-2z"
+                          stroke="currentColor"
+                          strokeWidth="1.6"
+                          strokeLinejoin="round"
+                        />
+                        <path d="M13.5 3.5V9H19" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
+                        <path d="M8.5 15.5l2.4 2.4 4.4-5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    </span>
+                    <h3>No records found in this document</h3>
+                    <p>Try uploading a different RA letter, or check that the file is legible.</p>
+                  </div>
+                )
               ) : (
                 <div className="ask-vision-records" id="ask-vision-records">
                   <div className="ask-vision-records-head">

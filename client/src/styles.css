@@ -8334,3 +8334,55 @@ body {
     justify-content: space-between;
   }
 }
+
+/* Raw RA text fallback when AI cannot produce JSON */
+.ask-ai-raw {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  border-radius: 16px;
+  background: #fffbeb;
+  color: var(--text);
+}
+
+[data-theme='dark'] .ask-ai-raw {
+  background: #2a2415;
+  border-color: rgba(245, 158, 11, 0.3);
+}
+
+.ask-ai-raw-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.ask-ai-raw-head strong {
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.ask-ai-raw-text {
+  max-height: 300px;
+  margin: 0;
+  padding: 12px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+@media (max-width: 390px) {
+  .ask-ai-raw-head {
+    flex-direction: column;
+  }
+}

@@ -271,6 +271,8 @@ async function processRaFile(file, agencyId) {
     file.mimetype || 'application/pdf'
   );
   const rawText = String(extracted?.text ?? '').trim();
+  console.log(`[DOC-INTEL] Extracted text length: ${rawText.length} characters`);
+  console.log(`[DOC-INTEL] Sample: ${rawText.slice(0, 500)}`);
   if (!rawText) {
     const err = new Error('Azure Document Intelligence failed to read this file.');
     err.status = 502;
@@ -292,6 +294,10 @@ async function processRaFile(file, agencyId) {
   );
 
   if (completion.source === 'none') {
+    console.warn(
+      '[AI-EMPTY-RESPONSE] completion source none:',
+      completion.text || '(no response text)'
+    );
     const err = new Error(completion.text || 'Azure text completion failed.');
     err.status = 502;
     throw err;
@@ -308,7 +314,10 @@ async function processRaFile(file, agencyId) {
     console.warn('[AI-EMPTY-RESPONSE]', completion.text);
   }
 
-  return records.map((record) => verifyRecord(record, agencyId));
+  return {
+    records: records.map((record) => verifyRecord(record, agencyId)),
+    rawText,
+  };
 }
 
 /** POST /api/ai/verify-ra — multipart field name: file */
@@ -327,8 +336,12 @@ router.post('/verify-ra', (req, res) => {
     }
 
     try {
-      const records = await processRaFile(req.file, req.agencyId);
-      res.json({ status: 'success', records });
+      const { records, rawText } = await processRaFile(req.file, req.agencyId);
+      res.json({
+        status: 'success',
+        records,
+        ...(records.length === 0 ? { raw_text: rawText } : {}),
+      });
     } catch (err) {
       if (err.status) {
         return res.status(err.status).json({ error: err.message });
@@ -338,6 +351,35 @@ router.post('/verify-ra', (req, res) => {
     }  });
 });
 
+
+/** POST /api/ai/test-doc-intel — Doc Intel extraction only, no AI call. */
+router.post('/test-doc-intel', (req, res) => {
+  upload.single('file')(req, res, async (err) => {
+    if (err) return res.status(400).json({ error: 'The file could not be uploaded.' });
+    if (!req.file) return res.status(400).json({ error: 'Choose a PDF or image.' });
+    if (!allowedFile(req.file)) {
+      return res.status(400).json({ error: 'Upload a PDF or image file.' });
+    }
+    try {
+      const extracted = await extractRaWithAzureDocIntel(
+        req.file.buffer,
+        req.file.mimetype || 'application/pdf'
+      );
+      const rawText = String(extracted?.text ?? '').trim();
+      console.log(`[DOC-INTEL] Extracted text length: ${rawText.length} characters`);
+      console.log(`[DOC-INTEL] Sample: ${rawText.slice(0, 500)}`);
+      res.json({
+        raw_text: rawText,
+        length: rawText.length,
+        tables: Array.isArray(extracted?.tables) ? extracted.tables.length : 0,
+        file: req.file.originalname,
+      });
+    } catch (e) {
+      console.error('[DOC-INTEL] test extraction failed:', e?.stack || e);
+      res.status(e.status || 500).json({ error: e.message || 'Doc Intel extraction failed.' });
+    }
+  });
+});
 
 /* ------------------------------------------------------------------ bulk */
 
@@ -402,7 +444,7 @@ async function runBulkJob(job) {
           let entry;
           try {
             const buffer = fs.readFileSync(file.path);
-            const records = await processRaFile(
+            const processed = await processRaFile(
               {
                 buffer,
                 originalname: file.originalname,
@@ -410,7 +452,12 @@ async function runBulkJob(job) {
               },
               job.agencyId
             );
-            entry = { file_name: file.originalname, status: 'completed', records };
+            entry = {
+              file_name: file.originalname,
+              status: 'completed',
+              records: processed.records,
+              ...(processed.records.length === 0 ? { raw_text: processed.rawText } : {}),
+            };
           } catch (err) {
             entry = {
               file_name: file.originalname,
