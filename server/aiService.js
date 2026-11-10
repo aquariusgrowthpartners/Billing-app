@@ -327,7 +327,8 @@ export const RA_TEXT_SYSTEM_PROMPT =
   'You are an expert medical billing auditor. Extract the Patient Name, Member ID, Date of Service, and Amount Paid.\n' +
   'CRITICAL: The raw text may have dates mashed together without spaces (e.g., \'03-20-2603-21-26\'). You MUST split these into individual records for each date.\n' +
   'Do NOT return a single record with a massive date string. Create a separate JSON object for EACH date.\n' +
-  'If the document lists a daily breakdown, extract each day as a separate record. Do not sum them yourself.\n' +
+  'If the document lists a daily breakdown, extract each day as a separate record with that day\'s amount. Do not sum them yourself.\n' +
+  'If the document only lists one total for a claim period (no daily breakdown), return ONE record with that total; do not duplicate the total for every day.\n' +
   'Return ONLY a valid JSON array.';
 
 function parseVisionJson(text) {
