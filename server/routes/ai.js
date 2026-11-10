@@ -541,11 +541,17 @@ export function groupRecordsByClaim(records, agencyId) {
         continue;
       }
 
-      const raTotal = roundMoney(daily.reduce((sum, day) => sum + (day.amount_paid || 0), 0));
-      const chargeTotal = roundMoney(daily.reduce((sum, day) => sum + (day.charge_amount || 0), 0));
+      const primaryRecord = groupedRecords[0].record;
+      const printedPaid = parseCurrency(primaryRecord.claim_total_paid);
+      const printedCharge = parseCurrency(primaryRecord.claim_total_charge);
+      const raTotal = Number.isFinite(printedPaid)
+        ? roundMoney(printedPaid)
+        : roundMoney(daily.reduce((sum, day) => sum + (day.amount_paid || 0), 0));
+      const chargeTotal = Number.isFinite(printedCharge)
+        ? roundMoney(printedCharge)
+        : roundMoney(daily.reduce((sum, day) => sum + (day.charge_amount || 0), 0));
       const dbTotal = roundMoney(daily.reduce((sum, day) => sum + (day.db_paid || 0), 0));
       const primary = daily[0];
-      const primaryRecord = groupedRecords[0].record;
       const statuses = new Set(daily.map((day) => day.status));
       let status = 'paid';
       let discrepancy = null;
@@ -622,10 +628,16 @@ export function groupRecordsByClaim(records, agencyId) {
     const charges = eligible
       .map((record) => parseCurrency(record.charge_amount))
       .filter(Number.isFinite);
-    const raTotal = roundMoney(amounts.reduce((sum, amount) => sum + amount, 0));
-    const chargeTotal = roundMoney(charges.reduce((sum, amount) => sum + amount, 0));
-    const dbAmount = parseCurrency(claim.paid_amount);
     const primary = eligible[0];
+    const printedPaid = parseCurrency(primary.claim_total_paid);
+    const printedCharge = parseCurrency(primary.claim_total_charge);
+    const raTotal = Number.isFinite(printedPaid)
+      ? roundMoney(printedPaid)
+      : roundMoney(amounts.reduce((sum, amount) => sum + amount, 0));
+    const chargeTotal = Number.isFinite(printedCharge)
+      ? roundMoney(printedCharge)
+      : roundMoney(charges.reduce((sum, amount) => sum + amount, 0));
+    const dbAmount = parseCurrency(claim.paid_amount);
     const claimStatus = String(primary.claim_status ?? primary.claimStatus ?? '').toUpperCase();
     const isReversal = claimStatus.includes('REVERSAL') || claimStatus.includes('REVERSED') || raTotal < 0;
     const isDenied = claimStatus.includes('DENIED') || claimStatus.includes('DENY');
@@ -789,6 +801,8 @@ async function processRaFile(file, agencyId) {
           client_name: client.client_name,
           member_id: client.patient_id ?? null,
           claim_status: client.claim_status ?? null,
+          claim_total_paid: client.claim_total_paid ?? client.total_payment ?? null,
+          claim_total_charge: client.claim_total_charge ?? client.total_charge ?? null,
           date_of_service: dateOfService,
           amount_paid: item.paid,
           charge_amount: item.billed,

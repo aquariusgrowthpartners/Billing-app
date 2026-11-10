@@ -417,6 +417,9 @@ export function parseBlock(block) {
     total_charge: parseMoney(extractField(block, 'TOTAL CHARGE')),
     total_adjust: parseMoney(extractField(block, 'TOTAL ADJUST')),
     total_payment: parseMoney(extractField(block, 'TOTAL PAYMENT')),
+    // The printed claim totals are authoritative. Daily rows are detail only.
+    claim_total_charge: parseMoney(extractField(block, 'TOTAL CHARGE')),
+    claim_total_paid: parseMoney(extractField(block, 'TOTAL PAYMENT')),
     dos_start: dates[0] ?? null,
     dos_end: dates[dates.length - 1] ?? null,
     line_items: lineItems,
@@ -526,6 +529,8 @@ export function parseRemittance(rawText) {
         'total_charge',
         'total_adjust',
         'total_payment',
+        'claim_total_paid',
+        'claim_total_charge',
         'claim_status',
         'ra_prod_date',
         'patient_id',
@@ -550,11 +555,22 @@ export function parseRemittance(rawText) {
       (item) => item?.date && Number.isFinite(Number(item.paid))
     );
     const dates = lineItems.map((i) => i.date).filter(Boolean).sort();
+    const totalPaid = c.total_payment ?? null;
+    const totalCharge = c.total_charge ?? null;
+    const start = dates[0] ?? null;
+    const end = dates[dates.length - 1] ?? null;
+    console.log(
+      `[PARSER-TOTALS] Client: ${c.client_name ?? 'unknown'}. Period: ${start ?? '?'} to ${
+        end ?? '?'
+      }. Extracted TOTAL PAYMENT: ${totalPaid ?? 'null'}`
+    );
     return {
       ...c,
       line_items: lineItems,
-      dos_start: dates[0] ?? null,
-      dos_end: dates[dates.length - 1] ?? null,
+      claim_total_paid: totalPaid,
+      claim_total_charge: totalCharge,
+      dos_start: start,
+      dos_end: end,
     };
   });
 
