@@ -118,6 +118,7 @@ const VISION_STATUS_LABEL = {
   match: 'Match',
   mismatch: 'Mismatch',
   missing_in_db: 'Missing in DB',
+  unmatched_ra: 'Unmatched RA',
 };
 
 function dbAmountText(value) {
@@ -896,7 +897,8 @@ export default function AskDundas() {
                                   <td className="num">{dbAmountText(db.paid_amount)}</td>
                                   <td>
                                     <span className={`ask-vision-badge ${status}`}>
-                                      {VISION_STATUS_LABEL[status] ?? status}
+                                      {VISION_STATUS_LABEL[record.unmatched ? 'unmatched_ra' : status] ??
+                                        status}
                                     </span>
                                   </td>
                                 </tr>
@@ -922,7 +924,8 @@ export default function AskDundas() {
                             <div className="ask-vision-card-top">
                               <strong>{ra.client_name ?? ra.clientName ?? '—'}</strong>
                               <span className={`ask-vision-badge ${status}`}>
-                                {VISION_STATUS_LABEL[status] ?? status}
+                                {VISION_STATUS_LABEL[record.unmatched ? 'unmatched_ra' : status] ??
+                                  status}
                               </span>
                             </div>
                             <div className="ask-vision-card-meta">

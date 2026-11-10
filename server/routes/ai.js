@@ -343,20 +343,31 @@ function roundMoney(value) {
  */
 function groupRecordsByClaim(records, agencyId) {
   const groups = new Map();
-  const missing = [];
+  const unmatched = [];
 
   for (const input of records) {
     const record = normalizeRaRecord(input);
     const claim = findClaimForRecord(record, agencyId);
     if (!claim) {
-      missing.push({
-        ra_data: record,
-        db_data: null,
-        status: 'missing_in_db',
-        discrepancy: 'No matching claim found in the database.',
-      });
+      unmatched.push(record);
       continue;
     }
+
+    const periodStart = parseDateRange(claim.period_start).start;
+    const periodEnd = parseDateRange(claim.period_end).end;
+    const range = parseDateRange(record.date_of_service);
+    const recordStart = range.start;
+    const recordEnd = range.end || range.start;
+    const fallsInside =
+      !periodStart ||
+      !periodEnd ||
+      (recordStart && recordEnd && recordStart <= periodEnd && recordEnd >= periodStart);
+
+    if (!fallsInside) {
+      unmatched.push(record);
+      continue;
+    }
+
     const key = String(claim.id);
     if (!groups.has(key)) groups.set(key, { claim, records: [] });
     groups.get(key).records.push(record);
@@ -376,14 +387,7 @@ function groupRecordsByClaim(records, agencyId) {
       : claimRecords;
 
     if (periodStart && periodEnd && eligible.length === 0) {
-      for (const record of claimRecords) {
-        missing.push({
-          ra_data: record,
-          db_data: claim,
-          status: 'missing_in_db',
-          discrepancy: 'No RA date falls inside this claim period.',
-        });
-      }
+      unmatched.push(...claimRecords);
       continue;
     }
 
@@ -425,10 +429,36 @@ function groupRecordsByClaim(records, agencyId) {
     });
   }
 
+  if (unmatched.length) {
+    const dates = unmatched
+      .map((record) => parseDateRange(record.date_of_service))
+      .flatMap((range) => [range.start, range.end].filter(Boolean))
+      .sort();
+    const amounts = unmatched
+      .map((record) => parseCurrency(record.amount_paid))
+      .filter(Number.isFinite);
+    const total = roundMoney(amounts.reduce((sum, amount) => sum + amount, 0));
+    const first = unmatched[0];
+    const count = unmatched.length;
+
+    results.push({
+      status: 'missing_in_db',
+      client_name: first.client_name ?? first.clientName ?? '—',
+      claim_period_start: dates[0] ?? null,
+      claim_period_end: dates[dates.length - 1] ?? null,
+      amount_paid: total,
+      discrepancy: `${count} RA record${count === 1 ? '' : 's'} totaling ${money(
+        total
+      )} ${count === 1 ? 'has' : 'have'} no matching claim in the DB.`,
+      unmatched: true,
+      unmatched_count: count,
+    });
+  }
+
   console.log(
-    `[RA] Grouped ${records.length} RA record(s) into ${results.length} claim result(s) and ${missing.length} unmatched record(s).`
+    `[RA] Grouped ${records.length} RA record(s) into ${results.length} result(s); unmatched: ${unmatched.length}.`
   );
-  return [...results, ...missing];
+  return results;
 }
 
 function parseJsonRecords(text) {

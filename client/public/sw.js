@@ -2,7 +2,7 @@
  * Bump CACHE_VERSION whenever the shell changes; old caches are removed on
  * activate, so a deploy never leaves an old index paired with new assets.
  */
-const CACHE_VERSION = 'dundas-shell-v1';
+const CACHE_VERSION = 'dundas-shell-v2';
 const SHELL = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', (event) => {
