@@ -465,6 +465,121 @@ export async function verifyRaDocument(
 }
 
 
+/* ------------------------------------------------------ native PDF vision */
+
+const VISION_PDF_SYSTEM_PROMPT =
+  'You are an expert medical billing auditor. This is a multi-page RA letter. It contains a cover page followed by claims tables that may be sideways or upside down. Read all pages. Extract every patient claim record (Patient Name, Member ID, Dates of Service, Amount Paid). Ignore the provider name. Return ONLY a valid JSON array.';
+
+/**
+ * Send the original PDF to Azure OpenAI's native file input. This avoids
+ * per-page OCR limits and keeps all pages available to the model.
+ */
+export async function extractRaWithAzureVision(pdfBase64, agencyId = 1) {
+  const config = aiConfig(agencyId);
+  if (config.disabled) return { error: AI_DISABLED_MESSAGE };
+  if (!config.enabled) return { error: NO_KEY };
+  if (config.provider !== 'azure') {
+    return { error: 'Azure Vision is not configured for this account.' };
+  }
+
+  const cfg = providerConfig(config.provider, config.azureEndpoint, config.azureDeployment);
+  if (!cfg) return { error: 'Azure Vision endpoint or deployment is missing.' };
+
+  const base64 = String(pdfBase64 ?? '').replace(/^data:application\/pdf;base64,/, '');
+  if (!base64) return { error: 'The PDF file is empty.' };
+  if (base64.length > 28 * 1024 * 1024) {
+    return { error: 'The PDF is too large for native Vision processing (max 20 MB).' };
+  }
+
+  const fileData = `data:application/pdf;base64,${base64}`;
+  const payload = cfg.responses
+    ? {
+        model: cfg.model,
+        input: [
+          { role: 'system', content: VISION_PDF_SYSTEM_PROMPT },
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'input_text',
+                text: 'Read all pages of this RA PDF and extract every patient claim record.',
+              },
+              {
+                type: 'input_file',
+                filename: 'document.pdf',
+                file_data: fileData,
+              },
+            ],
+          },
+        ],
+        max_output_tokens: 4000,
+      }
+    : {
+        model: cfg.model,
+        max_tokens: 4000,
+        messages: [
+          { role: 'system', content: VISION_PDF_SYSTEM_PROMPT },
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'text',
+                text: 'Read all pages of this RA PDF and extract every patient claim record.',
+              },
+              {
+                type: 'file',
+                file: { filename: 'document.pdf', file_data: fileData },
+              },
+            ],
+          },
+        ],
+      };
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 120000);
+  try {
+    const res = await fetch(cfg.url, {
+      method: 'POST',
+      signal: controller.signal,
+      headers: requestHeaders(cfg, config.key),
+      body: JSON.stringify(payload),
+    });
+
+    if (res.status === 403) {
+      const body = await res.text().catch(() => '');
+      if (/quota|provision|initializ/i.test(body)) {
+        return { error: 'Azure Vision quota provisioning in progress.' };
+      }
+      console.warn(`[ai] Azure native PDF Vision 403: ${body.slice(0, 200)}`);
+      return { error: 'Azure Vision is unavailable for this account.' };
+    }
+
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      console.warn(`[ai] Azure native PDF Vision ${res.status}: ${body.slice(0, 200)}`);
+      if (res.status === 413) {
+        return { error: 'The PDF is too large for native Vision processing.' };
+      }
+      return { error: `Azure Vision request failed (${res.status}).` };
+    }
+
+    const json = await res.json();
+    const text = completionText(json, cfg);
+    const records = parseVisionJson(text);
+    if (!records) {
+      console.warn('[ai] Azure native PDF Vision returned non-JSON output');
+      return { error: 'Azure Vision returned an unreadable response.' };
+    }
+    return { records };
+  } catch (err) {
+    const message = err?.name === 'AbortError' ? 'Azure Vision timed out.' : err.message;
+    console.warn(`[ai] Azure native PDF Vision failed: ${message}`);
+    return { error: 'Azure Vision request failed.' };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /* ------------------------------------------------------ document intelligence */
 
 /**

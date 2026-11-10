@@ -13,6 +13,7 @@ import crypto from 'node:crypto';
 import pLimit from 'p-limit';
 import {
   extractRaWithAzureDocIntel,
+  extractRaWithAzureVision,
   complete,
   RA_TEXT_SYSTEM_PROMPT,
 } from '../aiService.js';
@@ -489,13 +490,39 @@ function parseJsonRecords(text) {
  * Azure Document Intelligence → text completion → claim comparison.
  */
 async function processRaFile(file, agencyId) {
-  const mimeType =
-    file.mimetype ||
-    (/\.pdf$/i.test(file.originalname || '') ? 'application/pdf' : 'image/png');
+  const isPdf =
+    file.mimetype === 'application/pdf' || /\.pdf$/i.test(file.originalname || '');
+
+  if (isPdf) {
+    console.log('[VISION-PDF] Native PDF (input_file) used');
+    const vision = await extractRaWithAzureVision(
+      file.buffer.toString('base64'),
+      agencyId
+    );
+    if (vision.error) {
+      const err = new Error(`Vision API failed: ${vision.error}`);
+      err.status = /too large/i.test(vision.error)
+        ? 413
+        : /quota|unavailable|missing|configured/i.test(vision.error)
+          ? 503
+          : 502;
+      throw err;
+    }
+    const records = Array.isArray(vision.records) ? vision.records : [];
+    return {
+      records: groupRecordsByClaim(
+        expandConcatenatedDateRecords(records),
+        agencyId
+      ),
+      rawText: '',
+    };
+  }
+
+  const mimeType = file.mimetype || 'image/png';
   const extracted = await extractRaWithAzureDocIntel(file.buffer, mimeType);
   const rawText = String(extracted?.text ?? '').trim();
   if (!rawText) {
-    const err = new Error('Azure Document Intelligence failed to read this file.');
+    const err = new Error('Azure Document Intelligence failed to read this image.');
     err.status = 502;
     throw err;
   }

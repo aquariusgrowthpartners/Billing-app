@@ -420,8 +420,17 @@ export default function AskDundas() {
       if (debugEnabled) {
         setDocIntelDebugLoading(true);
         setDocIntelDebug(null);
+        const isPdfFile =
+          verifyFile.type === 'application/pdf' || /\.pdf$/i.test(verifyFile.name);
         try {
-          setDocIntelDebug(await api.testDocIntel(verifyFile));
+          if (isPdfFile) {
+            setDocIntelDebug({
+              nativeVision: true,
+              message: 'Vision API (Native PDF) used',
+            });
+          } else {
+            setDocIntelDebug(await api.testDocIntel(verifyFile));
+          }
         } catch (error) {
           setDocIntelDebug({ error: error.message });
         } finally {
@@ -734,11 +743,17 @@ export default function AskDundas() {
             {debugEnabled && (
               <div className="ask-docintel-debug" id="ask-docintel-debug">
                 <div className="ask-docintel-debug-head">
-                  <strong>Doc Intel diagnostic</strong>
+                  <strong>Extraction diagnostic</strong>
                   <span className="pill">DEBUG</span>
                 </div>
                 {docIntelDebugLoading ? (
                   <span className="muted small">Reading the document before verification…</span>
+                ) : docIntelDebug?.nativeVision ? (
+                  <div className="ask-docintel-debug-stats">
+                    <span>
+                      <strong>{docIntelDebug.message}</strong>
+                    </span>
+                  </div>
                 ) : docIntelDebug?.error ? (
                   <span className="ask-docintel-debug-error">{docIntelDebug.error}</span>
                 ) : docIntelDebug ? (
