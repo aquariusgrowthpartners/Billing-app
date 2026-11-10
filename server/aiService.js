@@ -672,15 +672,17 @@ export async function extractRaWithAzureDocIntel(fileBuffer, mimeType) {
     endpoint.startsWith('http://') ? { allowInsecureConnection: true } : undefined
   );
   try {
+    // Omit the pages option so the service analyzes every page. Passing
+    // `pages: '1-'` on some SDK/service versions was returning only the first
+    // two pages (the cover pages), with no claim tables at all.
     const poller = await client.beginAnalyzeDocument(
       'prebuilt-layout',
-      new Uint8Array(fileBuffer),
-      { pages: '1-' }
+      new Uint8Array(fileBuffer)
     );
     const result = await poller.pollUntilDone();
     const pages = Array.isArray(result?.pages) ? result.pages : [];
     const tables = Array.isArray(result?.tables) ? result.tables : [];
-    console.log(`[DOC-INTEL] Pages requested: all (1-); result pages: ${pages.length}`);
+    console.log(`[DOC-INTEL] Pages requested: all; result pages: ${pages.length}`);
     console.log(`[DOC-INTEL] Total pages processed: ${pages.length}`);
     pages.forEach((page, index) => {
       const pageText = (Array.isArray(page?.lines) ? page.lines : [])
