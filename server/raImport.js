@@ -47,6 +47,27 @@ export function extractField(block, label) {
   return value || null;
 }
 
+/**
+ * Read an official printed total without ever accepting a signed adjustment.
+ * Some sideways PDFs put TOTAL PAYMENT on the next line; ADJ AMT lines are
+ * explicitly skipped so a -1,745.04 adjustment can never become the payment.
+ */
+export function extractPrintedTotal(block, label) {
+  const lines = String(block ?? '').split('\n');
+  const labelRe = new RegExp(`${escapeRegex(label)}\s*:`, 'i');
+  for (let i = 0; i < lines.length; i += 1) {
+    if (!labelRe.test(lines[i])) continue;
+    const candidates = [lines[i], lines[i + 1], lines[i + 2]].filter(Boolean);
+    for (const line of candidates) {
+      if (/ADJ\s*AMT/i.test(line)) continue;
+      const value = line.match(/(?:^|[^\d-])(\d[\d,]*\.\d{2})(?!\d)/);
+      if (value) return Number(value[1].replace(/,/g, ''));
+    }
+    return null;
+  }
+  return null;
+}
+
 /** "$1,234.56" -> 1234.56. Returns null when there is no number. */
 export function parseMoney(value) {
   if (value == null) return null;
@@ -414,12 +435,12 @@ export function parseBlock(block) {
     rendered_provider_id: providerId,
     // Kept for anything still reading the original name.
     rendered_provider: providerName,
-    total_charge: parseMoney(extractField(block, 'TOTAL CHARGE')),
+    total_charge: extractPrintedTotal(block, 'TOTAL CHARGE'),
     total_adjust: parseMoney(extractField(block, 'TOTAL ADJUST')),
-    total_payment: parseMoney(extractField(block, 'TOTAL PAYMENT')),
+    total_payment: extractPrintedTotal(block, 'TOTAL PAYMENT'),
     // The printed claim totals are authoritative. Daily rows are detail only.
-    claim_total_charge: parseMoney(extractField(block, 'TOTAL CHARGE')),
-    claim_total_paid: parseMoney(extractField(block, 'TOTAL PAYMENT')),
+    claim_total_charge: extractPrintedTotal(block, 'TOTAL CHARGE'),
+    claim_total_paid: extractPrintedTotal(block, 'TOTAL PAYMENT'),
     dos_start: dates[0] ?? null,
     dos_end: dates[dates.length - 1] ?? null,
     line_items: lineItems,

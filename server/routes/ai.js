@@ -15,7 +15,7 @@ import {
   complete,
   RA_TEXT_SYSTEM_PROMPT,
 } from '../aiService.js';
-import { parseRaBuffer } from './importRa.js';
+import { parseRemittance } from '../raImport.js';
 import db from '../db.js';
 
 const router = express.Router();
@@ -769,6 +769,68 @@ function parseJsonRecords(text) {
 }
 
 /**
+ * Convert Doc Intel table cells into daily RA rows using the printed header
+ * labels, never by guessing decimal positions.
+ */
+export function docIntelTableRows(tables) {
+  const rows = [];
+  (Array.isArray(tables) ? tables : []).forEach((table, tableIndex) => {
+    const cells = Array.isArray(table?.cells) ? table.cells : [];
+    const grid = new Map();
+    for (const cell of cells) {
+      const row = Number(cell?.rowIndex) || 0;
+      const col = Number(cell?.columnIndex) || 0;
+      if (!grid.has(row)) grid.set(row, new Map());
+      grid.get(row).set(col, String(cell?.content ?? '').trim());
+    }
+    const ordered = [...grid.keys()].sort((a, b) => a - b);
+    let header = null;
+    for (const rowIndex of ordered) {
+      const values = grid.get(rowIndex);
+      const upper = [...values.values()].map((value) => value.toUpperCase());
+      if (upper.includes('CHARGE') && upper.includes('PAYMENT')) {
+        header = { rowIndex, values };
+        break;
+      }
+    }
+    if (!header) return;
+    const indexOf = (label) =>
+      [...header.values.entries()].find(
+        ([, value]) => value.toUpperCase() === label
+      )?.[0] ?? -1;
+    const chargeCol = indexOf('CHARGE');
+    const paymentCol = indexOf('PAYMENT');
+    const patientCol =
+      indexOf('PATIENT') >= 0
+        ? indexOf('PATIENT')
+        : indexOf('CLIENT') >= 0
+          ? indexOf('CLIENT')
+          : -1;
+    for (const rowIndex of ordered) {
+      if (rowIndex <= header.rowIndex) continue;
+      const values = grid.get(rowIndex);
+      const all = [...values.values()];
+      const dateValue = all.find((value) => /\d{2}-\d{2}-\d{2}/.test(value));
+      if (!dateValue) continue;
+      const paidText = values.get(paymentCol) ?? '';
+      const chargeText = values.get(chargeCol) ?? '';
+      const paidMatch = String(paidText).match(/-?\d[\d,]*\.\d{2}/);
+      const chargeMatch = String(chargeText).match(/-?\d[\d,]*\.\d{2}/);
+      const date = parseDateRange(dateValue).start;
+      if (!date || !paidMatch) continue;
+      rows.push({
+        tableIndex,
+        client_name: patientCol >= 0 ? values.get(patientCol) ?? null : null,
+        date,
+        paid: Number(paidMatch[0].replace(/,/g, '')),
+        charge: chargeMatch ? Number(chargeMatch[0].replace(/,/g, '')) : null,
+      });
+    }
+  });
+  return rows;
+}
+
+/**
  * Process one uploaded RA file with the shared single-file/bulk pipeline.
  */
 async function processRaFile(file, agencyId) {
@@ -776,20 +838,48 @@ async function processRaFile(file, agencyId) {
     file.mimetype === 'application/pdf' || /\.pdf$/i.test(file.originalname || '');
 
   if (isPdf) {
-    let parsed;
+    let extracted;
     try {
-      parsed = await parseRaBuffer(file.buffer, agencyId);
-    } catch {
-      const err = new Error(
-        'Could not parse RA document. Please ensure it is a valid format.'
-      );
-      err.status = 422;
+      // PDFs go through Doc Intel's layout model. pdf-parse is no longer used
+      // on this path because sideways RA columns cannot be trusted as a text
+      // stream.
+      extracted = await extractRaWithAzureDocIntel(file.buffer, 'application/pdf');
+    } catch (err) {
+      err.status = err.status || 502;
+      throw err;
+    }
+    const rawText = String(extracted?.text ?? '').trim();
+    console.log(`[DOC-INTEL] Extracted text length: ${rawText.length} characters.`);
+    if (!rawText) {
+      const err = new Error('Azure Document Intelligence returned no RA text.');
+      err.status = 502;
       throw err;
     }
 
+    const parsed = parseRemittance(rawText);
+    const tableRows = docIntelTableRows(extracted?.tables);
+    console.log(`[DOC-INTEL] Structured table rows: ${tableRows.length}`);
+    const tableIndices = [...new Set(tableRows.map((row) => row.tableIndex))];
+    const alignedTables = tableIndices.length === (parsed.clients?.length ?? 0);
     const records = [];
-    for (const client of parsed.clients ?? []) {
-      for (const item of client.line_items ?? []) {
+
+    for (const [clientIndex, client] of (parsed.clients ?? []).entries()) {
+      const tableRowsForClient = alignedTables
+        ? tableRows.filter((row) => row.tableIndex === tableIndices[clientIndex])
+        : tableRows.filter(
+            (row) =>
+              row.client_name &&
+              normalizeName(row.client_name) === normalizeName(client.client_name)
+          );
+      const sourceItems = tableRowsForClient.length
+        ? tableRowsForClient
+        : (client.line_items ?? []).map((item) => ({
+            date: item.date,
+            paid: item.paid,
+            charge: item.billed,
+          }));
+      const seenDates = new Set();
+      for (const item of sourceItems) {
         const rawDate = item.date;
         const dateOfService = /^\d{4}-\d{2}-\d{2}$/.test(String(rawDate ?? ''))
           ? rawDate
@@ -797,6 +887,8 @@ async function processRaFile(file, agencyId) {
               const match = /^(\d{2})-(\d{2})-(\d{2})$/.exec(String(rawDate ?? ''));
               return match ? `20${match[3]}-${match[1]}-${match[2]}` : null;
             })();
+        if (!dateOfService || seenDates.has(dateOfService)) continue;
+        seenDates.add(dateOfService);
         records.push({
           client_name: client.client_name,
           member_id: client.patient_id ?? null,
@@ -805,7 +897,7 @@ async function processRaFile(file, agencyId) {
           claim_total_charge: client.claim_total_charge ?? client.total_charge ?? null,
           date_of_service: dateOfService,
           amount_paid: item.paid,
-          charge_amount: item.billed,
+          charge_amount: item.charge ?? item.billed ?? null,
           procedure_code: item.procedure_code ?? null,
         });
       }
@@ -820,17 +912,14 @@ async function processRaFile(file, agencyId) {
     }
 
     console.log(
-      `[VERIFY-EXTRACTION] Extracted ${records.length} records using Import parser.`
-    );
-    console.log(
-      `[VERIFY-EXTRACTION] Sample records: ${JSON.stringify(records.slice(0, 3))}`
+      `[DOC-INTEL] Extracted ${records.length} daily record(s) from structured tables.`
     );
     return {
       records: groupRecordsByClaim(
         expandConcatenatedDateRecords(records),
         agencyId
       ),
-      rawText: '',
+      rawText,
     };
   }
 
