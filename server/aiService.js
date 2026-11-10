@@ -534,6 +534,15 @@ export async function extractRaWithAzureDocIntel(fileBuffer, mimeType) {
     const tables = Array.isArray(result?.tables) ? result.tables : [];
     console.log(`[DOC-INTEL] Pages requested: all (1-); result pages: ${pages.length}`);
     console.log(`[DOC-INTEL] Total pages processed: ${pages.length}`);
+    pages.forEach((page, index) => {
+      const pageText = (Array.isArray(page?.lines) ? page.lines : [])
+        .map((line) => String(line?.content ?? '').trim())
+        .filter(Boolean)
+        .join(' ');
+      console.log(
+        `[DOC-INTEL] Page ${page?.pageNumber ?? index + 1} text (first 300 chars): ${pageText.substring(0, 300)}`
+      );
+    });
     console.log(`[DOC-INTEL] Total tables detected: ${tables.length}`);
     tables.forEach((table, index) => {
       console.log(

@@ -314,6 +314,23 @@ function parseJsonRecords(text) {
   return null;
 }
 
+const COVER_MARKER = 'REMITTANCE ADVICE MESSAGE';
+
+/**
+ * Minnesota RAs put a "Remittance Advice Message" cover page before the
+ * claims. Drop everything through the LAST marker so only claim data reaches
+ * the text completion model.
+ */
+function stripCoverPages(text) {
+  const source = String(text ?? '');
+  const index = source.toLowerCase().lastIndexOf(COVER_MARKER.toLowerCase());
+  if (index === -1) return { text: source.trim(), hadCover: false };
+  return {
+    text: source.slice(index + COVER_MARKER.length).trim(),
+    hadCover: true,
+  };
+}
+
 /**
  * Process one uploaded RA file with the shared single-file/bulk pipeline:
  * Azure Document Intelligence → text completion → claim comparison.
@@ -324,9 +341,20 @@ async function processRaFile(file, agencyId) {
     file.mimetype || 'application/pdf'
   );
   const rawText = String(extracted?.text ?? '').trim();
-  const useVisionFallback = rawText.length < 400;
+  const { text: claimText, hadCover } = stripCoverPages(rawText);
   console.log(
-    `[DOC-INTEL] Final text length: ${rawText.length} characters. Triggering Vision fallback: ${useVisionFallback}`
+    `[DOC-INTEL] Cover marker found: ${hadCover}; claim text length after removal: ${claimText.length} characters`
+  );
+
+  if (hadCover && claimText.length < 50) {
+    const err = new Error('Document appears to contain only cover pages. No claim data found.');
+    err.status = 422;
+    throw err;
+  }
+
+  const useVisionFallback = !hadCover && rawText.length < 400;
+  console.log(
+    `[DOC-INTEL] Final text length: ${claimText.length} characters. Triggering Vision fallback: ${useVisionFallback}`
   );
 
   if (useVisionFallback) {
@@ -351,7 +379,7 @@ async function processRaFile(file, agencyId) {
   }
 
   const completion = await complete(
-    `Here is the text extracted from an RA letter:\n\n${rawText.slice(
+    `Here is the text extracted from an RA letter:\n\n${claimText.slice(
       0,
       16000
     )}\n\nExtract the records.`,
