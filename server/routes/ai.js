@@ -579,6 +579,9 @@ async function processRaFile(file, agencyId) {
     console.log(
       `[VERIFY-EXTRACTION] Extracted ${records.length} records using Import parser.`
     );
+    console.log(
+      `[VERIFY-EXTRACTION] Sample records: ${JSON.stringify(records.slice(0, 3))}`
+    );
     return {
       records: groupRecordsByClaim(
         expandConcatenatedDateRecords(records),

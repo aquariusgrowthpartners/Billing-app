@@ -102,7 +102,7 @@ export const LINE_ITEM_RE =
 export const PAGE_FURNITURE_RE = /\n\s*-- \d+ of \d+ --[\s\S]*?-{10,}\n/g;
 
 export const SERVICE_LINE_RE =
-  /^\s*(\d{2})\s+(\d{2}-\d{2}-\d{2})\s+(\d{2}-\d{2}-\d{2})\s+([A-Z]\d{4}|\d{5})\s+(?:([A-Z]{2}|[A-Z]\d)\s+)?([\d.]+)\s+(\d+)\s+(?:(?:([A-Z]{2})\s+(\d+)\s+-?[\d.]+\s+\d+\s+))*(\d+)\s+(-?[\d.]+)/gm;
+  /^\s*(\d{2})\s+(\d{2}-\d{2}-\d{2})\s+(\d{2}-\d{2}-\d{2})\s+([A-Z]\d{4}|\d{5})\s+(?:([A-Z]{2}|[A-Z]\d)\s+)?(\d+\.\d{2})\s+(\d+)\s+(?:(?:([A-Z]{2})\s+(\d+)\s+-?\d+\.\d{2}\s+\d+\s+))*(\d+)\s+(-?\d+\.\d{2})/gm;
 
 /** Parse every service line in a block, whichever way it was extracted. */
 export function parseServiceLines(block) {
@@ -146,7 +146,9 @@ export function parseLineItem(line) {
   const tokens = tail.trim().split(/\s+/).filter(Boolean);
   const numeric = [];
   tokens.forEach((t, i) => {
-    if (/^-?\d+(?:\.\d+)?$/.test(t)) numeric.push(i);
+    // A row is only useful when it carries a real decimal amount. This keeps
+    // the repeating "1 1 1 1" scan artifact from becoming a service row.
+    if (/^-?\d+\.\d{2}$/.test(t)) numeric.push(i);
   });
   if (!numeric.length) return null;
 
@@ -455,8 +457,18 @@ export function parseRemittance(rawText) {
   }
 
   const clients = [...order, ...unnamed].map((c) => {
-    const dates = c.line_items.map((i) => i.date).filter(Boolean).sort();
-    return { ...c, dos_start: dates[0] ?? null, dos_end: dates[dates.length - 1] ?? null };
+    // Last line of defence: every persisted/extracted row must have a real
+    // MM-DD-YY date and a decimal paid amount.
+    const lineItems = c.line_items.filter(
+      (item) => item?.date && Number.isFinite(Number(item.paid))
+    );
+    const dates = lineItems.map((i) => i.date).filter(Boolean).sort();
+    return {
+      ...c,
+      line_items: lineItems,
+      dos_start: dates[0] ?? null,
+      dos_end: dates[dates.length - 1] ?? null,
+    };
   });
 
   // The file-level header: the first one seen, used for duplicate identity.
