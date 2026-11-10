@@ -469,7 +469,7 @@ export async function verifyRaDocument(
 /* ------------------------------------------------------ native PDF vision */
 
 const VISION_PDF_SYSTEM_PROMPT =
-  'You are an expert medical billing auditor. This is a multi-page RA letter with standard, upright claims tables. Read the table. Extract Patient Name, Member ID, Date of Service, and the PAID column (which has decimals like 98.52). Return ONLY a valid JSON array.';
+  'You are an expert medical billing auditor. This is an upright RA letter. Read the claims table. Extract Patient Name, Member ID, Date, and the PAID column (e.g., 98.52). Do not do any math. Return ONLY a JSON array.';
 
 /**
  * Send the original PDF to Azure OpenAI's native file input. This avoids

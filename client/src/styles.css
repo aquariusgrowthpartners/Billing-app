@@ -8443,3 +8443,98 @@ body {
   min-height: 44px;
   font-weight: 700;
 }
+
+.ask-bulk-detail-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.ask-bulk-file-detail {
+  border-top: 1px solid var(--border);
+}
+
+.ask-bulk-file-detail:first-child {
+  border-top: 0;
+}
+
+.ask-bulk-file-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 44px;
+  padding: 4px 0;
+  cursor: pointer;
+  list-style: none;
+}
+
+.ask-bulk-file-summary::-webkit-details-marker {
+  display: none;
+}
+
+.ask-bulk-file-detail-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.ask-bulk-chevron {
+  flex: 0 0 auto;
+  transition: transform 180ms ease;
+}
+
+.ask-bulk-file-detail[open] .ask-bulk-chevron {
+  transform: rotate(180deg);
+}
+
+.ask-bulk-file-claims {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 4px 0 12px;
+}
+
+.ask-bulk-claim-card {
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.ask-bulk-claim-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.ask-bulk-claim-top span {
+  color: var(--muted);
+  text-align: right;
+}
+
+.ask-bulk-claim-amounts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 4px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.ask-bulk-claim-note {
+  margin: 6px 0 0;
+  color: var(--err-fg);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.ask-bulk-claim-error {
+  margin: 0;
+  color: var(--err-fg);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}

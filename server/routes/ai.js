@@ -1,9 +1,8 @@
 /**
  * AI-adjacent file endpoints.
  *
- * RA verification uses Azure Document Intelligence to read the original PDF or
- * image directly, including scanned and sideways documents. The extracted text
- * is then structured by the existing Azure text completion path.
+ * RA verification normalizes PDF page rotation, then sends the upright PDF to
+ * Azure Vision; images continue through Document Intelligence.
  */
 import express from 'express';
 import multer from 'multer';
@@ -18,7 +17,6 @@ import {
   complete,
   RA_TEXT_SYSTEM_PROMPT,
 } from '../aiService.js';
-import { parseRaBuffer } from './importRa.js';
 import db from '../db.js';
 
 const router = express.Router();
@@ -544,78 +542,23 @@ async function processRaFile(file, agencyId) {
     file.mimetype === 'application/pdf' || /\.pdf$/i.test(file.originalname || '');
 
   if (isPdf) {
-    let parsed;
-    try {
-      parsed = await parseRaBuffer(file.buffer, agencyId);
-    } catch {
-      const err = new Error(
-        'Could not parse RA document. Please ensure it is a valid format.'
-      );
-      err.status = 422;
-      throw err;
-    }
-
-    const records = [];
-    const regexRecords = Array.isArray(parsed.minnesota_records)
-      ? parsed.minnesota_records
-      : [];
-    if (regexRecords.length && parsed.clients?.length === 1) {
-      const client = parsed.clients[0];
-      for (const item of regexRecords) {
-        records.push({
-          client_name: client.client_name,
-          member_id: client.patient_id ?? null,
-          date_of_service: item.date_of_service,
-          amount_paid: item.amount_paid,
-        });
-      }
-      console.log(
-        `[PARSER] Successfully extracted ${records.length} records using native Minnesota Regex parser.`
-      );
-    } else {
-      for (const client of parsed.clients ?? []) {
-        for (const item of client.line_items ?? []) {
-          records.push({
-            client_name: client.client_name,
-            member_id: client.patient_id ?? null,
-            date_of_service: item.date ?? null,
-            amount_paid: item.paid,
-            charge_amount: item.billed,
-            procedure_code: item.procedure_code ?? null,
-          });
-        }
-      }
-    }
-
-    if (!records.length) {
-      console.log(
-        '[VERIFY-EXTRACTION] Native parser found 0 records; falling back to AI.'
-      );
-      try {
-        const uprightBuffer = await normalizePdfRotation(file.buffer);
-        const vision = await extractRaWithAzureVision(
-          uprightBuffer.toString('base64'),
-          agencyId
-        );
-        if (!vision.error) {
-          records.push(...(vision.records ?? []));
-        }
-      } catch {
-        /* the common parser error below is the useful message */
-      }
-    }
-
-    if (!records.length) {
-      const err = new Error(
-        'Could not parse RA document. Please ensure it is a valid format.'
-      );
-      err.status = 422;
-      throw err;
-    }
-
-    console.log(
-      `[VERIFY-EXTRACTION] Extracted ${records.length} records using Import parser.`
+    const uprightBuffer = await normalizePdfRotation(file.buffer);
+    const vision = await extractRaWithAzureVision(
+      uprightBuffer.toString('base64'),
+      agencyId
     );
+    if (vision.error) {
+      const err = new Error(vision.error);
+      err.status = /too large/i.test(vision.error)
+        ? 413
+        : /quota|unavailable|missing|configured/i.test(vision.error)
+          ? 503
+          : 502;
+      throw err;
+    }
+
+    const records = Array.isArray(vision.records) ? vision.records : [];
+    console.log(`[VERIFY-EXTRACTION] Extracted ${records.length} records using Vision API.`);
     console.log(
       `[VERIFY-EXTRACTION] Sample records: ${JSON.stringify(records.slice(0, 3))}`
     );

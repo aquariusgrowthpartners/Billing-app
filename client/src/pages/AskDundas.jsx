@@ -427,7 +427,7 @@ export default function AskDundas() {
           if (isPdfFile) {
             setDocIntelDebug({
               nativeVision: true,
-              message: 'Import parser (pdf-parse + rotation) used',
+              message: 'Vision API (upright PDF) used',
             });
           } else {
             setDocIntelDebug(await api.testDocIntel(verifyFile));
@@ -1110,11 +1110,67 @@ export default function AskDundas() {
                                 <h3>
                                   {label} <span>{bulkGroups[key].length}</span>
                                 </h3>
-                                <ul>
+                                <ul className="ask-bulk-detail-list">
                                   {bulkGroups[key].map((entry, index) => (
                                     <li key={`${entry.file_name}-${index}`}>
-                                      <span>{entry.file_name}</span>
-                                      {entry.error && <small>{entry.error}</small>}
+                                      <details className="ask-bulk-file-detail">
+                                        <summary className="ask-bulk-file-summary">
+                                          <span className="ask-bulk-file-detail-name">
+                                            {entry.file_name}
+                                          </span>
+                                          <svg
+                                            className="ask-bulk-chevron"
+                                            viewBox="0 0 24 24"
+                                            width="16"
+                                            height="16"
+                                            fill="none"
+                                            aria-hidden="true"
+                                          >
+                                            <path
+                                              d="M6 9l6 6 6-6"
+                                              stroke="currentColor"
+                                              strokeWidth="2"
+                                              strokeLinecap="round"
+                                              strokeLinejoin="round"
+                                            />
+                                          </svg>
+                                        </summary>
+                                        <div className="ask-bulk-file-claims">
+                                          {entry.error && (
+                                            <p className="ask-bulk-claim-error">{entry.error}</p>
+                                          )}
+                                          {(entry.records ?? []).length ? (
+                                            entry.records.map((claim, claimIndex) => {
+                                              const ra = claim.ra_data ?? claim;
+                                              const db = claim.db_data ?? {};
+                                              return (
+                                                <div
+                                                  className="ask-bulk-claim-card"
+                                                  key={`${entry.file_name}-claim-${claimIndex}`}
+                                                >
+                                                  <div className="ask-bulk-claim-top">
+                                                    <strong>
+                                                      {ra.client_name ?? ra.clientName ?? '—'}
+                                                    </strong>
+                                                    <span>{claimPeriodText(ra)}</span>
+                                                  </div>
+                                                  <div className="ask-bulk-claim-amounts">
+                                                    <span>RA {visionAmount(ra)}</span>
+                                                    <span>DB {dbAmountText(db.paid_amount)}</span>
+                                                  </div>
+                                                  {claim.discrepancy && (
+                                                    <p className="ask-bulk-claim-note">
+                                                      {claim.discrepancy}
+                                                    </p>
+                                                  )}
+                                                </div>
+                                              );
+                                            })
+                                          ) : (
+                                            <p className="muted small">No claim records.</p>
+                                          )}
+                                        </div>
+                                      </details>
                                     </li>
                                   ))}
                                 </ul>
