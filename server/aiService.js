@@ -10,6 +10,36 @@ import db from './db.js';
 import { DocumentAnalysisClient, AzureKeyCredential } from '@azure/ai-form-recognizer';
 import { PDFDocument } from 'pdf-lib';
 
+function azureTimeoutError() {
+  const err = new Error('Azure API request timed out.');
+  err.code = 'AZURE_TIMEOUT';
+  err.status = 504;
+  return err;
+}
+
+function timeoutRejection(ms = 30000) {
+  return new Promise((_, reject) => {
+    setTimeout(() => reject(azureTimeoutError()), ms);
+  });
+}
+
+async function analyzeDocumentWithTimeout(client, bytes, options = {}, ms = 30000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  try {
+    const poller = await Promise.race([
+      client.beginAnalyzeDocument('prebuilt-layout', bytes, {
+        ...options,
+        abortSignal: controller.signal,
+      }),
+      timeoutRejection(ms),
+    ]);
+    return await Promise.race([poller.pollUntilDone(), timeoutRejection(ms)]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 const PROVIDERS = {
   deepseek: {
     url: 'https://api.deepseek.com/chat/completions',
@@ -461,9 +491,9 @@ export async function verifyRaDocument(
     }
     return { records };
   } catch (err) {
-    const message = err?.name === 'AbortError' ? 'Azure Vision timed out.' : err.message;
+    const message = err?.name === 'AbortError' ? 'Azure API request timed out.' : err.message;
     console.warn(`[ai] Azure Vision failed: ${message}`);
-    return { error: 'Azure Vision request failed.' };
+    return { error: message };
   } finally {
     clearTimeout(timer);
   }
@@ -561,7 +591,7 @@ export async function extractRaWithAzureVision(
       };
 
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 120000);
+  const timer = setTimeout(() => controller.abort(), 30000);
   try {
     const res = await fetch(cfg.url, {
       method: 'POST',
@@ -608,9 +638,9 @@ export async function extractRaWithAzureVision(
     }
     return { records };
   } catch (err) {
-    const message = err?.name === 'AbortError' ? 'Azure Vision timed out.' : err.message;
+    const message = err?.name === 'AbortError' ? 'Azure API request timed out.' : err.message;
     console.warn(`[ai] Azure native PDF Vision failed: ${message}`);
-    return { error: 'Azure Vision request failed.' };
+    return { error: message };
   } finally {
     clearTimeout(timer);
   }
@@ -676,11 +706,10 @@ export async function extractRaWithAzureDocIntel(fileBuffer, mimeType) {
     // Omit the pages option so the service analyzes every page. Passing
     // `pages: '1-'` on some SDK/service versions was returning only the first
     // two pages (the cover pages), with no claim tables at all.
-    const poller = await client.beginAnalyzeDocument(
-      'prebuilt-layout',
+    const result = await analyzeDocumentWithTimeout(
+      client,
       new Uint8Array(fileBuffer)
     );
-    const result = await poller.pollUntilDone();
     const pages = Array.isArray(result?.pages) ? [...result.pages] : [];
     const tables = Array.isArray(result?.tables) ? [...result.tables] : [];
     let totalPageCount = pages.length;
@@ -697,12 +726,11 @@ export async function extractRaWithAzureDocIntel(fileBuffer, mimeType) {
     while (pages.length > 0 && nextPage <= totalPageCount) {
       const endPage = Math.min(totalPageCount, nextPage + 1);
       console.log(`[DOC-INTEL] Analyzing remaining pages ${nextPage}-${endPage}`);
-      const morePoller = await client.beginAnalyzeDocument(
-        'prebuilt-layout',
+      const more = await analyzeDocumentWithTimeout(
+        client,
         new Uint8Array(fileBuffer),
         { pages: `${nextPage}-${endPage}` }
       );
-      const more = await morePoller.pollUntilDone();
       const before = pages.length;
       for (const page of more?.pages ?? []) {
         if (!pages.some((p) => Number(p.pageNumber) === Number(page.pageNumber))) {
@@ -753,6 +781,7 @@ export async function extractRaWithAzureDocIntel(fileBuffer, mimeType) {
       tables,
     };
   } catch (err) {
+    if (err?.code === 'AZURE_TIMEOUT') throw err;
     const message = err?.message || String(err);
     if (err?.statusCode === 403 || /quota|forbidden|unauthorized/i.test(message)) {
       const e = new Error(`Azure Document Intelligence quota exceeded or access denied: ${message}`);

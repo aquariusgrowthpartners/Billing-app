@@ -1343,6 +1343,16 @@ function parseResults(json) {
   }
 }
 
+function withTimeout(promise, ms, message) {
+  let timer;
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error(message)), ms);
+    }),
+  ]).finally(() => clearTimeout(timer));
+}
+
 async function runBulkJob(job) {
   try {
     const row = db
@@ -1362,7 +1372,7 @@ async function runBulkJob(job) {
 
     let stopped = false;
     await Promise.all(
-      job.files.map((file) =>
+      job.files.map((file, index) =>
         fileLimit(async () => {
           if (stopped) return;
 
@@ -1376,15 +1386,22 @@ async function runBulkJob(job) {
           }
 
           let entry;
+          console.log(
+            `[BULK-WORKER] Starting file ${index + 1} of ${job.files.length}: ${file.originalname}`
+          );
           try {
             const buffer = fs.readFileSync(file.path);
-            const processed = await processRaFile(
-              {
-                buffer,
-                originalname: file.originalname,
-                mimetype: file.mimetype,
-              },
-              job.agencyId
+            const processed = await withTimeout(
+              processRaFile(
+                {
+                  buffer,
+                  originalname: file.originalname,
+                  mimetype: file.mimetype,
+                },
+                job.agencyId
+              ),
+              120000,
+              'Azure API request timed out.'
             );
             entry = {
               file_name: file.originalname,
@@ -1401,6 +1418,9 @@ async function runBulkJob(job) {
             };
           }
 
+          console.log(
+            `[BULK-WORKER] Finished file ${index + 1} with status: ${entry.status}`
+          );
           if (stopped) return;
           job.results.push(entry);
           db.prepare(

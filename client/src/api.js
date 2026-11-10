@@ -132,15 +132,15 @@ export const api = {
   ask: (query) => request('/ask', { method: 'POST', body: JSON.stringify({ query }) }),
   ytdClaims: () => request('/metrics/ytd-claims'),
   search: (q) => request(`/search?q=${encodeURIComponent(q)}`),
-  verifyRa: (file) => {
+  verifyRa: (file, options = {}) => {
     const body = new FormData();
     body.append('file', file);
-    return request('/ai/verify-ra', { method: 'POST', body });
+    return request('/ai/verify-ra', { method: 'POST', body, ...options });
   },
-  verifyRaBulk: (files) => {
+  verifyRaBulk: (files, options = {}) => {
     const body = new FormData();
     for (const file of files) body.append('files', file);
-    return request('/ai/verify-ra-bulk', { method: 'POST', body });
+    return request('/ai/verify-ra-bulk', { method: 'POST', body, ...options });
   },
   debugStatus: () => request('/ai/debug-status'),
   testDocIntel: (file) => {
@@ -148,7 +148,7 @@ export const api = {
     body.append('file', file);
     return request('/ai/test-doc-intel', { method: 'POST', body });
   },
-  verifyRaBulkJob: (jobId) => request(`/ai/verify-ra-bulk/${jobId}`),
+  verifyRaBulkJob: (jobId, options = {}) => request(`/ai/verify-ra-bulk/${jobId}`, options),
   parseNewHire: (file) => {
     const fd = new FormData();
     fd.append('file', file);

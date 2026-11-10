@@ -369,8 +369,12 @@ export default function AskDundas() {
     let timer = null;
 
     const poll = async () => {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 60000);
       try {
-        const data = await api.verifyRaBulkJob(bulkJobId);
+        const data = await api.verifyRaBulkJob(bulkJobId, {
+          signal: controller.signal,
+        });
         if (cancelled) return;
         setBulkJob(data);
         if (data.status === 'completed' || data.status === 'failed') {
@@ -378,7 +382,16 @@ export default function AskDundas() {
           return;
         }
       } catch (err) {
-        if (!cancelled) setBulkError(err.message);
+        if (cancelled) return;
+        if (err?.name === 'AbortError') {
+          setBulkError('Verification timed out. Please try again.');
+          toast.error('Verification timed out. Please try again.');
+          setBulkJobId(null);
+          return;
+        }
+        setBulkError(err.message);
+      } finally {
+        clearTimeout(timeout);
       }
       if (!cancelled) timer = setTimeout(poll, BULK_POLL_MS);
     };
@@ -505,7 +518,20 @@ export default function AskDundas() {
           setDocIntelDebugLoading(false);
         }
       }
-      const data = await api.verifyRa(verifyFile);
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 60000);
+      let data;
+      try {
+        data = await api.verifyRa(verifyFile, { signal: controller.signal });
+      } catch (err) {
+        if (err?.name === 'AbortError') {
+          toast.error('Verification timed out. Please try again.');
+          throw new Error('Verification timed out. Please try again.');
+        }
+        throw err;
+      } finally {
+        clearTimeout(timeout);
+      }
       if (data?.status === 'error') {
         throw new Error(data.error || 'RA verification failed.');
       }
@@ -575,8 +601,10 @@ export default function AskDundas() {
     setBulkStarting(true);
     setBulkError(null);
     setBulkJob(null);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 60000);
     try {
-      const started = await api.verifyRaBulk(bulkFiles);
+      const started = await api.verifyRaBulk(bulkFiles, { signal: controller.signal });
       setBulkJob({
         status: started.status ?? 'queued',
         total_files: bulkFiles.length,
@@ -586,8 +614,14 @@ export default function AskDundas() {
       });
       setBulkJobId(started.jobId);
     } catch (err) {
-      setBulkError(err.message);
+      if (err?.name === 'AbortError') {
+        toast.error('Verification timed out. Please try again.');
+        setBulkError('Verification timed out. Please try again.');
+      } else {
+        setBulkError(err.message);
+      }
     } finally {
+      clearTimeout(timeout);
       setBulkStarting(false);
     }
   }
