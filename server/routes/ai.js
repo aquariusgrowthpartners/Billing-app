@@ -207,8 +207,49 @@ function findClaimForRecord(record, agencyId) {
   return best;
 }
 
+/**
+ * Vision models sometimes return labels ("PATIENT/CLIENT", "Member ID") while
+ * the text path returns snake_case keys. Canonicalize both before comparison.
+ */
+function normalizeRaRecord(record) {
+  if (!record || typeof record !== 'object') return record;
+  const value = (...keys) => {
+    for (const key of keys) {
+      const candidate = record[key];
+      if (candidate !== undefined && candidate !== null && String(candidate).trim() !== '') {
+        return candidate;
+      }
+    }
+    return undefined;
+  };
+
+  return {
+    ...record,
+    member_id: value('member_id', 'memberId', 'Member ID', 'MemberId', 'member id'),
+    client_name: value(
+      'client_name',
+      'clientName',
+      'Client Name',
+      'PATIENT/CLIENT',
+      'Patient/Client',
+      'Patient Name',
+      'patient_name',
+      'Client'
+    ),
+    date_of_service: value(
+      'date_of_service',
+      'dateOfService',
+      'Date of Service',
+      'date of service',
+      'DOS'
+    ),
+    amount_paid: value('amount_paid', 'amountPaid', 'Amount Paid', 'amount paid', 'Paid Amount'),
+  };
+}
+
 /** Compare one extracted record with its DB claim. */
 function verifyRecord(record, agencyId) {
+  record = normalizeRaRecord(record);
   const claim = findClaimForRecord(record, agencyId);
   if (!claim) {
     return {
