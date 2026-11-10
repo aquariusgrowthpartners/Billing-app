@@ -10,7 +10,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import pLimit from 'p-limit';
-import { normalizePdfRotation, extractPdfPage } from '../pdfImage.js';
+import { normalizePdfRotation, extractPdfPages } from '../pdfImage.js';
 import {
   extractRaWithAzureDocIntel,
   extractRaWithAzureVision,
@@ -533,7 +533,7 @@ async function processRaFile(file, agencyId) {
 
   if (isPdf) {
     const uprightBuffer = await normalizePdfRotation(file.buffer);
-    const pagePdf = await extractPdfPage(uprightBuffer, 3);
+    const pagePdf = await extractPdfPages(uprightBuffer, 3);
     const vision = await extractRaWithAzureVision(
       pagePdf.toString('base64'),
       agencyId,

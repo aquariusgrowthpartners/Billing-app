@@ -42,14 +42,20 @@ export async function renderPdfPagePng(buffer, pageNumber = 3) {
   }
 }
 
-/** Keep only one page as a standalone PDF for Vision's input_file payload. */
-export async function extractPdfPage(buffer, pageNumber = 3) {
+/** Copy Page 3 through the final page into one standalone Vision PDF. */
+export async function extractPdfPages(buffer, startPage = 3) {
   const src = await PDFDocument.load(buffer);
-  const pageNo = Math.min(Math.max(Number(pageNumber) || 1, 1), src.getPageCount());
+  const total = src.getPageCount();
+  const first = Math.min(Math.max(Number(startPage) || 1, 1), total);
+  const indices = Array.from({ length: total - first + 1 }, (_, index) => first - 1 + index);
   const out = await PDFDocument.create();
-  const [page] = await out.copyPages(src, [pageNo - 1]);
-  page.setRotation(degrees(0));
-  out.addPage(page);
-  console.log(`[PDF-IMAGE] Extracted page ${pageNo} of ${src.getPageCount()} as a one-page PDF.`);
+  const pages = await out.copyPages(src, indices);
+  for (const page of pages) {
+    page.setRotation(degrees(0));
+    out.addPage(page);
+  }
+  console.log(
+    `[VISION-SLICE] Extracted pages ${first} to ${total} for Vision processing.`
+  );
   return Buffer.from(await out.save());
 }

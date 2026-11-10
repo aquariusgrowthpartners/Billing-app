@@ -9,7 +9,7 @@
  * function used by /api/ai/verify-ra.
  */
 import fs from 'node:fs';
-import { normalizePdfRotation, extractPdfPage } from './server/pdfImage.js';
+import { normalizePdfRotation, extractPdfPages } from './server/pdfImage.js';
 import { extractRaWithAzureVision } from './server/aiService.js';
 
 const fixture =
@@ -18,7 +18,7 @@ const fixture =
 
 const buffer = fs.readFileSync(fixture);
 const upright = await normalizePdfRotation(buffer);
-const pagePdf = await extractPdfPage(upright, 3);
+const pagePdf = await extractPdfPages(upright, 3);
 const result = await extractRaWithAzureVision(
   pagePdf.toString('base64'),
   1,
