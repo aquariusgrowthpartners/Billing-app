@@ -117,6 +117,7 @@ const SUGGESTIONS = [
 const VISION_STATUS_LABEL = {
   match: 'Match',
   mismatch: 'Mismatch',
+  reversal: 'Reversal',
   missing_in_db: 'Missing in DB',
   needs_review: 'Needs review',
   unmatched_ra: 'Unmatched RA',
@@ -928,7 +929,7 @@ export default function AskDundas() {
                                       {VISION_STATUS_LABEL[record.unmatched ? 'unmatched_ra' : status] ??
                                         status}
                                     </span>
-                                    {status === 'mismatch' && (
+                                    {(status === 'mismatch' || status === 'reversal') && (
                                       <button
                                         type="button"
                                         className="btn tiny ask-ai-why"
@@ -1014,7 +1015,7 @@ export default function AskDundas() {
                             {record.discrepancy && (
                               <p className="ask-vision-card-note">{record.discrepancy}</p>
                             )}
-                            {status === 'mismatch' && (
+                            {(status === 'mismatch' || status === 'reversal') && (
                               <button
                                 type="button"
                                 className="btn tiny ask-ai-why"

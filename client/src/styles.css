@@ -8626,3 +8626,13 @@ body {
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.02em;
 }
+
+.ask-vision-badge.reversal {
+  background: #f3e8ff;
+  color: #7e22ce;
+}
+
+[data-theme='dark'] .ask-vision-badge.reversal {
+  background: #2e1a3d;
+  color: #d8b4fe;
+}

@@ -490,10 +490,20 @@ export function groupRecordsByClaim(records, agencyId) {
     const primary = eligible[0];
     let status;
     let discrepancy = null;
+    const isReversal = raTotal < 0;
 
     if (!amounts.length || !Number.isFinite(dbAmount)) {
       status = 'mismatch';
       discrepancy = 'Could not parse amount';
+    } else if (isReversal) {
+      const takenBack = roundMoney(Math.abs(raTotal));
+      status = 'reversal';
+      discrepancy =
+        Math.abs(takenBack - dbAmount) < 0.01
+          ? `Reversal: The state took back ${money(takenBack)}.`
+          : `Reversal: The state took back ${money(takenBack)}; DB shows ${money(
+              dbAmount
+            )}.`;
     } else if (Math.abs(raTotal - dbAmount) < 0.01) {
       status = 'match';
     } else {
@@ -519,6 +529,7 @@ export function groupRecordsByClaim(records, agencyId) {
       db_data: claim,
       status,
       discrepancy,
+      ...(isReversal ? { reversal: true, reversal_amount: roundMoney(Math.abs(raTotal)) } : {}),
     });
   }
 
