@@ -784,50 +784,70 @@ export function docIntelTableRows(tables) {
       grid.get(row).set(col, String(cell?.content ?? '').trim());
     }
     const ordered = [...grid.keys()].sort((a, b) => a - b);
-    let header = null;
     for (const rowIndex of ordered) {
       const values = grid.get(rowIndex);
-      const upper = [...values.values()].map((value) => value.toUpperCase());
-      if (upper.includes('CHARGE') && upper.includes('PAYMENT')) {
-        header = { rowIndex, values };
-        break;
-      }
-    }
-    if (!header) return;
-    const indexOf = (label) =>
-      [...header.values.entries()].find(
-        ([, value]) => value.toUpperCase() === label
-      )?.[0] ?? -1;
-    const chargeCol = indexOf('CHARGE');
-    const paymentCol = indexOf('PAYMENT');
-    const patientCol =
-      indexOf('PATIENT') >= 0
-        ? indexOf('PATIENT')
-        : indexOf('CLIENT') >= 0
-          ? indexOf('CLIENT')
-          : -1;
-    for (const rowIndex of ordered) {
-      if (rowIndex <= header.rowIndex) continue;
-      const values = grid.get(rowIndex);
-      const all = [...values.values()];
+      const all = [...values.entries()].sort((a, b) => a[0] - b[0]).map(([, v]) => v);
+      const sequence = all.find((value) => /^\d{2}$/.test(value));
       const dateValue = all.find((value) => /\d{2}-\d{2}-\d{2}/.test(value));
-      if (!dateValue) continue;
-      const paidText = values.get(paymentCol) ?? '';
-      const chargeText = values.get(chargeCol) ?? '';
-      const paidMatch = String(paidText).match(/-?\d[\d,]*\.\d{2}/);
-      const chargeMatch = String(chargeText).match(/-?\d[\d,]*\.\d{2}/);
+      if (!sequence || !dateValue) continue;
+      const decimals = all
+        .map((value) => String(value).match(/-?\d[\d,]*\.\d{2}/)?.[0])
+        .filter(Boolean)
+        .map((value) => Number(value.replace(/,/g, '')))
+        .filter(Number.isFinite);
+      if (decimals.length < 2) continue;
+      // Structured cells: CHARGE is the first decimal, PAYMENT is the last.
+      // The adjustment cell in between is never used as payment.
       const date = parseDateRange(dateValue).start;
-      if (!date || !paidMatch) continue;
+      if (!date) continue;
       rows.push({
         tableIndex,
-        client_name: patientCol >= 0 ? values.get(patientCol) ?? null : null,
         date,
-        paid: Number(paidMatch[0].replace(/,/g, '')),
-        charge: chargeMatch ? Number(chargeMatch[0].replace(/,/g, '')) : null,
+        paid: decimals[decimals.length - 1],
+        charge: decimals[0],
       });
     }
   });
   return rows;
+}
+
+function docIntelTableTotals(tables) {
+  const totals = new Map();
+  (Array.isArray(tables) ? tables : []).forEach((table, tableIndex) => {
+    const cells = Array.isArray(table?.cells) ? table.cells : [];
+    const ordered = cells
+      .map((cell) => ({
+        row: Number(cell?.rowIndex) || 0,
+        col: Number(cell?.columnIndex) || 0,
+        content: String(cell?.content ?? '').trim(),
+      }))
+      .sort((a, b) => a.row - b.row || a.col - b.col);
+    let paid = null;
+    let charge = null;
+    for (let i = 0; i < ordered.length; i += 1) {
+      const cell = ordered[i];
+      if (!/TOTAL\s+PAYMENT/i.test(cell.content)) continue;
+      const inline = cell.content.match(/TOTAL\s+PAYMENT\s*:?\s*([\d,]+\.\d{2})/i);
+      if (inline) {
+        paid = Number(inline[1].replace(/,/g, ''));
+        break;
+      }
+      const next = ordered.slice(i + 1).find((candidate) => /^[\d,]+\.\d{2}$/.test(candidate.content));
+      if (next) {
+        paid = Number(next.content.replace(/,/g, ''));
+        break;
+      }
+    }
+    for (const cell of ordered) {
+      const match = cell.content.match(/TOTAL\s+CHARGE\s*:?\s*([\d,]+\.\d{2})/i);
+      if (match) {
+        charge = Number(match[1].replace(/,/g, ''));
+        break;
+      }
+    }
+    totals.set(tableIndex, { paid, charge });
+  });
+  return totals;
 }
 
 /**
@@ -858,19 +878,27 @@ async function processRaFile(file, agencyId) {
 
     const parsed = parseRemittance(rawText);
     const tableRows = docIntelTableRows(extracted?.tables);
+    const tableTotals = docIntelTableTotals(extracted?.tables);
     console.log(`[DOC-INTEL] Structured table rows: ${tableRows.length}`);
-    const tableIndices = [...new Set(tableRows.map((row) => row.tableIndex))];
-    const alignedTables = tableIndices.length === (parsed.clients?.length ?? 0);
+    const tableIndices = [...new Set(tableRows.map((row) => row.tableIndex))].sort(
+      (a, b) => a - b
+    );
+    const validClients = (parsed.clients ?? []).filter(
+      (client) => client.dos_start && client.dos_end && client.line_items?.length
+    );
+    const alignedTables = tableIndices.length === validClients.length;
     const records = [];
 
-    for (const [clientIndex, client] of (parsed.clients ?? []).entries()) {
+    for (const [clientIndex, client] of validClients.entries()) {
+      const tableIndex = tableIndices[clientIndex];
       const tableRowsForClient = alignedTables
-        ? tableRows.filter((row) => row.tableIndex === tableIndices[clientIndex])
+        ? tableRows.filter((row) => row.tableIndex === tableIndex)
         : tableRows.filter(
             (row) =>
               row.client_name &&
               normalizeName(row.client_name) === normalizeName(client.client_name)
           );
+      const tableTotal = tableTotals.get(tableIndex) ?? {};
       const sourceItems = tableRowsForClient.length
         ? tableRowsForClient
         : (client.line_items ?? []).map((item) => ({
@@ -893,8 +921,10 @@ async function processRaFile(file, agencyId) {
           client_name: client.client_name,
           member_id: client.patient_id ?? null,
           claim_status: client.claim_status ?? null,
-          claim_total_paid: client.claim_total_paid ?? client.total_payment ?? null,
-          claim_total_charge: client.claim_total_charge ?? client.total_charge ?? null,
+          claim_total_paid:
+            tableTotal.paid ?? client.claim_total_paid ?? client.total_payment ?? null,
+          claim_total_charge:
+            tableTotal.charge ?? client.claim_total_charge ?? client.total_charge ?? null,
           date_of_service: dateOfService,
           amount_paid: item.paid,
           charge_amount: item.charge ?? item.billed ?? null,
