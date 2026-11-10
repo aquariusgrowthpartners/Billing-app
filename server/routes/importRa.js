@@ -2039,64 +2039,21 @@ router.post('/save', (req, res) => {
           : row.procedure_code ?? null;
 
       /* ---------------------------------------------------------- claims */
-      let claimId = null;
-
-      if (action === 'mark_paid' && dosStart && dosEnd) {
-        // Most recent claim whose period overlaps the DOS range.
-        const existing = db
-          .prepare(
-            `SELECT * FROM claims
-             WHERE client_id = ? AND period_start IS NOT NULL AND period_end IS NOT NULL
-               AND period_start <= ? AND period_end >= ?
-             ORDER BY period_start DESC, id DESC
-             LIMIT 1`
-          )
-          .get(clientId, dosEnd, dosStart);
-
-        if (existing) {
-          // Name and submitted_date are deliberately preserved.
-          db.prepare(
-            `UPDATE claims
-                SET status = 'Paid', paid_date = ?, paid_amount = ?,
-                    client_name_raw = ?, member_id = ?, date_of_service = ?,
-                    charge_amount = ?, procedure_code = ?
-              WHERE id = ? AND agency_id = ?`
-          ).run(
-            today,
-            paidAmount,
-            row.client_name ?? `${client.first_name} ${client.last_name}`,
-            row.member_id ?? client.ma_number ?? null,
-            dateOfService,
-            chargeAmount,
-            procedureCode,
-            existing.id,
-            req.agencyId
-          );
-          claimId = existing.id;
-          summary.updated_claims += 1;
-        }
-      }
-
-      if (!claimId) {
-        // "Create New Claim", and "Mark as Paid" when nothing overlapped.
+      // Daily row model: one claims row per RA service date. The claim period
+      // stays the overall block period so period summaries still work.
+      if (!lineItems.length) {
         const periodStart = dosStart;
         const periodEnd = dosEnd;
         const { claim_name } = buildClaimName(client, periodStart, periodEnd);
-        const totalUnits = lineItems.reduce((sum, i) => sum + (Number(i.units) || 0), 0);
-        const totalDollars = round2(
-          lineItems.reduce((sum, i) => sum + (Number(i.billed) || 0), 0)
-        );
-        // May legitimately be null when the client has no agreement yet.
         const agreement = agreementFor(clientId, periodStart ?? today, req.agencyId);
-
         const params = bindNamed(CLAIM_INSERT_SQL, {
           claim_name,
           client_id: clientId,
           agreement_id: agreement?.id ?? null,
           period_start: periodStart,
           period_end: periodEnd,
-          total_units: totalUnits,
-          total_dollars: totalDollars,
+          total_units: 0,
+          total_dollars: chargeAmount ?? 0,
           paid_date: today,
           paid_amount: paidAmount,
           ra_import_id: raImportId,
@@ -2106,12 +2063,10 @@ router.post('/save', (req, res) => {
           date_of_service: dateOfService,
           charge_amount: chargeAmount,
           procedure_code: procedureCode,
-            agency: req.agencyId,
+          agency: req.agencyId,
         });
-        logStatement('INSERT claim', CLAIM_INSERT_SQL, params);
-
-        const info = db.prepare(CLAIM_INSERT_SQL).run(params);
-        claimId = Number(info.lastInsertRowid);
+        logStatement('INSERT fallback claim', CLAIM_INSERT_SQL, params);
+        db.prepare(CLAIM_INSERT_SQL).run(params);
         summary.created_claims += 1;
       }
 
@@ -2141,6 +2096,37 @@ router.post('/save', (req, res) => {
           );
           continue;
         }
+
+        const baseClaimName = buildClaimName(client, dosStart, dosEnd).claim_name;
+        const dailyClaimName = `${baseClaimName}_${item.date}`;
+        const dailyParams = bindNamed(CLAIM_INSERT_SQL, {
+          claim_name: dailyClaimName,
+          client_id: clientId,
+          agreement_id: agreement.id,
+          period_start: dosStart ?? item.date,
+          period_end: dosEnd ?? item.date,
+          total_units: Number(item.units) || 0,
+          total_dollars: round2(Number(item.billed) || 0),
+          paid_date: today,
+          paid_amount:
+            item.paid === null || item.paid === undefined || item.paid === ''
+              ? null
+              : Number(item.paid),
+          ra_import_id: raImportId,
+          ra_claim_number: row.claim_number ?? null,
+          client_name_raw: row.client_name ?? `${client.first_name} ${client.last_name}`,
+          member_id: row.member_id ?? client.ma_number ?? null,
+          date_of_service: item.date,
+          charge_amount:
+            item.billed === null || item.billed === undefined || item.billed === ''
+              ? null
+              : Number(item.billed),
+          procedure_code: item.procedure_code ?? null,
+          agency: req.agencyId,
+        });
+        logStatement(`INSERT daily claim ${item.date}`, CLAIM_INSERT_SQL, dailyParams);
+        const dailyClaimId = Number(db.prepare(CLAIM_INSERT_SQL).run(dailyParams).lastInsertRowid);
+        summary.created_claims += 1;
 
         // Caretaker: an explicit pick from the review screen wins, otherwise the
         // Rend Prov ID (NPI) is used. Absent both, the entry is left unassigned.
@@ -2181,14 +2167,12 @@ router.post('/save', (req, res) => {
           rate_per_unit: rate,
           dollars: round2(units * rate),
           notes: 'Imported from RA',
-          claim_id: null, // linked below, once the claim is known
+          claim_id: dailyClaimId,
           start_time: times.start_time,
           ra_import_id: raImportId,
-          // carried forward so a visit can be resolved against the agreement
-          // line that authorised its date, not just its stored agreement_id
           service_code: item.procedure_code ?? null,
           modifier: item.modifier ?? null,
-            agency: req.agencyId,
+          agency: req.agencyId,
         });
         logStatement(
           `INSERT day_entry ${item.date} (${times.start_time}-${times.end_time})` +
@@ -2199,25 +2183,6 @@ router.post('/save', (req, res) => {
 
         db.prepare(DAY_ENTRY_INSERT_SQL).run(params);
         summary.added_entries += 1;
-      }
-
-      /* --------------------------------------------- link to the claim */
-      if (claimId) {
-        const claim = db
-          .prepare(`SELECT * FROM claims WHERE id = ? AND agency_id = ?`)
-          .get(claimId, req.agencyId);
-        if (claim?.period_start && claim?.period_end) {
-          // Only entries this import created are linked: attaching a manual
-          // entry to a claim would be modifying user-entered data.
-          const linked = db
-            .prepare(
-              `UPDATE day_entries SET claim_id = ?
-               WHERE client_id = ? AND claim_id IS NULL AND source = 'ra_import'
-                   AND work_date >= ? AND work_date <= ? AND agency_id = ?`
-            )
-            .run(claimId, clientId, claim.period_start, claim.period_end, req.agencyId);
-          summary.linked_entries += linked.changes;
-        }
       }
     }
   });

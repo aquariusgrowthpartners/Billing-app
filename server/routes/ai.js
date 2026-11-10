@@ -180,7 +180,7 @@ const DATE_WINDOW_DAYS = 14;
 
 const DB_CLAIM_SELECT = `
   SELECT cl.id, cl.claim_name, cl.status, cl.period_start, cl.period_end,
-         cl.paid_amount, cl.total_dollars,
+         cl.date_of_service, cl.paid_amount, cl.total_dollars,
          cu.id AS client_id, cu.first_name, cu.last_name, cu.ma_number,
          cu.alternative_names
     FROM claims cl
@@ -218,6 +218,8 @@ function findClaimForRecord(record, agencyId) {
   let bestScore = 0;
   let bestOverlapping = null;
   let bestOverlappingScore = 0;
+  let bestExactDate = null;
+  let bestExactDateScore = 0;
 
   for (const claim of candidates) {
     const primaryName = `${claim.first_name ?? ''} ${claim.last_name ?? ''}`;
@@ -250,12 +252,23 @@ function findClaimForRecord(record, agencyId) {
       bestOverlapping = claim;
       bestOverlappingScore = score;
     }
+    if (
+      claim.date_of_service &&
+      claim.date_of_service === range.start &&
+      score > bestExactDateScore
+    ) {
+      bestExactDate = claim;
+      bestExactDateScore = score;
+    }
     if (score > bestScore) {
       best = claim;
       bestScore = score;
     }
   }
 
+  if (bestExactDate && bestExactDateScore >= NAME_MATCH_THRESHOLD) {
+    return bestExactDate;
+  }
   if (bestOverlapping && bestOverlappingScore >= NAME_MATCH_THRESHOLD) {
     return bestOverlapping;
   }
@@ -454,15 +467,106 @@ export function groupRecordsByClaim(records, agencyId) {
       continue;
     }
 
-    const key = String(claim.id);
+    const key = claim.date_of_service
+      ? `${claim.client_id}|${claim.period_start}|${claim.period_end}`
+      : String(claim.id);
     if (!groups.has(key)) groups.set(key, { claim, records: [] });
-    groups.get(key).records.push(record);
+    groups.get(key).records.push({ record, claim });
   }
 
   const results = [...needsReview];
-  for (const { claim, records: claimRecords } of groups.values()) {
+  for (const { claim, records: groupedRecords } of groups.values()) {
+    const dailyGroup = groupedRecords.some((entry) => entry.claim.date_of_service);
+    const claimRecords = groupedRecords.map((entry) => entry.record);
     const periodStart = parseDateRange(claim.period_start).start;
     const periodEnd = parseDateRange(claim.period_end).end;
+
+    if (dailyGroup) {
+      const daily = groupedRecords
+        .map(({ record, claim: dayClaim }) => {
+          const raAmount = parseCurrency(record.amount_paid);
+          const dbAmount = parseCurrency(dayClaim.paid_amount);
+          const statusText = String(
+            record.claim_status ?? record.claimStatus ?? ''
+          ).toUpperCase();
+          const reversal = statusText.includes('REVERSAL') || raAmount < 0;
+          const denied = statusText.includes('DENIED') || statusText.includes('DENY');
+          let status = 'paid';
+          let discrepancy = null;
+          if (denied) {
+            status = 'denied';
+            discrepancy = 'Denied by the payer.';
+          } else if (reversal) {
+            status = 'reversal';
+            discrepancy = `Reversal: The state took back ${money(Math.abs(raAmount))}.`;
+          } else if (!Number.isFinite(raAmount) || !Number.isFinite(dbAmount)) {
+            status = 'mismatch';
+            discrepancy = 'Could not parse amount';
+          } else if (Math.abs(raAmount - dbAmount) >= 0.01) {
+            status = 'mismatch';
+            discrepancy = `Amount mismatch: RA ${money(raAmount)}, DB ${money(dbAmount)}.`;
+          }
+          return {
+            date_of_service: record.date_of_service,
+            charge_amount: parseCurrency(record.charge_amount),
+            amount_paid: raAmount,
+            db_paid: dbAmount,
+            db_claim_id: dayClaim.id,
+            status,
+            discrepancy,
+          };
+        })
+        .filter((day) => day.date_of_service);
+
+      if (!daily.length) {
+        unmatched.push(...claimRecords);
+        continue;
+      }
+
+      const raTotal = roundMoney(daily.reduce((sum, day) => sum + (day.amount_paid || 0), 0));
+      const chargeTotal = roundMoney(daily.reduce((sum, day) => sum + (day.charge_amount || 0), 0));
+      const dbTotal = roundMoney(daily.reduce((sum, day) => sum + (day.db_paid || 0), 0));
+      const primary = daily[0];
+      const primaryRecord = groupedRecords[0].record;
+      const statuses = new Set(daily.map((day) => day.status));
+      let status = 'paid';
+      let discrepancy = null;
+      if (statuses.has('mismatch')) {
+        status = 'mismatch';
+        discrepancy = daily.find((day) => day.discrepancy)?.discrepancy ?? null;
+      } else if (statuses.has('reversal')) {
+        status = 'reversal';
+        discrepancy = daily.find((day) => day.status === 'reversal')?.discrepancy ?? null;
+      } else if (statuses.has('denied')) {
+        status = 'denied';
+        discrepancy = 'Denied by the payer.';
+      }
+
+      results.push({
+        ra_data: {
+          ...primaryRecord,
+          claim_status: primaryRecord.claim_status ?? null,
+          amount_paid: raTotal,
+          charge_amount: chargeTotal,
+          date_of_service:
+            periodStart && periodEnd ? `${periodStart} to ${periodEnd}` : primary.date_of_service,
+          claim_period_start: periodStart,
+          claim_period_end: periodEnd,
+          daily_records: daily,
+        },
+        db_data: {
+          ...claim,
+          paid_amount: dbTotal,
+          total_dollars: chargeTotal,
+        },
+        status,
+        discrepancy,
+        ...(status === 'reversal'
+          ? { reversal: true, reversal_amount: Math.abs(raTotal) }
+          : {}),
+      });
+      continue;
+    }
     const eligible = periodStart && periodEnd
       ? claimRecords.filter((record) => {
           const range = parseDateRange(record.date_of_service);

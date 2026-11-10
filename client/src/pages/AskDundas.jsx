@@ -999,6 +999,7 @@ export default function AskDundas() {
                                                 <th className="num">RA Billed</th>
                                                 <th className="num">RA Paid</th>
                                                 <th className="num">DB Paid</th>
+                                                <th>Status</th>
                                               </tr>
                                             </thead>
                                             <tbody>
@@ -1012,7 +1013,18 @@ export default function AskDundas() {
                                                     {dbAmountText(day.amount_paid)}
                                                   </td>
                                                   <td className="num">
-                                                    {dbAmountText(db.paid_amount)}
+                                                    {dbAmountText(day.db_paid ?? db.paid_amount)}
+                                                  </td>
+                                                  <td>
+                                                    <span
+                                                      className={`ask-vision-badge ${
+                                                        day.status ?? status
+                                                      }`}
+                                                    >
+                                                      {VISION_STATUS_LABEL[
+                                                        day.status ?? status
+                                                      ] ?? day.status ?? status}
+                                                    </span>
                                                   </td>
                                                 </tr>
                                               ))}
@@ -1080,7 +1092,8 @@ export default function AskDundas() {
                                       <strong>{day.date_of_service ?? '—'}</strong>
                                       <span>RA Billed {dbAmountText(day.charge_amount)}</span>
                                       <span>RA Paid {dbAmountText(day.amount_paid)}</span>
-                                      <span>DB Paid {dbAmountText(db.paid_amount)}</span>
+                                      <span>DB Paid {dbAmountText(day.db_paid ?? db.paid_amount)}</span>
+                                      <span>{VISION_STATUS_LABEL[day.status] ?? day.status}</span>
                                     </div>
                                   ))}
                                 </div>
