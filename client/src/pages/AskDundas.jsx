@@ -375,6 +375,8 @@ export default function AskDundas() {
   const visionEmpty = verifyResult?.status === 'success' && visionRecords.length === 0;
   const visionRawText =
     typeof verifyResult?.raw_text === 'string' ? verifyResult.raw_text : '';
+  const coverPageOnly =
+    visionEmpty && /remittance advice message/i.test(visionRawText);
   const recordWord = (n) => (n === 1 ? 'record' : 'records');
 
   async function copyRawText() {
@@ -797,7 +799,11 @@ export default function AskDundas() {
                 visionRawText ? (
                   <div className="ask-ai-raw" id="ask-ai-raw">
                     <div className="ask-ai-raw-head">
-                      <strong>AI could not format this document into JSON.</strong>
+                      <strong>
+                        {coverPageOnly
+                          ? 'No claims found in this document.'
+                          : 'AI could not format this document into JSON.'}
+                      </strong>
                       <button
                         type="button"
                         className="btn tiny"
@@ -808,7 +814,9 @@ export default function AskDundas() {
                       </button>
                     </div>
                     <p className="muted small" style={{ margin: 0 }}>
-                      Here is the raw text extracted by Azure Document Intelligence:
+                      {coverPageOnly
+                        ? 'The AI may have only read the cover page. Ensure you are uploading the full multi-page PDF.'
+                        : 'Here is the raw text extracted by Azure Document Intelligence:'}
                     </p>
                     <pre className="ask-ai-raw-text" tabIndex={0} aria-label="Raw extracted RA text">
                       {visionRawText}

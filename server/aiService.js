@@ -323,6 +323,13 @@ export async function summarise(text, { timeoutMs = 15000, agencyId = 1 } = {}) 
 const VISION_SYSTEM_PROMPT =
   'You are an expert medical billing auditor. The attached image is an RA (Remittance Advice) letter. It may be physically rotated sideways or upside down. Read the text regardless of orientation. Extract the Member ID, PATIENT/CLIENT name, Date of Service, and Amount Paid. Do NOT extract the Provider or Agency name from the top of the letter. You are looking for the PATIENT/CLIENT name and MEMBER ID. If the extracted name matches the Agency name, ignore it and look further down the document. Return ONLY a JSON array of extracted records, or [] if none. Do not include markdown formatting.';
 
+export const RA_TEXT_SYSTEM_PROMPT =
+  'You are an expert medical billing auditor. Extract the Patient/Client Name, Member ID, Date of Service, and Amount Paid from the provided text.\n' +
+  'CRITICAL: Page 1 is always a cover letter (Remittance Advice Message). The actual claim data begins on Page 2 and continues on subsequent pages.\n' +
+  'IGNORE the cover page. Do NOT extract the Provider name (e.g., DUNDAS HOME CARE LLC) as a client.\n' +
+  'If you find actual patient claim records with amounts, extract them. If the entire document contains only cover page notices and no claim data, return [].\n' +
+  'Return ONLY a valid JSON array.';
+
 function parseVisionJson(text) {
   const cleaned = String(text ?? '')
     .replace(/^```(?:json)?\s*/i, '')
@@ -503,7 +510,9 @@ export async function extractRaWithAzureDocIntel(fileBuffer, mimeType) {
       new Uint8Array(fileBuffer)
     );
     const result = await poller.pollUntilDone();
+    const pages = Array.isArray(result?.pages) ? result.pages : [];
     const tables = Array.isArray(result?.tables) ? result.tables : [];
+    console.log(`[DOC-INTEL] Total pages processed: ${pages.length}`);
     console.log(`[DOC-INTEL] Total tables detected: ${tables.length}`);
     tables.forEach((table, index) => {
       console.log(
@@ -514,7 +523,16 @@ export async function extractRaWithAzureDocIntel(fileBuffer, mimeType) {
     });
 
     const tableText = formatDocIntelTables(tables);
-    const pageText = String(result?.content ?? '').trim();
+    const pageLines = pages
+      .map((page) =>
+        (Array.isArray(page?.lines) ? page.lines : [])
+          .map((line) => String(line?.content ?? '').trim())
+          .filter(Boolean)
+          .join('\n')
+      )
+      .filter(Boolean)
+      .join('\n\n');
+    const pageText = pageLines || String(result?.content ?? '').trim();
     const text = [tableText, pageText].filter(Boolean).join('\n\n');
     console.log(`[DOC-INTEL] Extracted text length: ${text.length} characters`);
     console.log(`[DOC-INTEL] Sample: ${text.slice(0, 1000)}`);

@@ -11,7 +11,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import pLimit from 'p-limit';
-import { extractRaWithAzureDocIntel, complete } from '../aiService.js';
+import { extractRaWithAzureDocIntel, complete, RA_TEXT_SYSTEM_PROMPT } from '../aiService.js';
 import db from '../db.js';
 
 const router = express.Router();
@@ -283,8 +283,7 @@ async function processRaFile(file, agencyId) {
       16000
     )}\n\nExtract the records.`,
     {
-      system:
-        'You are an expert medical billing auditor. Extract the Patient/Client Name, Member ID, Date of Service, and Amount Paid from the provided text. Return ONLY a valid JSON array. Example: [{"client_name": "...", "member_id": "...", "date_of_service": "...", "amount_paid": "..."}]. If the document is entirely empty or contains zero billing records, return [].',
+      system: RA_TEXT_SYSTEM_PROMPT,
       timeoutMs: 60000,
       agencyId,
       maxOutputTokens: 4000,
