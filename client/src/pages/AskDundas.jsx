@@ -887,8 +887,8 @@ export default function AskDundas() {
                           <tr>
                             <th>Client</th>
                             <th>Claim Period</th>
-                            <th className="num">RA Total</th>
-                            <th className="num">DB Total</th>
+                            <th className="num">RA Paid</th>
+                            <th className="num">DB Paid</th>
                             <th>Status</th>
                           </tr>
                         </thead>
@@ -897,6 +897,7 @@ export default function AskDundas() {
                             const ra = record.ra_data ?? record;
                             const db = record.db_data ?? {};
                             const status = record.status ?? 'missing_in_db';
+                            const daily = Array.isArray(ra.daily_records) ? ra.daily_records : [];
                             return (
                               <React.Fragment key={index}>
                                 <tr>
@@ -923,6 +924,43 @@ export default function AskDundas() {
                                     <td colSpan={5}>{record.discrepancy}</td>
                                   </tr>
                                 )}
+                                {daily.length > 0 && (
+                                  <tr>
+                                    <td colSpan={5}>
+                                      <details className="ask-vision-details">
+                                        <summary>Expand Details</summary>
+                                        <div className="ask-vision-daily-wrap">
+                                          <table className="ask-vision-daily">
+                                            <thead>
+                                              <tr>
+                                                <th>Date</th>
+                                                <th className="num">RA Billed</th>
+                                                <th className="num">RA Paid</th>
+                                                <th className="num">DB Paid</th>
+                                              </tr>
+                                            </thead>
+                                            <tbody>
+                                              {daily.map((day, dayIndex) => (
+                                                <tr key={`${day.date_of_service}-${dayIndex}`}>
+                                                  <td>{day.date_of_service ?? '—'}</td>
+                                                  <td className="num">
+                                                    {dbAmountText(day.charge_amount)}
+                                                  </td>
+                                                  <td className="num">
+                                                    {dbAmountText(day.amount_paid)}
+                                                  </td>
+                                                  <td className="num">
+                                                    {dbAmountText(db.paid_amount)}
+                                                  </td>
+                                                </tr>
+                                              ))}
+                                            </tbody>
+                                          </table>
+                                        </div>
+                                      </details>
+                                    </td>
+                                  </tr>
+                                )}
                               </React.Fragment>
                             );
                           })}
@@ -935,6 +973,7 @@ export default function AskDundas() {
                         const ra = record.ra_data ?? record;
                         const db = record.db_data ?? {};
                         const status = record.status ?? 'missing_in_db';
+                        const daily = Array.isArray(ra.daily_records) ? ra.daily_records : [];
                         return (
                           <div className="ask-vision-card" key={index}>
                             <div className="ask-vision-card-top">
@@ -949,11 +988,29 @@ export default function AskDundas() {
                               {claimPeriodText(ra)}
                             </div>
                             <div className="ask-vision-card-amounts">
-                              <span>RA Total {visionAmount(ra)}</span>
-                              <span>DB Total {dbAmountText(db.paid_amount)}</span>
+                              <span>RA Paid {visionAmount(ra)}</span>
+                              <span>DB Paid {dbAmountText(db.paid_amount)}</span>
                             </div>
                             {record.discrepancy && (
                               <p className="ask-vision-card-note">{record.discrepancy}</p>
+                            )}
+                            {daily.length > 0 && (
+                              <details className="ask-vision-details">
+                                <summary>Expand Details</summary>
+                                <div className="ask-vision-daily-list">
+                                  {daily.map((day, dayIndex) => (
+                                    <div
+                                      className="ask-vision-daily-item"
+                                      key={`${day.date_of_service}-${dayIndex}`}
+                                    >
+                                      <strong>{day.date_of_service ?? '—'}</strong>
+                                      <span>RA Billed {dbAmountText(day.charge_amount)}</span>
+                                      <span>RA Paid {dbAmountText(day.amount_paid)}</span>
+                                      <span>DB Paid {dbAmountText(db.paid_amount)}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </details>
                             )}
                           </div>
                         );

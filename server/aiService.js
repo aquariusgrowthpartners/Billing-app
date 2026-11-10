@@ -325,7 +325,7 @@ const VISION_SYSTEM_PROMPT =
 
 export const RA_TEXT_SYSTEM_PROMPT =
   'You are an expert medical billing auditor. The following text was extracted using OCR from an RA letter. It contains a cover page followed by claims tables. IGNORE the cover page. Look for the claims table (usually starting with \'PATIENT\', \'DATES OF SERVICE\', \'AMOUNT\'). Extract every patient claim record.\n' +
-  'The columns from left to right are typically: Client, Member ID, Date, Code, Charge, Paid. You MUST extract the \'PAID\' or \'AMOUNT\' column (usually the rightmost or second-to-last numeric column with decimals like 98.52). Do NOT confuse it with \'TOTAL CHARGE\' or \'ADJ AMT\'.\n' +
+  'The columns from left to right are typically: Client, Member ID, Date, Code, Charge, Paid. Extract the CHARGE amount and the PAYMENT amount separately. CHARGE maps to charge_amount; PAYMENT or TOTAL PAYMENT maps to paid_amount. The PAYMENT amount is the actual amount paid by the state; never use CHARGE as the paid amount.\n' +
   'If the OCR text has dates mashed together without spaces (e.g., \'03-20-2603-21-26\'), split them into separate records for each date. If there is a daily breakdown, use each day\'s own amount; never duplicate a single period total across days.\n' +
   'Return ONLY a valid JSON array.';
 
@@ -469,7 +469,7 @@ export async function verifyRaDocument(
 /* ------------------------------------------------------ native PDF vision */
 
 const VISION_PDF_SYSTEM_PROMPT =
-  'You are an expert medical billing auditor. This is an upright RA letter. Read the claims table. Extract Patient Name, Member ID, Date, and the PAID column (e.g., 98.52). Do not do any math. Return ONLY a JSON array.';
+  'You are an expert medical billing auditor. This is an upright RA letter. Read the claims table. Extract Patient Name, Member ID, Date, CHARGE, and PAYMENT amounts separately. The PAYMENT amount is the actual amount paid by the state; never use CHARGE as the paid amount. Do not do any math. Return ONLY a JSON array.';
 
 /**
  * Send the original PDF to Azure OpenAI's native file input. This avoids

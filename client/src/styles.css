@@ -8538,3 +8538,71 @@ body {
   font-size: 12px;
   overflow-wrap: anywhere;
 }
+
+.ask-vision-details {
+  margin-top: 6px;
+}
+
+.ask-vision-details summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.ask-vision-daily-wrap {
+  margin-top: 8px;
+  overflow-x: auto;
+}
+
+.ask-vision-daily {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.ask-vision-daily th,
+.ask-vision-daily td {
+  padding: 6px 8px;
+  border-top: 1px solid var(--border);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.ask-vision-daily th {
+  color: var(--muted);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.ask-vision-daily .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.ask-vision-daily-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.ask-vision-daily-item {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px 10px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 11px;
+}
+
+.ask-vision-daily-item strong {
+  grid-column: 1 / -1;
+}
+
+.ask-vision-daily-item span {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}

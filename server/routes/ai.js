@@ -449,7 +449,11 @@ export function groupRecordsByClaim(records, agencyId) {
     const amounts = eligible
       .map((record) => parseCurrency(record.amount_paid))
       .filter(Number.isFinite);
+    const charges = eligible
+      .map((record) => parseCurrency(record.charge_amount))
+      .filter(Number.isFinite);
     const raTotal = roundMoney(amounts.reduce((sum, amount) => sum + amount, 0));
+    const chargeTotal = roundMoney(charges.reduce((sum, amount) => sum + amount, 0));
     const dbAmount = parseCurrency(claim.paid_amount);
     const primary = eligible[0];
     let status;
@@ -469,12 +473,14 @@ export function groupRecordsByClaim(records, agencyId) {
       ra_data: {
         ...primary,
         amount_paid: raTotal,
+        charge_amount: chargeTotal,
         date_of_service:
           periodStart && periodEnd ? `${periodStart} to ${periodEnd}` : primary.date_of_service,
         claim_period_start: periodStart,
         claim_period_end: periodEnd,
         daily_records: eligible.map((record) => ({
           date_of_service: record.date_of_service,
+          charge_amount: parseCurrency(record.charge_amount),
           amount_paid: parseCurrency(record.amount_paid),
         })),
       },

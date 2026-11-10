@@ -1973,9 +1973,14 @@ router.post('/save', (req, res) => {
         : null;
       const npiCaretaker = caretakerByNpi(providerNpi, req.agencyId);
       let warnedMissingNpi = false;
+      const linePaidTotal = round2(
+        lineItems.reduce((sum, item) => sum + (Number(item.paid) || 0), 0)
+      );
       const paidAmount =
         row.total_payment === null || row.total_payment === undefined || row.total_payment === ''
-          ? null
+          ? lineItems.length
+            ? linePaidTotal
+            : null
           : Number(row.total_payment);
 
       const lineDates = [
