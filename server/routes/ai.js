@@ -11,6 +11,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import pLimit from 'p-limit';
+import { PDFDocument, degrees } from 'pdf-lib';
 import {
   extractRaWithAzureDocIntel,
   extractRaWithAzureVision,
@@ -499,6 +500,33 @@ function parseJsonRecords(text) {
 }
 
 /**
+ * Normalize PDF page rotation metadata before sending the file to Vision.
+ * pdf-lib preserves the page content while changing each page's rotation to 0.
+ */
+async function normalizePdfRotation(buffer) {
+  try {
+    const pdf = await PDFDocument.load(buffer);
+    let changed = false;
+    for (const page of pdf.getPages()) {
+      const rawAngle = page.getRotation()?.angle ?? 0;
+      const angle = ((rawAngle % 360) + 360) % 360;
+      if (angle !== 0) {
+        console.log(
+          `[PDF-ROTATION] Detected rotation: ${angle} degrees. Rotated to 0.`
+        );
+        page.setRotation(degrees(0));
+        changed = true;
+      }
+    }
+    if (!changed) return buffer;
+    return Buffer.from(await pdf.save());
+  } catch (err) {
+    console.warn(`[PDF-ROTATION] Could not normalize PDF: ${err.message}`);
+    return buffer;
+  }
+}
+
+/**
  * Process one uploaded RA file with the shared single-file/bulk pipeline:
  * Azure Document Intelligence → text completion → claim comparison.
  */
@@ -508,8 +536,9 @@ async function processRaFile(file, agencyId) {
 
   if (isPdf) {
     console.log('[VISION-PDF] Native PDF (input_file) used');
+    const uprightBuffer = await normalizePdfRotation(file.buffer);
     const vision = await extractRaWithAzureVision(
-      file.buffer.toString('base64'),
+      uprightBuffer.toString('base64'),
       agencyId
     );
     if (vision.error) {

@@ -469,13 +469,7 @@ export async function verifyRaDocument(
 /* ------------------------------------------------------ native PDF vision */
 
 const VISION_PDF_SYSTEM_PROMPT =
-  'You are an expert medical billing auditor. This document contains claims tables printed sideways (rotated 90 degrees).\n' +
-  'Because the table is sideways, the columns on the page represent the rows of data.\n' +
-  'Read DOWN each column to align the data correctly.\n' +
-  'For example, you will see a column of Dates (e.g., 08-09-25, 08-16-25), a column of Patient Names (e.g., MATTSON, SAMANTHA), and a column of Amounts (e.g., 98.52, 111.68).\n' +
-  'Match the 1st Date to the 1st Amount, the 2nd Date to the 2nd Amount, etc.\n' +
-  'Extract Patient Name, Member ID, Date, and PAID Amount for each row.\n' +
-  'Return ONLY a valid JSON array.';
+  'You are an expert medical billing auditor. This is a multi-page RA letter with standard, upright claims tables. Read the table. Extract Patient Name, Member ID, Date of Service, and the PAID column (which has decimals like 98.52). Return ONLY a valid JSON array.';
 
 /**
  * Send the original PDF to Azure OpenAI's native file input. This avoids
