@@ -620,6 +620,14 @@ router.get('/audit', (req, res) => {
     .filter((r) => !ignoredBy(r.file_name))
     .sort((a, b) => iso(sortKey(a)).localeCompare(iso(sortKey(b))));
   const ignored = all.filter((r) => ignoredBy(r.file_name));
+  const imported = db
+    .prepare(
+      `SELECT COUNT(*) AS n, COALESCE(SUM(paid_amount), 0) AS paid
+         FROM claims
+        WHERE agency_id = ?
+          AND (ra_import_id IS NOT NULL OR source = 'ra_import')`
+    )
+    .get(req.agencyId);
 
   res.json({
     files,
@@ -627,11 +635,14 @@ router.get('/audit', (req, res) => {
     totals: {
       files: files.length,
       claims: files.reduce((s, r) => s + r.claim_count, 0),
+      imported_claims: Number(imported.n ?? 0),
+      imported_paid: round2(imported.paid),
       // files that produced nothing are the ones to look at
       unknown: files.filter((r) => !r.counts_known).length,
       empty: files.filter((r) => r.counts_known && r.claim_count === 0 && r.denial_count === 0).length,
       orphaned: files.filter((r) => r.orphaned).length,
     },
+    has_imported_data: files.length > 0 || Number(imported.n ?? 0) > 0,
   });
 });
 
@@ -665,8 +676,57 @@ function resolveAuditRows(fileRowIds, agencyId) {
  * count but still count toward `imports`, so the modal's title matches the
  * number of ticked rows.
  */
-function bulkFootprint(fileRowIds, agencyId) {
-  const { imports, emptyFileRows, rows } = resolveAuditRows(fileRowIds, agencyId);
+function allImportedFootprint(agencyId) {
+  const claims = db
+    .prepare(
+      `SELECT COUNT(*) n, COALESCE(SUM(paid_amount), 0) total
+         FROM claims
+        WHERE agency_id = ?
+          AND (ra_import_id IS NOT NULL OR source = 'ra_import')`
+    )
+    .get(agencyId);
+  const deniedClaims = db
+    .prepare(
+      `SELECT COUNT(*) n FROM denied_claims WHERE agency_id = ? AND ra_import_id IS NOT NULL`
+    )
+    .get(agencyId).n;
+  const deniedLines = db
+    .prepare(
+      `SELECT COUNT(*) n FROM denied_line_items
+        WHERE agency_id = ? AND denied_claim_id IN (
+          SELECT id FROM denied_claims WHERE agency_id = ? AND ra_import_id IS NOT NULL
+        )`
+    )
+    .get(agencyId, agencyId).n;
+  const rebillTasks = db
+    .prepare(
+      `SELECT COUNT(*) n FROM rebill_tasks
+        WHERE agency_id = ? AND denied_line_item_id IN (
+          SELECT li.id FROM denied_line_items li
+          JOIN denied_claims dc ON dc.id = li.denied_claim_id
+          WHERE li.agency_id = ? AND dc.agency_id = ? AND dc.ra_import_id IS NOT NULL
+        )`
+    )
+    .get(agencyId, agencyId, agencyId).n;
+  return {
+    imports: db.prepare(`SELECT COUNT(*) n FROM ra_imports WHERE agency_id = ?`).get(agencyId).n,
+    live_imports: db.prepare(`SELECT COUNT(*) n FROM ra_imports WHERE agency_id = ?`).get(agencyId).n,
+    empty_rows: 0,
+    claims: claims.n,
+    paid_amount: round2(claims.total),
+    day_entries: db
+      .prepare(`SELECT COUNT(*) n FROM day_entries WHERE agency_id = ? AND source = 'ra_import'`)
+      .get(agencyId).n,
+    denied_claims: deniedClaims,
+    denied_line_items: deniedLines,
+    rebill_tasks: rebillTasks,
+    pdfs: db
+      .prepare(`SELECT COUNT(*) n FROM ra_imports WHERE agency_id = ? AND pdf_path IS NOT NULL`)
+      .get(agencyId).n,
+  };
+}
+
+function bulkFootprint(fileRowIds, agencyId) {  const { imports, emptyFileRows, rows } = resolveAuditRows(fileRowIds, agencyId);
   const deniedClaims = imports.length
     ? db
         .prepare(
@@ -736,6 +796,9 @@ function bulkFootprint(fileRowIds, agencyId) {
 // accepts: file-row id array (ra_import_files.id)  [X-Expects-Id: file-row-array]
 router.post('/bulk-delete-preview', (req, res) => {
   res.setHeader('X-Expects-Id', 'file-row-array');
+  if (req.body?.all === true) {
+    return res.json(allImportedFootprint(req.agencyId));
+  }
   const ids = requireIdArray(req.body?.ids, 'file-row-array', res);
   if (!ids) return;
   res.json(bulkFootprint(ids, req.agencyId));
@@ -752,6 +815,57 @@ router.post('/bulk-delete-preview', (req, res) => {
  */
 router.post('/bulk-delete', (req, res) => {
   res.setHeader('X-Expects-Id', 'file-row-array');
+  if (req.body?.all === true) {
+    const preview = allImportedFootprint(req.agencyId);
+    if (req.body?.confirm !== 'DELETE') {
+      return res.status(409).json({
+        error: 'Type DELETE to confirm.',
+        needs_confirmation: true,
+        preview,
+      });
+    }
+    db.transaction(() => {
+      db.prepare(
+        `DELETE FROM rebill_tasks
+          WHERE agency_id = ? AND denied_line_item_id IN (
+            SELECT li.id FROM denied_line_items li
+            JOIN denied_claims dc ON dc.id = li.denied_claim_id
+            WHERE li.agency_id = ? AND dc.agency_id = ? AND dc.ra_import_id IS NOT NULL
+          )`
+      ).run(req.agencyId, req.agencyId, req.agencyId);
+      db.prepare(
+        `DELETE FROM denied_line_items
+          WHERE agency_id = ? AND denied_claim_id IN (
+            SELECT id FROM denied_claims WHERE agency_id = ? AND ra_import_id IS NOT NULL
+          )`
+      ).run(req.agencyId, req.agencyId);
+      db.prepare(
+        `DELETE FROM denied_claims WHERE agency_id = ? AND ra_import_id IS NOT NULL`
+      ).run(req.agencyId);
+      db.prepare(
+        `DELETE FROM day_entries WHERE agency_id = ? AND source = 'ra_import'`
+      ).run(req.agencyId);
+      db.prepare(
+        `DELETE FROM claims
+          WHERE agency_id = ? AND (ra_import_id IS NOT NULL OR source = 'ra_import')`
+      ).run(req.agencyId);
+      db.prepare(`DELETE FROM ra_import_files WHERE agency_id = ?`).run(req.agencyId);
+      db.prepare(`DELETE FROM ra_import_history WHERE agency_id = ?`).run(req.agencyId);
+      db.prepare(`DELETE FROM ra_imports WHERE agency_id = ?`).run(req.agencyId);
+    })();
+    return res.json({
+      deleted_rows: preview.imports,
+      deleted_imports: preview.imports,
+      deleted_empty_rows: 0,
+      claims: preview.claims,
+      day_entries: preview.day_entries,
+      denied_claims: preview.denied_claims,
+      denied_line_items: preview.denied_line_items,
+      rebill_tasks: preview.rebill_tasks,
+      pdfs: preview.pdfs,
+      all: true,
+    });
+  }
   const ids = requireIdArray(req.body?.ids, 'file-row-array', res);
   if (!ids) return;
   if (req.body?.confirm !== 'DELETE') {

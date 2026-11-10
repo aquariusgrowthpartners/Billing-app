@@ -164,7 +164,7 @@ export default function Settings() {
    */
   async function openBulkModal(ids, mode = 'purge', fileName) {
     setConfirmText('');
-    if (!ids.length) {
+    if (mode !== 'all' && !ids.length) {
       setError(mode === 'orphan' ? 'That record is already gone.' : 'Nothing is selected.');
       return;
     }
@@ -176,7 +176,10 @@ export default function Settings() {
       return;
     }
     try {
-      const preview = await api.raPreviewDeleteFileRows(ids);
+      const preview =
+        mode === 'all'
+          ? await api.raPreviewDeleteAllImports()
+          : await api.raPreviewDeleteFileRows(ids);
       setBulkModal({ ids, preview, mode, fileName, requireText });
     } catch (e) {
       setError(e.message);
@@ -198,7 +201,10 @@ export default function Settings() {
         return;
       }
       // m.ids is already the import-id list captured when the modal opened.
-      const r = await api.raDeleteFileRows(m.ids, 'DELETE');
+      const r =
+        m.mode === 'all'
+          ? await api.raDeleteAllImports()
+          : await api.raDeleteFileRows(m.ids, 'DELETE');
       setBulkModal(null);
       setConfirmText('');
       setAuditSel([]);
@@ -695,10 +701,22 @@ export default function Settings() {
               <div key={i} className="ds-skeleton-row" style={{ width: `${88 - i * 10}%` }} />
             ))}
           </div>
-        ) : !audit.files.length ? (
+        ) : !audit.files.length && !audit.totals.imported_claims ? (
           <div className="ds-empty" id="audit-empty">
             <span className="ds-empty-icon">🗂</span>
             <div className="ds-empty-head">No RA imports recorded yet</div>
+          </div>
+        ) : !audit.files.length ? (
+          <div className="ds-empty" id="audit-claims-only">
+            <span className="ds-empty-icon">⚠</span>
+            <div className="ds-empty-head">
+              {audit.totals.imported_claims} imported claim
+              {audit.totals.imported_claims === 1 ? '' : 's'} on file
+            </div>
+            <p className="muted small" style={{ margin: '6px 0 0' }}>
+              No per-file audit rows are available, but the imported claims exist. Use Delete ALL
+              RA Imports to clear them.
+            </p>
           </div>
         ) : (
           <>
@@ -965,7 +983,7 @@ export default function Settings() {
           <button
             className="btn danger"
             id="danger-delete-all"
-            disabled={auditBusy || auditIds.length === 0}
+            disabled={auditBusy || !(audit?.files.length || audit?.totals?.imported_claims)}
             onClick={() => openBulkModal(auditIds, 'all')}
           >
             Delete ALL RA Imports
@@ -1099,9 +1117,11 @@ export default function Settings() {
             >
               {bulkModal.mode === 'orphan'
                 ? 'Delete Record'
-                : `Delete ${bulkModal.mode === 'all' ? 'All ' : ''}${bulkModal.ids.length} Import${
-                    bulkModal.ids.length === 1 ? '' : 's'
-                  }`}
+                : bulkModal.mode === 'all'
+                  ? 'Delete All RA Imports'
+                  : `Delete ${bulkModal.ids.length} Import${
+                      bulkModal.ids.length === 1 ? '' : 's'
+                    }`}
             </button>
           </div>
         </Modal>

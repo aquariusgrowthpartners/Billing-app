@@ -324,6 +324,16 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ ids: fileRowIds }),
     }),
+  raPreviewDeleteAllImports: () =>
+    request('/import-ra/bulk-delete-preview', {
+      method: 'POST',
+      body: JSON.stringify({ all: true }),
+    }),
+  raDeleteAllImports: () =>
+    request('/import-ra/bulk-delete', {
+      method: 'POST',
+      body: JSON.stringify({ all: true, confirm: 'DELETE' }),
+    }),
   raDeleteFileRows: (fileRowIds, confirm) =>
     request('/import-ra/bulk-delete', {
       method: 'POST',
