@@ -371,7 +371,7 @@ router.post('/test-doc-intel', (req, res) => {
       res.json({
         raw_text: rawText,
         length: rawText.length,
-        tables: Array.isArray(extracted?.tables) ? extracted.tables.length : 0,
+        tables: Array.isArray(extracted?.tables) ? extracted.tables : [],
         file: req.file.originalname,
       });
     } catch (e) {

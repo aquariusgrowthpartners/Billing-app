@@ -444,6 +444,38 @@ export async function verifyRaDocument(imageBase64, mimeType, agencyId = 1, time
 /* ------------------------------------------------------ document intelligence */
 
 /**
+ * Turn prebuilt-layout table cells into readable rows. The page `content`
+ * often contains only a header on table-heavy RA letters, so the table cells
+ * are the authoritative source for member names, IDs, and amounts.
+ */
+function formatDocIntelTables(tables) {
+  const blocks = [];
+  tables.forEach((table, tableIndex) => {
+    const cells = Array.isArray(table?.cells) ? table.cells : [];
+    if (!cells.length) return;
+
+    const rows = new Map();
+    for (const cell of cells) {
+      const rowIndex = Number(cell?.rowIndex) || 0;
+      const columnIndex = Number(cell?.columnIndex) || 0;
+      if (!rows.has(rowIndex)) rows.set(rowIndex, new Map());
+      rows.get(rowIndex).set(columnIndex, String(cell?.content ?? '').trim());
+    }
+
+    const lines = [];
+    for (const rowIndex of [...rows.keys()].sort((a, b) => a - b)) {
+      const columns = rows.get(rowIndex);
+      const maxColumn = Math.max(...columns.keys());
+      const values = Array.from({ length: maxColumn + 1 }, (_, i) => columns.get(i) ?? '');
+      if (values.some(Boolean)) lines.push(values.join(' | '));
+    }
+
+    if (lines.length) blocks.push(`TABLE ${tableIndex + 1}\n${lines.join('\n')}`);
+  });
+  return blocks.join('\n\n');
+}
+
+/**
  * Read an RA PDF/image with Azure Document Intelligence (prebuilt-layout).
  * Raw bytes go straight to Azure; no local rendering or OCR dependencies.
  */
@@ -471,9 +503,12 @@ export async function extractRaWithAzureDocIntel(fileBuffer, mimeType) {
       new Uint8Array(fileBuffer)
     );
     const result = await poller.pollUntilDone();
+    const tables = Array.isArray(result?.tables) ? result.tables : [];
+    const tableText = formatDocIntelTables(tables);
+    const pageText = String(result?.content ?? '').trim();
     return {
-      text: String(result?.content ?? '').trim(),
-      tables: Array.isArray(result?.tables) ? result.tables : [],
+      text: [tableText, pageText].filter(Boolean).join('\n\n'),
+      tables,
     };
   } catch (err) {
     const message = err?.message || String(err);
