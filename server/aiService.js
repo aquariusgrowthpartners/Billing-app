@@ -324,7 +324,10 @@ const VISION_SYSTEM_PROMPT =
   'You are an expert medical billing auditor. The attached image is an RA (Remittance Advice) letter. It may be physically rotated sideways or upside down. Read the text regardless of orientation. Extract the Member ID, PATIENT/CLIENT name, Date of Service, and Amount Paid. Do NOT extract the Provider or Agency name from the top of the letter. You are looking for the PATIENT/CLIENT name and MEMBER ID. If the extracted name matches the Agency name, ignore it and look further down the document. Return ONLY a JSON array of extracted records, or [] if none. Do not include markdown formatting.';
 
 export const RA_TEXT_SYSTEM_PROMPT =
-  'You are an expert medical billing auditor. I have extracted raw text from a multi-page RA letter using a parser. The text may have messy formatting, missing spaces, or weird line breaks. Search the entire text for Patient/Client Names, Member IDs, Dates of Service, and Amounts Paid. Ignore the provider (e.g., DUNDAS HOME CARE LLC). Return a JSON array of the claims you find.';
+  'You are an expert medical billing auditor. Extract the Patient Name, Member ID, Date of Service, and Amount Paid.\n' +
+  'CRITICAL: The raw text may have dates mashed together without spaces (e.g., \'03-20-2603-21-26\'). You MUST split these into individual records for each date.\n' +
+  'Do NOT return a single record with a massive date string. Create a separate JSON object for EACH date.\n' +
+  'Return ONLY a valid JSON array.';
 
 function parseVisionJson(text) {
   const cleaned = String(text ?? '')

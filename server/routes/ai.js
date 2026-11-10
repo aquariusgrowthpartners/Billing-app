@@ -93,6 +93,13 @@ function parseDateRange(value) {
   );
   if (us.length) return { start: us[0], end: us[us.length - 1] };
 
+  // Minnesota RAs often use MM-DD-YY, including concatenated daily dates.
+  const dashed = [...text.matchAll(/\b(\d{1,2})-(\d{1,2})-(\d{2}|\d{4})\b/g)].map((m) => {
+    const year = m[3].length === 2 ? `20${m[3]}` : m[3];
+    return `${year}-${m[1].padStart(2, '0')}-${m[2].padStart(2, '0')}`;
+  });
+  if (dashed.length) return { start: dashed[0], end: dashed[dashed.length - 1] };
+
   return { start: null, end: null };
 }
 
@@ -257,6 +264,39 @@ function normalizeRaRecord(record) {
   };
 }
 
+/**
+ * Split a field containing multiple dates mashed together, e.g.
+ * "03-20-2603-21-26" -> ["03-20-26", "03-21-26"].
+ */
+function splitConcatenatedDates(value) {
+  const text = String(value ?? '').trim();
+  const matches = [...text.matchAll(/(\d{2}-\d{2}-\d{2})/g)].map((m) => m[1]);
+  if (matches.length < 2) return [text];
+  const compact = text.replace(/[^0-9-]/g, '');
+  if (compact !== matches.join('')) return [text];
+  return matches;
+}
+
+/** Duplicate a record once per individual date before claim matching. */
+function expandConcatenatedDateRecords(records) {
+  const expanded = [];
+  for (const record of records) {
+    const normalized = normalizeRaRecord(record);
+    const dates = splitConcatenatedDates(normalized.date_of_service);
+    if (dates.length > 1) {
+      console.log(
+        `[PARSER] Split concatenated date "${normalized.date_of_service}" into ${dates.length} records`
+      );
+      for (const date of dates) {
+        expanded.push({ ...normalized, date_of_service: date, dateOfService: date });
+      }
+    } else {
+      expanded.push(normalized);
+    }
+  }
+  return expanded;
+}
+
 /** Compare one extracted record with its DB claim. */
 function verifyRecord(record, agencyId) {
   record = normalizeRaRecord(record);
@@ -416,7 +456,9 @@ async function processRaFile(file, agencyId) {
     }
     const visionRecords = Array.isArray(vision.records) ? vision.records : [];
     return {
-      records: visionRecords.map((record) => verifyRecord(record, agencyId)),
+      records: expandConcatenatedDateRecords(visionRecords).map((record) =>
+        verifyRecord(record, agencyId)
+      ),
       rawText,
     };
   }
@@ -456,7 +498,9 @@ async function processRaFile(file, agencyId) {
   }
 
   return {
-    records: records.map((record) => verifyRecord(record, agencyId)),
+    records: expandConcatenatedDateRecords(records).map((record) =>
+      verifyRecord(record, agencyId)
+    ),
     rawText,
   };
 }
