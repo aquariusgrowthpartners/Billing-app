@@ -10,7 +10,7 @@
  */
 import express from 'express';
 import db from '../db.js';
-import { complete } from '../aiService.js';
+import { complete, CLAIM_DISCREPANCY_INSTRUCTIONS } from '../aiService.js';
 
 const router = express.Router();
 
@@ -99,6 +99,13 @@ Examples:
   "How much was billed in October?"         -> {"table":"day_entries","aggregate":"sum","column":"dollars"}
   "How many units were worked in September?"-> {"table":"day_entries","aggregate":"sum","column":"units"}
   "What revenue did we make?"               -> {"table":"claims","aggregate":"sum","column":"paid"}
+  "Why is Samantha Mattson's claim off?"    -> {"table":"claims","aggregate":"none","column":null,"filters":{"client_name":"Samantha Mattson"}}
+
+For any question about a claim discrepancy, "off", short-paid, underpaid, or why a claim differs,
+always use table "claims", aggregate "none", and filter by client_name. The rows include
+charge_amount (Billed Amount), paid_amount (Paid Amount), and date_of_service/period dates.
+
+${CLAIM_DISCREPANCY_INSTRUCTIONS}
 
 Return ONLY valid JSON. No prose. No markdown fences.
 If the question cannot be answered from these tables, return {"table":null,"reason":"..."}.`;
@@ -366,6 +373,22 @@ router.post('/', async (req, res) => {
       grouped_totals: groups,
       result: aggregateValue,
       matching_rows: matchCount,
+      claim_context:
+        v.plan.table === 'claims'
+          ? sourceRows.slice(0, 30).map((r) => ({
+              client_name:
+                [r.cl_first, r.cl_last].filter(Boolean).join(' ') ||
+                [r.first_name, r.last_name].filter(Boolean).join(' ') ||
+                null,
+              claim_name: r.claim_name ?? null,
+              date_of_service: r.date_of_service ?? r.period_start ?? null,
+              period_start: r.period_start ?? null,
+              period_end: r.period_end ?? null,
+              charge_amount: r.charge_amount ?? null,
+              paid_amount: r.paid_amount ?? null,
+              status: r.status ?? null,
+            }))
+          : null,
       rows: sourceRows.slice(0, 30),
     };
 
@@ -377,7 +400,8 @@ router.post('/', async (req, res) => {
         'Write a plain-English summary answering the question. Include the math used. Then list the exact records (dates and amounts) so the user can cross-check.',
       {
         system:
-          'You answer questions about a home-care billing database. Be precise with numbers, show your arithmetic, and never invent records that are not in the data provided. Only claim a filter was applied if it appears in applied_filters.',
+          'You answer questions about a home-care billing database. Be precise with numbers, show your arithmetic, and never invent records that are not in the data provided. Only claim a filter was applied if it appears in applied_filters. ' +
+          CLAIM_DISCREPANCY_INSTRUCTIONS,
         timeoutMs: 25000,
         agencyId: req.agencyId,
       }

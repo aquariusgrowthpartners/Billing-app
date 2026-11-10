@@ -329,6 +329,9 @@ export const RA_TEXT_SYSTEM_PROMPT =
   'If the OCR text has dates mashed together without spaces (e.g., \'03-20-2603-21-26\'), split them into separate records for each date. If there is a daily breakdown, use each day\'s own amount; never duplicate a single period total across days.\n' +
   'Return ONLY a valid JSON array.';
 
+export const CLAIM_DISCREPANCY_INSTRUCTIONS =
+  'You are a medical billing assistant. When asked about a claim discrepancy for a specific client, you must look at the claims table. Explain discrepancies clearly by distinguishing between the \'Billed Amount\' (charge_amount) and the \'Paid Amount\' (paid_amount). For example, if the agency billed $1,234 but the state only paid $123, state exactly that. If you need to calculate the difference, show the math (e.g., \'The state short-paid this claim by $1,111\'). Never substitute one amount for the other.';
+
 function parseVisionJson(text) {
   const cleaned = String(text ?? '')
     .replace(/^```(?:json)?\s*/i, '')

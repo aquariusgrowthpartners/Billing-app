@@ -525,6 +525,17 @@ export default function AskDundas() {
     }
   }
 
+  function askAboutDiscrepancy(ra, db) {
+    const client = ra.client_name ?? ra.clientName ?? 'this client';
+    const date = claimPeriodText(ra);
+    const raPaid = visionAmount(ra);
+    const dbPaid = dbAmountText(db?.paid_amount);
+    const prompt = `Explain the discrepancy for ${client} on the claim from ${date}. The RA paid was ${raPaid} and the DB paid was ${dbPaid}.`;
+    setTab('chat');
+    setQuery(prompt);
+    ask(prompt);
+  }
+
   function onSubmit(e) {
     e.preventDefault();
     ask();
@@ -917,6 +928,15 @@ export default function AskDundas() {
                                       {VISION_STATUS_LABEL[record.unmatched ? 'unmatched_ra' : status] ??
                                         status}
                                     </span>
+                                    {status === 'mismatch' && (
+                                      <button
+                                        type="button"
+                                        className="btn tiny ask-ai-why"
+                                        onClick={() => askAboutDiscrepancy(ra, db)}
+                                      >
+                                        Ask AI Why
+                                      </button>
+                                    )}
                                   </td>
                                 </tr>
                                 {record.discrepancy && (
@@ -993,6 +1013,15 @@ export default function AskDundas() {
                             </div>
                             {record.discrepancy && (
                               <p className="ask-vision-card-note">{record.discrepancy}</p>
+                            )}
+                            {status === 'mismatch' && (
+                              <button
+                                type="button"
+                                className="btn tiny ask-ai-why"
+                                onClick={() => askAboutDiscrepancy(ra, db)}
+                              >
+                                Ask AI Why
+                              </button>
                             )}
                             {daily.length > 0 && (
                               <details className="ask-vision-details">

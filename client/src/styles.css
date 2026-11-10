@@ -8606,3 +8606,15 @@ body {
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
+
+.ask-ai-why {
+  margin-top: 6px;
+  min-height: 30px;
+  padding: 4px 8px;
+  font-size: 10px;
+}
+
+.ask-vision-card .ask-ai-why {
+  width: 100%;
+  margin-top: 8px;
+}
