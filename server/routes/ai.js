@@ -533,7 +533,10 @@ export function groupRecordsByClaim(records, agencyId) {
       let discrepancy = null;
       if (statuses.has('mismatch')) {
         status = 'mismatch';
-        discrepancy = daily.find((day) => day.discrepancy)?.discrepancy ?? null;
+        const difference = roundMoney(Math.abs(raTotal - dbTotal));
+        discrepancy = `Amount mismatch: RA total ${money(raTotal)}, DB total ${money(
+          dbTotal
+        )} (Difference: ${money(difference)}).`;
       } else if (statuses.has('reversal')) {
         status = 'reversal';
         discrepancy = daily.find((day) => day.status === 'reversal')?.discrepancy ?? null;
@@ -629,7 +632,10 @@ export function groupRecordsByClaim(records, agencyId) {
       status = 'paid';
     } else {
       status = 'mismatch';
-      discrepancy = `Amount mismatch: RA total ${money(raTotal)}, DB ${money(dbAmount)}.`;
+      const difference = roundMoney(Math.abs(raTotal - dbAmount));
+      discrepancy = `Amount mismatch: RA total ${money(raTotal)}, DB total ${money(
+        dbAmount
+      )} (Difference: ${money(difference)}).`;
     }
 
     results.push({
