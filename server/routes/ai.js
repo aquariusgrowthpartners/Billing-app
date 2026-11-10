@@ -555,16 +555,34 @@ async function processRaFile(file, agencyId) {
     }
 
     const records = [];
-    for (const client of parsed.clients ?? []) {
-      for (const item of client.line_items ?? []) {
+    const regexRecords = Array.isArray(parsed.minnesota_records)
+      ? parsed.minnesota_records
+      : [];
+    if (regexRecords.length && parsed.clients?.length === 1) {
+      const client = parsed.clients[0];
+      for (const item of regexRecords) {
         records.push({
           client_name: client.client_name,
           member_id: client.patient_id ?? null,
-          date_of_service: item.date ?? null,
-          amount_paid: item.paid,
-          charge_amount: item.billed,
-          procedure_code: item.procedure_code ?? null,
+          date_of_service: item.date_of_service,
+          amount_paid: item.amount_paid,
         });
+      }
+      console.log(
+        `[PARSER] Successfully extracted ${records.length} records using native Minnesota Regex parser.`
+      );
+    } else {
+      for (const client of parsed.clients ?? []) {
+        for (const item of client.line_items ?? []) {
+          records.push({
+            client_name: client.client_name,
+            member_id: client.patient_id ?? null,
+            date_of_service: item.date ?? null,
+            amount_paid: item.paid,
+            charge_amount: item.billed,
+            procedure_code: item.procedure_code ?? null,
+          });
+        }
       }
     }
 

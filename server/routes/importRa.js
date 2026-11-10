@@ -444,7 +444,7 @@ async function parseRaBufferInner(buffer, stored, agencyId = null) {
     throw new Error(NOT_AN_RA);
   }
 
-  const { clients, block_count, header } = parseRemittance(text);
+  const { clients, block_count, header, minnesota_records } = parseRemittance(text);
   if (!clients.length) throw new Error('No clients detected in this PDF.');
 
   // Pre-select the fuzzy client match and the NPI-based caretaker match, so the
@@ -470,6 +470,7 @@ async function parseRaBufferInner(buffer, stored, agencyId = null) {
     stored_path: stored.path,
     raw_char_count: text.length,
     header: header ?? null,
+    minnesota_records: minnesota_records ?? [],
   };
 }
 

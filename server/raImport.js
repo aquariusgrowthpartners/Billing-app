@@ -69,6 +69,43 @@ export function toISODate(mmddyy) {
 export const MINUTES_PER_UNIT = 15;
 
 /**
+ * Drop the Minnesota cover/year pages and the repeating scan-artifact lines.
+ * Page markers are emitted by the PDF text extractor as "===== Page N =====".
+ */
+export function cleanMinnesotaText(rawText) {
+  let text = String(rawText ?? '');
+  const pages = text.split('===== Page ');
+  if (pages.length > 2) {
+    text = pages.slice(2).join('===== Page ');
+  }
+  return text.replace(/^(?:\d+\s+)+\d+$/gm, '');
+}
+
+/**
+ * Last-resort table parser for Minnesota's sideways-column extraction.
+ * It zips the date column to the amount column by index.
+ */
+export function parseMinnesotaTable(cleanText) {
+  const dates = String(cleanText ?? '').match(/\d{2}-\d{2}-\d{2}/g) ?? [];
+  const amounts = String(cleanText ?? '').match(/\d+\.\d{2}/g) ?? [];
+  if (!dates.length || !amounts.length) return [];
+  if (Math.abs(dates.length - amounts.length) > 1) return [];
+
+  const count = Math.min(dates.length, amounts.length);
+  return dates
+    .slice(0, count)
+    .map((date, index) => ({
+      date_of_service: toISODate(date),
+      amount_paid: Number(amounts[index]),
+    }))
+    .filter(
+      (record) =>
+        record.date_of_service &&
+        Number.isFinite(record.amount_paid)
+    );
+}
+
+/**
  * Line-item row:
  *   01 09-04-26 09-04-26 T1019 UP 99.52 16 CO 144 -6.24 0 16 105.76
  *   01 09-04-26 09-04-26 T1019 124.40 5 CO 45 93.30 0 5 32.35
@@ -347,7 +384,10 @@ export function parseBlock(block) {
  *   how many PATIENT: blocks were folded together.
  */
 export function parseRemittance(rawText) {
-  const text = String(rawText ?? '').replace(/\r\n?/g, '\n').replace(/\t/g, ' ');
+  const text = cleanMinnesotaText(
+    String(rawText ?? '').replace(/\r\n?/g, '\n').replace(/\t/g, ' ')
+  );
+  const minnesotaRecords = parseMinnesotaTable(text);
 
   // CLAIM STATUS and PROD DATE sit in the page header ABOVE the claims they
   // describe, and repeat on every page, so a block's status is the last one
@@ -495,7 +535,7 @@ export function parseRemittance(rawText) {
   };
 
   const layout = detectUnrecognisedLayout(text, clients);
-  return { clients, block_count: blocks.length, header, ...layout };
+  return { clients, block_count: blocks.length, header, minnesota_records: minnesotaRecords, ...layout };
 }
 
 /**
