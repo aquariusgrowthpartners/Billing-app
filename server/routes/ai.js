@@ -261,7 +261,15 @@ function normalizeRaRecord(record) {
       'dates of service',
       'DOS'
     ),
-    amount_paid: value('amount_paid', 'amountPaid', 'Amount Paid', 'amount paid', 'Paid Amount'),
+    amount_paid: value(
+      'amount_paid',
+      'amountPaid',
+      'Amount Paid',
+      'amount paid',
+      'Paid Amount',
+      'PAID',
+      'Paid'
+    ),
   };
 }
 
