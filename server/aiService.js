@@ -361,7 +361,13 @@ function parseVisionJson(text) {
  * Returns { records: [...] } on success or { error: "..." } on failure. The
  * existing complete()/summarise() text functions are deliberately untouched.
  */
-export async function verifyRaDocument(imageBase64, mimeType, agencyId = 1, timeoutMs = 60000) {
+export async function verifyRaDocument(
+  imageBase64,
+  mimeType,
+  agencyId = 1,
+  timeoutMs = 60000,
+  instruction = null
+) {
   const config = aiConfig(agencyId);
   if (config.disabled) return { error: AI_DISABLED_MESSAGE };
   if (!config.enabled) return { error: NO_KEY };
@@ -374,6 +380,7 @@ export async function verifyRaDocument(imageBase64, mimeType, agencyId = 1, time
 
   const imageUrl = `data:${mimeType || 'image/png'};base64,${imageBase64}`;
   const extractInstruction =
+    instruction ||
     'Extract every RA record you can read. Use these keys: member_id, client_name, date_of_service, amount_paid. Return only the JSON array.';
   const payload = cfg.responses
     ? {
@@ -507,11 +514,13 @@ export async function extractRaWithAzureDocIntel(fileBuffer, mimeType) {
   try {
     const poller = await client.beginAnalyzeDocument(
       'prebuilt-layout',
-      new Uint8Array(fileBuffer)
+      new Uint8Array(fileBuffer),
+      { pages: '1-' }
     );
     const result = await poller.pollUntilDone();
     const pages = Array.isArray(result?.pages) ? result.pages : [];
     const tables = Array.isArray(result?.tables) ? result.tables : [];
+    console.log(`[DOC-INTEL] Pages requested: all (1-); result pages: ${pages.length}`);
     console.log(`[DOC-INTEL] Total pages processed: ${pages.length}`);
     console.log(`[DOC-INTEL] Total tables detected: ${tables.length}`);
     tables.forEach((table, index) => {

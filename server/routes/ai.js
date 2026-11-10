@@ -11,7 +11,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import pLimit from 'p-limit';
-import { extractRaWithAzureDocIntel, complete, RA_TEXT_SYSTEM_PROMPT } from '../aiService.js';
+import {
+  extractRaWithAzureDocIntel,
+  complete,
+  verifyRaDocument,
+  RA_TEXT_SYSTEM_PROMPT,
+} from '../aiService.js';
 import db from '../db.js';
 
 const router = express.Router();
@@ -271,10 +276,30 @@ async function processRaFile(file, agencyId) {
     file.mimetype || 'application/pdf'
   );
   const rawText = String(extracted?.text ?? '').trim();
-  if (!rawText) {
-    const err = new Error('Azure Document Intelligence failed to read this file.');
-    err.status = 502;
-    throw err;
+  const useVisionFallback = rawText.length < 400;
+  console.log(
+    `[DOC-INTEL] Final text length: ${rawText.length} characters. Triggering Vision fallback: ${useVisionFallback}`
+  );
+
+  if (useVisionFallback) {
+    console.log('[VISION-FALLBACK] Sending PDF directly to Azure Vision');
+    const vision = await verifyRaDocument(
+      file.buffer.toString('base64'),
+      file.mimetype || 'application/pdf',
+      agencyId,
+      60000,
+      'This is a multi-page RA letter. Read all pages and extract the Patient Name, Member ID, Date of Service, and Amount Paid. Return JSON.'
+    );
+    if (vision.error) {
+      const err = new Error(`Vision fallback failed: ${vision.error}`);
+      err.status = vision.error.includes('quota') ? 503 : 502;
+      throw err;
+    }
+    const visionRecords = Array.isArray(vision.records) ? vision.records : [];
+    return {
+      records: visionRecords.map((record) => verifyRecord(record, agencyId)),
+      rawText,
+    };
   }
 
   const completion = await complete(
