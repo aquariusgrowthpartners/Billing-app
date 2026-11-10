@@ -14,6 +14,7 @@ import pLimit from 'p-limit';
 import { PDFDocument, degrees } from 'pdf-lib';
 import {
   extractRaWithAzureDocIntel,
+  extractRaWithAzureVision,
   complete,
   RA_TEXT_SYSTEM_PROMPT,
 } from '../aiService.js';
@@ -583,6 +584,24 @@ async function processRaFile(file, agencyId) {
             procedure_code: item.procedure_code ?? null,
           });
         }
+      }
+    }
+
+    if (!records.length) {
+      console.log(
+        '[VERIFY-EXTRACTION] Native parser found 0 records; falling back to AI.'
+      );
+      try {
+        const uprightBuffer = await normalizePdfRotation(file.buffer);
+        const vision = await extractRaWithAzureVision(
+          uprightBuffer.toString('base64'),
+          agencyId
+        );
+        if (!vision.error) {
+          records.push(...(vision.records ?? []));
+        }
+      } catch {
+        /* the common parser error below is the useful message */
       }
     }
 
