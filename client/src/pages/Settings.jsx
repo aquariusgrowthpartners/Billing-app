@@ -204,7 +204,11 @@ export default function Settings() {
       setAuditSel([]);
       await loadAudit();
       window.dispatchEvent(new Event('data-updated'));
-      setNotice(`Deleted ${r.deleted_imports} imports, ${r.claims} claims, ${r.day_entries} day entries.`);
+      if (m.mode === 'all') {
+        toast.success('All imported RA data has been cleared.');
+      } else {
+        setNotice(`Deleted ${r.deleted_imports} imports, ${r.claims} claims, ${r.day_entries} day entries.`);
+      }
     } catch (e) {
       setError(e.message);
     } finally {
@@ -945,24 +949,30 @@ export default function Settings() {
             )}
 
             {/* -------------------------------------------- danger zone */}
-            <div className="ds-alert-card" id="ra-danger-zone" style={{ marginTop: 20 }}>
-              <span className="ds-alert-icon" aria-hidden="true">⚠</span>
-              <span className="ds-alert-text">
-                <strong>Danger Zone</strong> — deleting an import removes everything it created.
-                Manually-entered day entries and claims are never touched.
-              </span>
-              <button
-                className="btn danger"
-                id="danger-delete-all"
-                disabled={auditBusy}
-                onClick={() => openBulkModal(auditIds, 'all')}
-              >
-                Delete ALL RA Imports
-              </button>
-            </div>
           </>
         )}
       </section>
+
+      <section className="card danger-zone" id="ra-danger-zone">
+        <div className="danger-head">
+          <div>
+            <h2>Danger Zone</h2>
+            <p className="muted small" style={{ margin: '4px 0 0' }}>
+              Deleting an import removes everything it created. Manually-entered day entries and
+              claims are never touched.
+            </p>
+          </div>
+          <button
+            className="btn danger"
+            id="danger-delete-all"
+            disabled={auditBusy || auditIds.length === 0}
+            onClick={() => openBulkModal(auditIds, 'all')}
+          >
+            Delete ALL RA Imports
+          </button>
+        </div>
+      </section>
+
 
       {/* --------------------------------- cleanup confirmation (not wired) */}
       {cleanupOpen && cleanup && (
