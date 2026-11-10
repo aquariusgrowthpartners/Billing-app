@@ -120,6 +120,8 @@ const VISION_STATUS_LABEL = {
   mismatch: 'Mismatch',
   reversal: 'Reversal',
   denied: 'Denied',
+  matched_reversal: 'Matched Reversal',
+  matched_denied: 'Matched Denial',
   rebilled: 'Rebilled',
   missing_in_db: 'Missing in DB',
   needs_review: 'Needs review',
@@ -145,7 +147,11 @@ function bulkFileStatus(entry) {
   if (entry?.status === 'error') return 'missing_in_db';
   const records = Array.isArray(entry?.records) ? entry.records : [];
   if (!records.length) return 'missing_in_db';
-  if (records.every((record) => ['match', 'paid', 'rebilled'].includes(record.status))) {
+  if (
+    records.every((record) =>
+      ['match', 'paid', 'rebilled', 'matched_reversal', 'matched_denied'].includes(record.status)
+    )
+  ) {
     return records.some((record) => record.status === 'rebilled') ? 'rebilled' : 'match';
   }
   if (records.some((record) => record.status === 'reversal')) return 'reversal';
@@ -406,6 +412,8 @@ export default function AskDundas() {
   const visionCounts = {
     paid: visionRecords.filter((record) => record.status === 'paid').length,
     rebilled: visionRecords.filter((record) => record.status === 'rebilled').length,
+    matchedReversal: visionRecords.filter((record) => record.status === 'matched_reversal').length,
+    matchedDenied: visionRecords.filter((record) => record.status === 'matched_denied').length,
     mismatch: visionRecords.filter((record) => record.status === 'mismatch').length,
     reversal: visionRecords.filter((record) => record.status === 'reversal').length,
     denied: visionRecords.filter((record) => record.status === 'denied').length,
@@ -417,6 +425,8 @@ export default function AskDundas() {
   const categorySummary = [
     visionCounts.paid ? `${visionCounts.paid} Paid` : '',
     visionCounts.rebilled ? `${visionCounts.rebilled} Rebilled` : '',
+    visionCounts.matchedReversal ? `${visionCounts.matchedReversal} Matched Reversals` : '',
+    visionCounts.matchedDenied ? `${visionCounts.matchedDenied} Matched Denials` : '',
     visionCounts.mismatch ? `${visionCounts.mismatch} Mismatches` : '',
     visionCounts.reversal ? `${visionCounts.reversal} Reversals` : '',
     visionCounts.denied ? `${visionCounts.denied} Denials` : '',

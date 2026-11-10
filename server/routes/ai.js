@@ -494,11 +494,11 @@ export function groupRecordsByClaim(records, agencyId) {
           let status = 'paid';
           let discrepancy = null;
           if (denied) {
-            status = 'denied';
-            discrepancy = 'Denied by the payer.';
+            status = 'matched_denied';
+            discrepancy = 'Denied by the payer — matched to the DB claim.';
           } else if (reversal) {
-            status = 'reversal';
-            discrepancy = `Reversal: The state took back ${money(Math.abs(raAmount))}.`;
+            status = 'matched_reversal';
+            discrepancy = `Reversal matched: The state took back ${money(Math.abs(raAmount))}.`;
           } else if (!Number.isFinite(raAmount) || !Number.isFinite(dbAmount)) {
             status = 'mismatch';
             discrepancy = 'Could not parse amount';
@@ -513,6 +513,9 @@ export function groupRecordsByClaim(records, agencyId) {
             db_paid: dbAmount,
             db_claim_id: dayClaim.id,
             status,
+            is_reversal: reversal,
+            is_denied: denied,
+            matched_to_db: true,
             discrepancy,
           };
         })
@@ -537,14 +540,17 @@ export function groupRecordsByClaim(records, agencyId) {
         discrepancy = `Amount mismatch: RA total ${money(raTotal)}, DB total ${money(
           dbTotal
         )} (Difference: ${money(difference)}).`;
-      } else if (statuses.has('reversal')) {
-        status = 'reversal';
-        discrepancy = daily.find((day) => day.status === 'reversal')?.discrepancy ?? null;
-      } else if (statuses.has('denied')) {
-        status = 'denied';
-        discrepancy = 'Denied by the payer.';
+      } else if (statuses.has('matched_reversal')) {
+        status = 'matched_reversal';
+        discrepancy =
+          daily.find((day) => day.status === 'matched_reversal')?.discrepancy ?? null;
+      } else if (statuses.has('matched_denied')) {
+        status = 'matched_denied';
+        discrepancy = 'Denied by the payer — matched to the DB claim.';
       }
 
+      const hasReversal = daily.some((day) => day.is_reversal);
+      const hasDenied = daily.some((day) => day.is_denied);
       results.push({
         ra_data: {
           ...primaryRecord,
@@ -564,9 +570,15 @@ export function groupRecordsByClaim(records, agencyId) {
         },
         status,
         discrepancy,
-        ...(status === 'reversal'
-          ? { reversal: true, reversal_amount: Math.abs(raTotal) }
+        matched_to_db: true,
+        ...(hasReversal
+          ? {
+              reversal: true,
+              is_reversal: true,
+              reversal_amount: Math.abs(raTotal),
+            }
           : {}),
+        ...(hasDenied ? { is_denied: true } : {}),
       });
       continue;
     }
@@ -614,15 +626,15 @@ export function groupRecordsByClaim(records, agencyId) {
       status = 'mismatch';
       discrepancy = 'Could not parse amount';
     } else if (isDenied) {
-      status = 'denied';
-      discrepancy = 'Denied by the payer.';
+      status = 'matched_denied';
+      discrepancy = 'Denied by the payer — matched to the DB claim.';
     } else if (isReversal) {
       const takenBack = roundMoney(Math.abs(raTotal));
-      status = 'reversal';
+      status = 'matched_reversal';
       discrepancy =
         Math.abs(takenBack - dbAmount) < 0.01
-          ? `Reversal: The state took back ${money(takenBack)}.`
-          : `Reversal: The state took back ${money(takenBack)}; DB shows ${money(
+          ? `Reversal matched: The state took back ${money(takenBack)}.`
+          : `Reversal matched: The state took back ${money(takenBack)}; DB shows ${money(
               dbAmount
             )}.`;
     } else if (Math.abs(raTotal - dbAmount) < 0.01 && hasPriorDenial) {
@@ -657,7 +669,15 @@ export function groupRecordsByClaim(records, agencyId) {
       db_data: claim,
       status,
       discrepancy,
-      ...(isReversal ? { reversal: true, reversal_amount: roundMoney(Math.abs(raTotal)) } : {}),
+      matched_to_db: true,
+      ...(isReversal
+        ? {
+            reversal: true,
+            is_reversal: true,
+            reversal_amount: roundMoney(Math.abs(raTotal)),
+          }
+        : {}),
+      ...(isDenied ? { is_denied: true } : {}),
     });
   }
 

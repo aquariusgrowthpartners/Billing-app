@@ -8627,12 +8627,14 @@ body {
   letter-spacing: 0.02em;
 }
 
-.ask-vision-badge.reversal {
+.ask-vision-badge.reversal,
+.ask-vision-badge.matched_reversal {
   background: #f3e8ff;
   color: #7e22ce;
 }
 
-[data-theme='dark'] .ask-vision-badge.reversal {
+[data-theme='dark'] .ask-vision-badge.reversal,
+.ask-vision-badge.matched_reversal {
   background: #2e1a3d;
   color: #d8b4fe;
 }
@@ -8649,12 +8651,14 @@ body {
   color: #86efac;
 }
 
-.ask-vision-badge.denied {
+.ask-vision-badge.denied,
+.ask-vision-badge.matched_denied {
   background: #ffedd5;
   color: #c2410c;
 }
 
-[data-theme='dark'] .ask-vision-badge.denied {
+[data-theme='dark'] .ask-vision-badge.denied,
+.ask-vision-badge.matched_denied {
   background: #3b2412;
   color: #fdba74;
 }
