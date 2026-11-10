@@ -504,10 +504,22 @@ export async function extractRaWithAzureDocIntel(fileBuffer, mimeType) {
     );
     const result = await poller.pollUntilDone();
     const tables = Array.isArray(result?.tables) ? result.tables : [];
+    console.log(`[DOC-INTEL] Total tables detected: ${tables.length}`);
+    tables.forEach((table, index) => {
+      console.log(
+        `[DOC-INTEL] Table ${index + 1}: ${table?.rowCount ?? 0} rows, ${
+          table?.columnCount ?? 0
+        } columns`
+      );
+    });
+
     const tableText = formatDocIntelTables(tables);
     const pageText = String(result?.content ?? '').trim();
+    const text = [tableText, pageText].filter(Boolean).join('\n\n');
+    console.log(`[DOC-INTEL] Extracted text length: ${text.length} characters`);
+    console.log(`[DOC-INTEL] Sample: ${text.slice(0, 1000)}`);
     return {
-      text: [tableText, pageText].filter(Boolean).join('\n\n'),
+      text,
       tables,
     };
   } catch (err) {

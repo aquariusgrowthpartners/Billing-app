@@ -271,8 +271,6 @@ async function processRaFile(file, agencyId) {
     file.mimetype || 'application/pdf'
   );
   const rawText = String(extracted?.text ?? '').trim();
-  console.log(`[DOC-INTEL] Extracted text length: ${rawText.length} characters`);
-  console.log(`[DOC-INTEL] Sample: ${rawText.slice(0, 500)}`);
   if (!rawText) {
     const err = new Error('Azure Document Intelligence failed to read this file.');
     err.status = 502;
@@ -352,6 +350,11 @@ router.post('/verify-ra', (req, res) => {
 });
 
 
+/** GET /api/ai/debug-status — whether the optional Doc Intel debug panel is enabled. */
+router.get('/debug-status', (req, res) => {
+  res.json({ debug_mode: String(process.env.DEBUG_MODE ?? '').toLowerCase() === 'true' });
+});
+
 /** POST /api/ai/test-doc-intel — Doc Intel extraction only, no AI call. */
 router.post('/test-doc-intel', (req, res) => {
   upload.single('file')(req, res, async (err) => {
@@ -366,8 +369,6 @@ router.post('/test-doc-intel', (req, res) => {
         req.file.mimetype || 'application/pdf'
       );
       const rawText = String(extracted?.text ?? '').trim();
-      console.log(`[DOC-INTEL] Extracted text length: ${rawText.length} characters`);
-      console.log(`[DOC-INTEL] Sample: ${rawText.slice(0, 500)}`);
       res.json({
         raw_text: rawText,
         length: rawText.length,

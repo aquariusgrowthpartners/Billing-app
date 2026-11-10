@@ -142,6 +142,12 @@ export const api = {
     for (const file of files) body.append('files', file);
     return request('/ai/verify-ra-bulk', { method: 'POST', body });
   },
+  debugStatus: () => request('/ai/debug-status'),
+  testDocIntel: (file) => {
+    const body = new FormData();
+    body.append('file', file);
+    return request('/ai/test-doc-intel', { method: 'POST', body });
+  },
   verifyRaBulkJob: (jobId) => request(`/ai/verify-ra-bulk/${jobId}`),
   parseNewHire: (file) => {
     const fd = new FormData();

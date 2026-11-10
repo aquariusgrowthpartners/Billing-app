@@ -239,6 +239,9 @@ export default function AskDundas() {
   const [bulkJob, setBulkJob] = useState(null);
   const [bulkError, setBulkError] = useState(null);
   const [bulkStarting, setBulkStarting] = useState(false);
+  const [debugMode, setDebugMode] = useState(false);
+  const [docIntelDebug, setDocIntelDebug] = useState(null);
+  const [docIntelDebugLoading, setDocIntelDebugLoading] = useState(false);
   const inputRef = useRef(null);
   const pageRef = useRef(null);
   const threadRef = useRef(null);
@@ -339,6 +342,20 @@ export default function AskDundas() {
     };
   }, [bulkJobId]);
 
+  useEffect(() => {
+    let active = true;
+    api
+      .debugStatus()
+      .then((data) => {
+        if (active) setDebugMode(Boolean(data?.debug_mode));
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const debugEnabled = debugMode || import.meta.env.DEV;
   const bulkResults = Array.isArray(bulkJob?.results) ? bulkJob.results : [];
   const bulkGroups = { match: [], mismatch: [], missing_in_db: [] };
   for (const entry of bulkResults) bulkGroups[bulkFileStatus(entry)].push(entry);
@@ -382,6 +399,17 @@ export default function AskDundas() {
     setVerifyError(null);
     setVerifyResult(null);
     try {
+      if (debugEnabled) {
+        setDocIntelDebugLoading(true);
+        setDocIntelDebug(null);
+        try {
+          setDocIntelDebug(await api.testDocIntel(verifyFile));
+        } catch (error) {
+          setDocIntelDebug({ error: error.message });
+        } finally {
+          setDocIntelDebugLoading(false);
+        }
+      }
       const data = await api.verifyRa(verifyFile);
       if (data?.status === 'error') {
         throw new Error(data.error || 'RA verification failed.');
@@ -680,9 +708,37 @@ export default function AskDundas() {
                   setVerifyFile(e.target.files?.[0] ?? null);
                   setVerifyResult(null);
                   setVerifyError(null);
+                  setDocIntelDebug(null);
                 }}
               />
             </label>
+
+            {debugEnabled && (
+              <div className="ask-docintel-debug" id="ask-docintel-debug">
+                <div className="ask-docintel-debug-head">
+                  <strong>Doc Intel diagnostic</strong>
+                  <span className="pill">DEBUG</span>
+                </div>
+                {docIntelDebugLoading ? (
+                  <span className="muted small">Reading the document before verification…</span>
+                ) : docIntelDebug?.error ? (
+                  <span className="ask-docintel-debug-error">{docIntelDebug.error}</span>
+                ) : docIntelDebug ? (
+                  <div className="ask-docintel-debug-stats">
+                    <span>
+                      <strong>{docIntelDebug.length ?? 0}</strong> characters
+                    </span>
+                    <span>
+                      <strong>{docIntelDebug.tables?.length ?? 0}</strong> tables
+                    </span>
+                  </div>
+                ) : (
+                  <span className="muted small">
+                    Runs before verification when DEBUG_MODE is enabled.
+                  </span>
+                )}
+              </div>
+            )}
 
             {verifyError && <div className="alert error">{verifyError}</div>}
 

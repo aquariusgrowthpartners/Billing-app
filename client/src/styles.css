@@ -8365,10 +8365,11 @@ body {
 }
 
 .ask-ai-raw-text {
-  max-height: 300px;
+  max-height: 400px;
   margin: 0;
   padding: 12px;
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
   border: 1px solid var(--border);
   border-radius: 10px;
   background: var(--surface);
@@ -8385,4 +8386,40 @@ body {
   .ask-ai-raw-head {
     flex-direction: column;
   }
+}
+
+/* DEBUG_MODE-only Doc Intel preflight */
+.ask-docintel-debug {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+  font-size: 12px;
+}
+
+.ask-docintel-debug-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.ask-docintel-debug-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  color: var(--muted);
+}
+
+.ask-docintel-debug-stats strong {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.ask-docintel-debug-error {
+  color: var(--err-fg);
+  overflow-wrap: anywhere;
 }
