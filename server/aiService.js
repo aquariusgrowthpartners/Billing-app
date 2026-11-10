@@ -469,19 +469,13 @@ export async function verifyRaDocument(
 /* ------------------------------------------------------ native PDF vision */
 
 const VISION_PDF_SYSTEM_PROMPT =
-  'You are an expert medical billing auditor reading a sideways (rotated 90 degrees) claims table.\n' +
-  'Page 1 is a cover letter. IGNORE IT.\n' +
-  'Page 2 is a date. IGNORE IT.\n' +
-  'Page 3 may contain repeating numbers like \'1 1 1 1\'. IGNORE IT.\n' +
-  'The actual claims table starts on Page 4 and is printed sideways (rotated 90 degrees).\n' +
-  'The columns from left to right are typically: Client, Member ID, Date, Code, Charge, Paid.\n' +
-  'You MUST extract the \'PAID\' or \'AMOUNT\' column (usually the rightmost or second-to-last numeric column with decimals like 98.52).\n' +
-  'Do NOT confuse it with \'TOTAL CHARGE\' (which is a larger number) or \'ADJ AMT\'.\n' +
-  'Read the table carefully. Extract EVERY row exactly as it appears.\n' +
-  'Columns to extract: Patient Name, Member ID, the specific Date of Service, and the \'PAID\' column.\n' +
-  'If a row has a valid date and a valid paid amount, include it in the JSON.\n' +
-  'DO NOT extract \'TOTAL CHARGE\'. DO NOT do any math or sum the totals yourself.\n' +
-  'Extract each row as a separate JSON object. Return ONLY a valid JSON array.';
+  'You are an expert medical billing auditor. This document contains claims tables printed sideways (rotated 90 degrees).\n' +
+  'Because the table is sideways, the columns on the page represent the rows of data.\n' +
+  'Read DOWN each column to align the data correctly.\n' +
+  'For example, you will see a column of Dates (e.g., 08-09-25, 08-16-25), a column of Patient Names (e.g., MATTSON, SAMANTHA), and a column of Amounts (e.g., 98.52, 111.68).\n' +
+  'Match the 1st Date to the 1st Amount, the 2nd Date to the 2nd Amount, etc.\n' +
+  'Extract Patient Name, Member ID, Date, and PAID Amount for each row.\n' +
+  'Return ONLY a valid JSON array.';
 
 /**
  * Send the original PDF to Azure OpenAI's native file input. This avoids
