@@ -27,8 +27,12 @@ export function TutorialProvider({ user, children }) {
 
   useEffect(() => {
     if (step < 0) return undefined;
+    if (step === 0 && window.innerWidth <= 768 && !document.querySelector('#mobile-nav')) {
+      document.querySelector('#nav-toggle')?.click();
+    }
     const update = () => {
-      const el = document.querySelector(STEPS[step]?.target);
+      const els = [...document.querySelectorAll(STEPS[step]?.target)];
+      const el = els.find((candidate) => candidate.getBoundingClientRect().width > 0);
       if (el) {
         const r = el.getBoundingClientRect();
         setRect({ top: r.top, left: r.left, width: r.width, height: r.height });
@@ -66,15 +70,15 @@ export function TutorialProvider({ user, children }) {
   };
 
   const current = STEPS[step];
-  const tooltipStyle = rect
-    ? {
-        position: 'fixed',
-        left: Math.min(Math.max(16, rect.left), Math.max(16, window.innerWidth - 336)),
-        top: Math.min(rect.bottom + 12, window.innerHeight - 190),
-        width: 'min(320px, calc(100vw - 32px))',
-        zIndex: 10001,
-      }
-    : { position: 'fixed', left: 16, right: 16, bottom: 20, zIndex: 10001 };
+  const tooltipStyle = {
+    position: 'fixed',
+    left: 16,
+    right: 16,
+    bottom: 'calc(16px + env(safe-area-inset-bottom, 0px))',
+    width: 'min(320px, calc(100vw - 32px))',
+    maxWidth: 'calc(100vw - 32px)',
+    zIndex: 10001,
+  };
 
   return (
     <TutorialContext.Provider value={{ start, step, next, skip }}>
