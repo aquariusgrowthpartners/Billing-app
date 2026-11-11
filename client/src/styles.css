@@ -8774,3 +8774,19 @@ body {
   background: #1f2937;
   border-color: #374151;
 }
+
+/* Desktop must scroll with the window. The 100dvh/overflow lock is only for
+   the mobile keyboard layout; applying it on desktop made long pages unscrollable. */
+@media (min-width: 769px) {
+  .ask-page {
+    height: auto;
+    max-height: none;
+    min-height: calc(100vh - 120px);
+    overflow: visible;
+  }
+
+  .ask-thread {
+    overflow: visible;
+    min-height: 0;
+  }
+}
