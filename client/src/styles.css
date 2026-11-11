@@ -8790,3 +8790,39 @@ body {
     min-height: 0;
   }
 }
+
+/* Desktop document flow: no nested fixed-height scroll trap. Mobile keeps
+   the 100dvh/visualViewport layout above 768px. */
+@media (min-width: 769px) {
+  html,
+  body,
+  #root,
+  .app,
+  .content {
+    height: auto;
+    min-height: 100vh;
+    max-height: none;
+    overflow: visible;
+  }
+
+  .app {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .content {
+    flex: 1 0 auto;
+  }
+
+  .page.ask-page {
+    height: auto;
+    max-height: none;
+    min-height: 100vh;
+    overflow: visible;
+  }
+
+  .page.ask-page .ask-thread {
+    overflow: visible;
+    min-height: 0;
+  }
+}
