@@ -190,6 +190,12 @@ db.exec(`
     authorized_total_amount   REAL,
     service_agreement_id      INTEGER REFERENCES service_agreements(id) ON DELETE SET NULL,
     superseded_at             TEXT,
+    procedure_description     TEXT,
+    modifier_1                TEXT,
+    modifier_2                TEXT,
+    modifier_3                TEXT,
+    modifier_4                TEXT,
+    total_units               REAL,
     agency_id                 INTEGER NOT NULL DEFAULT 1
   );
 
@@ -203,6 +209,9 @@ db.exec(`
     icd10_code                TEXT,
     pdf_path                  TEXT,
     uploaded_at               TEXT,
+    case_manager_name         TEXT,
+    case_manager_phone        TEXT,
+    case_manager_email        TEXT,
     agency_id                 INTEGER NOT NULL DEFAULT 1,
     UNIQUE(client_id, dhs_service_agreement_num)
   );
@@ -623,6 +632,15 @@ addColumnIfMissing('agreements', 'service_code_with_modifier', 'TEXT');
 addColumnIfMissing('agreements', 'service_agreement_pdf_path', 'TEXT');
 addColumnIfMissing('agreements', 'authorized_total_amount', 'REAL');
 addColumnIfMissing('agreements', 'superseded_at', 'TEXT');
+addColumnIfMissing('agreements', 'procedure_description', 'TEXT');
+addColumnIfMissing('agreements', 'modifier_1', 'TEXT');
+addColumnIfMissing('agreements', 'modifier_2', 'TEXT');
+addColumnIfMissing('agreements', 'modifier_3', 'TEXT');
+addColumnIfMissing('agreements', 'modifier_4', 'TEXT');
+addColumnIfMissing('agreements', 'total_units', 'REAL');
+addColumnIfMissing('service_agreements', 'case_manager_name', 'TEXT');
+addColumnIfMissing('service_agreements', 'case_manager_phone', 'TEXT');
+addColumnIfMissing('service_agreements', 'case_manager_email', 'TEXT');
 addReferenceColumn('agreements', 'service_agreement_id', 'service_agreements', 'SET NULL');
 
 // Case managers are assigned to a client; caretakers are recorded per day.
