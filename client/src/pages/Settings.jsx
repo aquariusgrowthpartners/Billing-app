@@ -1302,6 +1302,22 @@ export default function Settings() {
             </p>
           </div>
         </div>
+        <div className="card-body" id="brand-logo">
+          <h3 style={{ marginTop: 0 }}>Brand Logo</h3>
+          <p className="muted small">Upload any image; it is center-cropped to a 100×100 square for the top bar.</p>
+          <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+            {brandLogo ? <img src={brandLogo} alt="Agency logo" style={{ maxHeight: 72, maxWidth: 72, borderRadius: 10, objectFit: 'cover' }} /> : <span className="muted small">No custom logo set. The Dundas text mark is used.</span>}
+            <label className="btn" style={{ cursor: 'pointer' }}>
+              Upload Logo
+              <input type="file" accept="image/png,image/jpeg,image/webp" style={{ display: 'none' }} onChange={(e) => saveLogoFile(e.target.files?.[0])} />
+            </label>
+          </div>
+          <label style={{ marginTop: 14 }}>
+            AI Quick Prompts — one per line
+            <textarea rows={4} value={quickPrompts} onChange={(e) => setQuickPrompts(e.target.value)} placeholder="Summarize this week's billing&#10;Which claims are still unpaid?" />
+          </label>
+          <button className="btn primary" onClick={saveQuickPrompts} disabled={agencyBusy}>Save Quick Prompts</button>
+        </div>
         <div className="grid-3">
           <label className="span-2">
             Agency name
@@ -1359,33 +1375,6 @@ export default function Settings() {
         </div>
       </section>
 
-      <section className="card" id="brand-logo">
-        <div className="card-head">
-          <div>
-            <h2>Brand Logo</h2>
-            <p className="muted small" style={{ margin: '2px 0 0' }}>
-              Upload any image; it is center-cropped to a 100×100 square for the top bar.
-            </p>
-          </div>
-          <label className="btn" style={{ cursor: 'pointer' }}>
-            Upload Logo
-            <input
-              type="file"
-              accept="image/png,image/jpeg,image/webp"
-              style={{ display: 'none' }}
-              onChange={(e) => saveLogoFile(e.target.files?.[0])}
-            />
-          </label>
-        </div>
-        <div className="card-body">
-          {brandLogo ? <img src={brandLogo} alt="Agency logo" style={{ maxHeight: 100, maxWidth: 100, borderRadius: 12, objectFit: 'cover' }} /> : <p className="muted small">No custom logo set. The Dundas text mark is used.</p>}
-          <label style={{ marginTop: 16 }}>
-            AI Quick Prompts — one per line
-            <textarea rows={4} value={quickPrompts} onChange={(e) => setQuickPrompts(e.target.value)} placeholder="Summarize this week's billing&#10;Which claims are still unpaid?" />
-          </label>
-          <button className="btn primary" onClick={saveQuickPrompts} disabled={agencyBusy}>Save Quick Prompts</button>
-        </div>
-      </section>
 
       <Payers onError={setError} note={note} />
     </div>

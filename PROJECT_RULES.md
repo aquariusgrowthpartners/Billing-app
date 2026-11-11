@@ -6,6 +6,8 @@ Canary Protocol (Mandatory): Run `node test-canary.js 3`. If it passes, testing 
 
 Desktop scroll verification at 1440×900, including native scrolling to the bottom, remains required before reporting a UI deployment successful.
 
+UI Optimization: Every UI change must be verified at 1440x900 (desktop) and 390x844 (mobile) using the browser verification script. No horizontal overflow is allowed on mobile (document.scrollWidth === window.innerWidth).
+
 ## Protected UI
 
 The `visualViewport` keyboard hook in `AskDundas.jsx` is protected. Do not remove or alter it while changing desktop layout behavior.
