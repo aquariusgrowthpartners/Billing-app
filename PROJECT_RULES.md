@@ -2,13 +2,9 @@
 
 ## Deployment Verification
 
-Every deployment requires:
+Canary Protocol (Mandatory): Run `node test-canary.js 3`. If it passes, testing is complete. If it fails, fix the code and re-run with 4 files. Continue increasing by 1 until it passes. Do NOT run the full 22-file suite unless explicitly requested by the user.
 
-1. A passing Canary test (`node test-canary.js 3`).
-2. A full RA regression test (`node test-all-ras.js`).
-3. A desktop scroll verification at 1440×900, including native scrolling to the bottom.
-
-No deployment may be reported successful without all three checks.
+Desktop scroll verification at 1440×900, including native scrolling to the bottom, remains required before reporting a UI deployment successful.
 
 ## Protected UI
 

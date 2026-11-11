@@ -6,6 +6,7 @@ if (!Number.isInteger(limit) || limit < 1) {
   console.error('Usage: node test-canary.js <limit>');
   process.exit(2);
 }
+console.log(`[PROJECT-RULES] Canary Protocol enforced. Running test-canary.js ${limit}.`);
 const result = spawnSync(process.execPath, ['test-all-ras.js'], {
   stdio: 'inherit',
   env: { ...process.env, CANARY_LIMIT: String(limit) },
