@@ -142,15 +142,28 @@ export async function initTheme() {
   let color = stored.color;
 
   if (!mode || !color) {
+    // Only query the settings table when the user is authenticated, and send
+    // the bearer token so the request is authorized. Fetching without a token
+    // produces a 401 "Failed to load resource" on every boot.
+    let token = null;
     try {
-      const res = await fetch(`${import.meta.env.BASE_URL.replace(/\/$/, '')}/api/settings`);
-      if (res.ok) {
-        const d = await res.json();
-        mode = mode ?? d?.settings?.theme_mode ?? 'light';
-        color = color ?? d?.settings?.theme_color ?? 'blue';
-      }
+      token = localStorage.getItem('billing_token');
     } catch {
-      /* offline: defaults are fine */
+      /* private mode */
+    }
+    if (token) {
+      try {
+        const res = await fetch(`${import.meta.env.BASE_URL.replace(/\/$/, '')}/api/settings`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (res.ok) {
+          const d = await res.json();
+          mode = mode ?? d?.settings?.theme_mode ?? 'light';
+          color = color ?? d?.settings?.theme_color ?? 'blue';
+        }
+      } catch {
+        /* offline: defaults are fine */
+      }
     }
   }
 
