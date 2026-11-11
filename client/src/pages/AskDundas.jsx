@@ -506,8 +506,7 @@ export default function AskDundas() {
         try {
           if (isPdfFile) {
             setDocIntelDebug({
-              nativeVision: true,
-              message: 'Vision API (upright PDF) used',
+              message: 'Doc Intel (prebuilt-layout) used',
             });
           } else {
             setDocIntelDebug(await api.testDocIntel(verifyFile));
@@ -861,7 +860,7 @@ export default function AskDundas() {
                 </div>
                 {docIntelDebugLoading ? (
                   <span className="muted small">Reading the document before verification…</span>
-                ) : docIntelDebug?.nativeVision ? (
+                ) : docIntelDebug?.message ? (
                   <div className="ask-docintel-debug-stats">
                     <span>
                       <strong>{docIntelDebug.message}</strong>
