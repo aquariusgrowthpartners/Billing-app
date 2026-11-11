@@ -18,7 +18,7 @@ export const TUTORIAL_STEPS = [
 
 function markComplete(isDemo) {
   if (isDemo) {
-    try { sessionStorage.setItem('demo_tutorial_completed', '1'); } catch {}
+    try { sessionStorage.setItem('demoTourCompleted', 'true'); } catch {}
     return Promise.resolve({ ignored: true });
   }
   return api.completeTutorial().catch(() => {});
@@ -33,8 +33,13 @@ export function TutorialProvider({ user, children }) {
   useEffect(() => {
     // Demo tours are never persisted in the database. A demo reload starts
     // the welcome modal again; real users resume from their saved flag.
-    if (isDemo) setWelcome(true);
-    else if (!user?.tutorial_completed) setWelcome(true);
+    if (isDemo) {
+      let completed = false;
+      try { completed = sessionStorage.getItem('demoTourCompleted') === 'true'; } catch {}
+      setWelcome(!completed);
+    } else if (!user?.tutorial_completed) {
+      setWelcome(true);
+    }
   }, [isDemo, user?.tutorial_completed]);
 
   const go = (index) => {
@@ -55,9 +60,7 @@ export function TutorialProvider({ user, children }) {
     if (step >= TUTORIAL_STEPS.length - 1) {
       await markComplete(isDemo);
       setStep(-1);
-      if (isDemo) {
-        try { sessionStorage.removeItem('demo_tutorial_completed'); } catch {}
-      }
+      setWelcome(false);
       return;
     }
     go(step + 1);
@@ -79,7 +82,7 @@ export function TutorialProvider({ user, children }) {
               {TUTORIAL_STEPS.map((item) => <li key={item.title}>{item.title}</li>)}
             </ol>
             <div className="tour-actions">
-              <button type="button" className="btn" onClick={skip}>Skip Tutorial</button>
+              {!isDemo && <button type="button" className="btn" onClick={skip}>Skip Tutorial</button>}
               <button type="button" className="btn primary" onClick={start}>Start Tour</button>
             </div>
           </div>
@@ -89,7 +92,7 @@ export function TutorialProvider({ user, children }) {
         <aside className="tour-tooltip" role="dialog" aria-label="Tutorial step" id="tour-tooltip">
           <div className="tour-tooltip-top">
             <span className="pill">Step {step + 1} of {TUTORIAL_STEPS.length}</span>
-            <button type="button" className="btn tiny" onClick={skip}>Skip</button>
+            {!isDemo && <button type="button" className="btn tiny" onClick={skip}>Skip</button>}
           </div>
           <strong>{current.title}</strong>
           <p>{current.text}</p>

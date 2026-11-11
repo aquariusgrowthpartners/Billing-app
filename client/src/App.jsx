@@ -684,6 +684,7 @@ export default function App() {
                 onClick={() => {
                   try {
                     window.localStorage.clear();
+                    window.sessionStorage.clear();
                   } catch {
                     /* private mode */
                   }
