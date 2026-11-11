@@ -1,6 +1,10 @@
 import express from 'express';
 import db from '../db.js';
 const router = express.Router();
+function canonicalChecklist(raw = {}) {
+  return Object.fromEntries(STEPS.map((key) => [key, Boolean(raw[key])]));
+}
+
 const STEPS = [
   'home', 'clients', 'uploads_ra', 'uploads_claim',
   'uploads_sa', 'pending_claims', 'ask_ai', 'settings',
@@ -24,9 +28,10 @@ router.get('/onboarding', (req, res) => {
   const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
   let saved = {};
   try { saved = JSON.parse(user?.onboarding_checklist || '{}'); } catch {}
-  const checklist = { ...computedChecklist(req.agencyId), ...saved };
+  const checklist = { ...computedChecklist(req.agencyId), ...canonicalChecklist(saved) };
   db.prepare('UPDATE users SET onboarding_checklist = ? WHERE id = ?').run(JSON.stringify(checklist), req.user.id);
-  res.json({ checklist, complete: STEPS.every((step) => checklist[step]) });
+  const normalized = canonicalChecklist(checklist);
+  res.json({ checklist: normalized, complete: STEPS.every((step) => normalized[step]) });
 });
 
 router.post('/onboarding', (req, res) => {
@@ -37,7 +42,8 @@ router.post('/onboarding', (req, res) => {
   try { checklist = JSON.parse(user?.onboarding_checklist || '{}'); } catch {}
   checklist[step] = true;
   db.prepare('UPDATE users SET onboarding_checklist = ? WHERE id = ?').run(JSON.stringify(checklist), req.user.id);
-  res.json({ checklist, complete: STEPS.every((key) => checklist[key]) });
+  const normalized = canonicalChecklist(checklist);
+  res.json({ checklist: normalized, complete: STEPS.every((key) => normalized[key]) });
 });
 
 router.post('/tutorial', (req, res) => {
