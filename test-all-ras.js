@@ -56,9 +56,18 @@ const { extractRaWithAzureDocIntel } = await import('./server/aiService.js');
 const { buildDocIntelRecords } = await import('./server/routes/ai.js');
 const { groupRecordsByClaim } = await import('./server/routes/ai.js');
 
-const files = findPdfs(ROOT);
-if (files.length !== 22) {
-  throw new Error(`Expected 22 RA PDFs, found ${files.length}`);
+const allFiles = findPdfs(ROOT);
+const requestedLimit = Number(process.env.CANARY_LIMIT || 0);
+if (!requestedLimit && allFiles.length !== 22) {
+  throw new Error(`Expected 22 RA PDFs, found ${allFiles.length}`);
+}
+let files = allFiles;
+if (requestedLimit > 0) {
+  if (requestedLimit > allFiles.length) {
+    throw new Error(`Canary limit ${requestedLimit} exceeds ${allFiles.length} PDFs`);
+  }
+  const shuffled = [...allFiles].sort(() => Math.random() - 0.5);
+  files = shuffled.slice(0, requestedLimit);
 }
 
 const ensureClient = (rawName) => {
