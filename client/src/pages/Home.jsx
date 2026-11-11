@@ -296,6 +296,27 @@ export default function Home({ user }) {
         </button>
       </section>
 
+      <section className="card ytd-claims-card" id="ytd-paid-claims">
+        <div className="ytd-claims-copy">
+          <span className="metric-label">Year-to-date paid claims</span>
+          <span className="muted small">
+            Jan 1 – today{ytd ? ` · ${ytd.count ?? 0} paid claim${(ytd.count ?? 0) === 1 ? '' : 's'}` : ''}
+          </span>
+        </div>
+        <div className="ytd-claims-amount">
+          <span className="metric-value ytd-claims-value" id="ytd-claims-total">
+            {formatMoney(ytd?.total ?? 0)}
+          </span>
+          <span className="ytd-trend" aria-label="Active">
+            <svg viewBox="0 0 16 16" width="12" height="12" fill="none" aria-hidden="true">
+              <path d="M3 11l4-4 3 3 3-5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+              <path d="M10 5h3v3" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            Active
+          </span>
+        </div>
+      </section>
+
       {/* ---------------------------------------------- section B: totals */}
       <section className="card totals-bar" id="period-totals">
         <h2 className="home-section-title">Period totals</h2>
@@ -315,27 +336,6 @@ export default function Home({ user }) {
           <span className="metric-label">Active caretakers</span>
           <span className="metric-value" id="total-caretakers">
             {totals?.active_caretakers ?? 0}
-          </span>
-        </div>
-      </section>
-
-      <section className="card ytd-claims-card" id="ytd-paid-claims">
-        <div className="ytd-claims-copy">
-          <span className="metric-label">Year-to-date paid claims</span>
-          <span className="muted small">
-            Jan 1 – today{ytd ? ` · ${ytd.count ?? 0} paid claim${(ytd.count ?? 0) === 1 ? '' : 's'}` : ''}
-          </span>
-        </div>
-        <div className="ytd-claims-amount">
-          <span className="metric-value ytd-claims-value" id="ytd-claims-total">
-            {formatMoney(ytd?.total ?? 0)}
-          </span>
-          <span className="ytd-trend" aria-label="Active">
-            <svg viewBox="0 0 16 16" width="12" height="12" fill="none" aria-hidden="true">
-              <path d="M3 11l4-4 3 3 3-5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-              <path d="M10 5h3v3" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-            Active
           </span>
         </div>
       </section>

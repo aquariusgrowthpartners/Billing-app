@@ -558,6 +558,17 @@ export default function App() {
           )}
           {navOpen && (
             <nav className="nav-drawer show-on-mobile" id="mobile-nav">
+              <div className="nav-drawer-head">
+                <span>Menu</span>
+                <button
+                  type="button"
+                  className="nav-drawer-close"
+                  aria-label="Close menu"
+                  onClick={() => setNavOpen(false)}
+                >
+                  ✕
+                </button>
+              </div>
               <NavLink to="/ask" onClick={() => setNavOpen(false)}>
                 ✨ Ask Dundas
               </NavLink>

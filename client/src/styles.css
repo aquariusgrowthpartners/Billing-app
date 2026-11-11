@@ -8877,3 +8877,22 @@ body {
 .home-alert-main { flex: 1; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; background: none; border: 0; text-align: left; cursor: pointer; color: inherit; }
 .home-alert-main span { font-size: 12px; color: #7f1d1d; }
 @media (max-width: 768px) { .home-alert { align-items: flex-start; } }
+
+.nav-drawer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 2px 6px 10px;
+  font-weight: 700;
+}
+.nav-drawer-close {
+  border: 0;
+  background: var(--bg);
+  color: var(--text);
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
