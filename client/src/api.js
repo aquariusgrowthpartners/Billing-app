@@ -64,6 +64,9 @@ export const api = {
   mode: () => request('/mode'),
   week: (start) => request(`/week${start ? `?start=${start}` : ''}`),
 
+  alerts: () => request('/alerts'),
+  dismissAlert: (id) => request(`/alerts/${id}/dismiss`, { method: 'POST' }),
+  clearAllData: (confirm) => request('/admin/clear-data', { method: 'DELETE', body: JSON.stringify({ confirm }) }),
   searchClients: (q, opts = {}) => {
     const params = new URLSearchParams();
     if (q) params.set('q', q);

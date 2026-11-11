@@ -77,6 +77,7 @@ export default function Home({ user }) {
   const [ytd, setYtd] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [alerts, setAlerts] = useState([]);
 
   const load = useCallback(async (start) => {
     setLoading(true);
@@ -167,6 +168,10 @@ export default function Home({ user }) {
   const recentRaList = Array.isArray(recentRa) ? recentRa : [];
   const recentClientsList = Array.isArray(recentClients) ? recentClients : [];
 
+  useEffect(() => {
+    api.alerts().then((r) => setAlerts(r.alerts ?? [])).catch(() => setAlerts([]));
+  }, []);
+
   return (
     <div className="page wide home">
       <header className="home-top">
@@ -196,6 +201,34 @@ export default function Home({ user }) {
       />
 
       {error && <div className="alert error">{error}</div>}
+
+      {alerts.length > 0 && (
+        <section className="home-alerts" id="home-alerts">
+          <h2>Notifications</h2>
+          {alerts.map((alert) => (
+            <div className="home-alert" key={alert.id}>
+              <button
+                type="button"
+                className="home-alert-main"
+                onClick={() => navigate(alert.client_id ? `/clients/${alert.client_id}` : '/clients')}
+              >
+                <strong>{alert.title}</strong>
+                <span>{alert.message}</span>
+              </button>
+              <button
+                type="button"
+                className="btn tiny"
+                onClick={async () => {
+                  await api.dismissAlert(alert.id);
+                  setAlerts((current) => current.filter((a) => a.id !== alert.id));
+                }}
+              >
+                Dismiss
+              </button>
+            </div>
+          ))}
+        </section>
+      )}
 
       {/* Denials alert: shown only while there is unrecovered work. */}
       {denial && Number(denial.open_tasks) > 0 && hasDenialExposure && (

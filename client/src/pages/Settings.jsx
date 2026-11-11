@@ -991,6 +991,35 @@ export default function Settings() {
         </div>
       </section>
 
+      <section className="card danger-zone" id="clear-all-data">
+        <div className="danger-head">
+          <div>
+            <h2>Clear All Data</h2>
+            <p className="muted small" style={{ margin: '4px 0 0' }}>
+              Removes claims, RA imports, service agreements, day entries, and alerts. Clients,
+              users, agencies, and settings are preserved.
+            </p>
+          </div>
+          <button
+            className="btn danger"
+            id="clear-all-data-button"
+            onClick={async () => {
+              const typed = window.prompt('Type CLEAR ALL DATA to confirm:');
+              if (typed !== 'CLEAR ALL DATA') return;
+              try {
+                await api.clearAllData(typed);
+                setNotice('All operational data has been cleared.');
+                window.dispatchEvent(new Event('data-updated'));
+              } catch (err) {
+                setError(err.message);
+              }
+            }}
+          >
+            Clear All Data
+          </button>
+        </div>
+      </section>
+
 
       {/* --------------------------------- cleanup confirmation (not wired) */}
       {cleanupOpen && cleanup && (

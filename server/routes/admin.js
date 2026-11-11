@@ -556,4 +556,27 @@ router.post('/import-local', (req, res) => {
   }
 });
 
+
+/** Destructive agency reset, deliberately limited to operational data. */
+router.delete('/clear-data', (req, res) => {
+  if (req.body?.confirm !== 'CLEAR ALL DATA') {
+    return res.status(409).json({ error: 'Type CLEAR ALL DATA to confirm.' });
+  }
+  const run = db.transaction(() => {
+    db.prepare('DELETE FROM alerts WHERE agency_id = ?').run(req.agencyId);
+    db.prepare('DELETE FROM day_entries WHERE agency_id = ?').run(req.agencyId);
+    db.prepare('DELETE FROM claims WHERE agency_id = ?').run(req.agencyId);
+    db.prepare('DELETE FROM ra_imports WHERE agency_id = ?').run(req.agencyId);
+    db.prepare('DELETE FROM agreements WHERE agency_id = ?').run(req.agencyId);
+    db.prepare('DELETE FROM service_agreements WHERE agency_id = ?').run(req.agencyId);
+  });
+  try {
+    run();
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 export default router;
+

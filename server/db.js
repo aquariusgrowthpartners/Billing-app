@@ -160,6 +160,10 @@ db.exec(`
     ma_number     TEXT,
     notes         TEXT,
     alternative_names TEXT,
+    case_manager_name TEXT,
+    case_manager_phone TEXT,
+    case_manager_email TEXT,
+    is_stub       INTEGER NOT NULL DEFAULT 0,
     active        INTEGER NOT NULL DEFAULT 1,
     agency_id     INTEGER NOT NULL DEFAULT 1
   );
@@ -625,6 +629,10 @@ addColumnIfMissing('claims', 'procedure_code', 'TEXT');
 
 // Alternative client names used by Import/Verify fuzzy matching.
 addColumnIfMissing('clients', 'alternative_names', 'TEXT');
+addColumnIfMissing('clients', 'case_manager_name', 'TEXT');
+addColumnIfMissing('clients', 'case_manager_phone', 'TEXT');
+addColumnIfMissing('clients', 'case_manager_email', 'TEXT');
+addColumnIfMissing('clients', 'is_stub', 'INTEGER NOT NULL DEFAULT 0');
 
 // Service-agreement parent/link fields used by the Client Profile.
 addColumnIfMissing('agreements', 'dhs_service_agreement_num', 'TEXT');
@@ -951,6 +959,22 @@ addColumnIfMissing('caretakers', 'seiu_voluntary_dues', 'REAL DEFAULT 0');
 addColumnIfMissing('claims', 'ra_import_id', 'INTEGER');
 
 // Clients the user actually opened, newest first. Capped at 8 rows when read.
+// Dashboard notifications for stub clients and incomplete profiles.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS alerts (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    agency_id  INTEGER NOT NULL DEFAULT 1,
+    client_id  INTEGER REFERENCES clients(id) ON DELETE CASCADE,
+    type       TEXT NOT NULL DEFAULT 'client_profile',
+    title      TEXT NOT NULL,
+    message    TEXT,
+    read_at    TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_alerts_agency_created ON alerts (agency_id, created_at DESC);
+  CREATE INDEX IF NOT EXISTS idx_alerts_client ON alerts (client_id);
+`);
+
 db.exec(`
   CREATE TABLE IF NOT EXISTS recent_clients (
     id        INTEGER PRIMARY KEY,

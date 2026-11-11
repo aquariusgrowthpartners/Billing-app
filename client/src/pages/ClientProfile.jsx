@@ -30,6 +30,8 @@ export default function ClientProfile() {
   const validId = Number.isInteger(clientId) && clientId > 0;
 
   const [showArchivedClaims, setShowArchivedClaims] = useState(false);
+  const [claimFrom, setClaimFrom] = useState('');
+  const [claimTo, setClaimTo] = useState('');
 
   /* ------------------------------------------- service agreement scanner */
   const [preview, setPreview] = useState(null);
@@ -368,10 +370,22 @@ export default function ClientProfile() {
   }
 
   const { client, agreements, claims, totals, case_manager: caseManager } = profile;
+  const visibleClaims = claims.filter((claim) => {
+    const start = claim.period_start ?? claim.date_of_service ?? '';
+    const end = claim.period_end ?? claim.date_of_service ?? start;
+    if (claimFrom && end && end < claimFrom) return false;
+    if (claimTo && start && start > claimTo) return false;
+    return true;
+  });
   const today = todayISO();
   const activeAgreement = agreements.find(
     (a) => (!a.start_date || a.start_date <= today) && (!a.end_date || a.end_date >= today)
   );
+  const authorizedUnits = agreements.reduce(
+    (sum, a) => sum + (a.superseded_at ? 0 : Number(a.total_units) || 0),
+    0
+  );
+  const remainingUnits = authorizedUnits - (Number(totals.total_units) || 0);
 
   return (
     <div className="page">
@@ -437,6 +451,20 @@ export default function ClientProfile() {
         className="tab-panel"
         style={{ display: tab === TAB_PROFILE ? 'flex' : 'none' }}
       >
+        <div className="stat-row" id="profile-metrics">
+          <Stat label="Logged days" value={totals.entry_count} />
+          <Stat label="Total units" value={totals.total_units} />
+          <Stat label="Total billed" value={formatMoney(totals.total_dollars)} />
+          <Stat
+            label="Rate in effect"
+            value={
+              activeAgreement
+                ? `${formatMoney(activeAgreement.rate_per_unit)}/unit`
+                : 'no active agreement'
+            }
+          />
+          <Stat label="Remaining units" value={remainingUnits} />
+        </div>
         <section className="card" id="client-info">
           <div className="card-head">
             <div>
@@ -763,27 +791,14 @@ export default function ClientProfile() {
           )}
         </section>
 
-        <div className="stat-row">
-          <Stat label="Logged days" value={totals.entry_count} />
-          <Stat label="Total units" value={totals.total_units} />
-          <Stat label="Total billed" value={formatMoney(totals.total_dollars)} />
-          <Stat
-            label="Rate in effect"
-            value={
-              activeAgreement
-                ? `${formatMoney(activeAgreement.rate_per_unit)}/unit`
-                : 'no active agreement'
-            }
-          />
-        </div>
 
         <section className="card" id="claims">
           <div className="card-head">
             <div>
               <h2>Claims</h2>
               <p className="muted small" style={{ margin: '2px 0 0' }}>
-                {claims.length
-                  ? `${claims.length} on file — Draft → Submitted → Paid`
+                {visibleClaims.length
+                  ? `${visibleClaims.length} on file — Draft → Submitted → Paid`
                   : 'No claims yet — generate one from the days you have logged'}
               </p>
             </div>
@@ -801,8 +816,13 @@ export default function ClientProfile() {
               </button>
             </div>
           </div>
+          <div className="claim-date-filter" style={{ padding: '0 16px 12px', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <label className="small">From <input type="date" value={claimFrom} onChange={(e) => setClaimFrom(e.target.value)} /></label>
+            <label className="small">To <input type="date" value={claimTo} onChange={(e) => setClaimTo(e.target.value)} /></label>
+            {(claimFrom || claimTo) && <button className="btn tiny" onClick={() => { setClaimFrom(''); setClaimTo(''); }}>Clear</button>}
+          </div>
           <ClaimsTable
-            claims={claims}
+            claims={visibleClaims}
             onEdit={setEditingClaim}
             onPdfChanged={async () => { await reload(); }}
             onArchive={requestClaimArchive}
