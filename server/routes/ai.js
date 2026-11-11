@@ -180,7 +180,7 @@ const DATE_WINDOW_DAYS = 14;
 
 const DB_CLAIM_SELECT = `
   SELECT cl.id, cl.claim_name, cl.status, cl.period_start, cl.period_end,
-         cl.date_of_service, cl.paid_amount, cl.total_dollars,
+         cl.date_of_service, cl.paid_amount, cl.expected_payment, cl.total_dollars,
          cu.id AS client_id, cu.first_name, cu.last_name, cu.ma_number,
          cu.alternative_names
     FROM claims cl
@@ -381,7 +381,7 @@ function verifyRecord(record, agencyId) {
   }
 
   const raAmount = parseCurrency(record?.amount_paid ?? record?.amountPaid);
-  const dbAmount = parseCurrency(claim.paid_amount);
+  const dbAmount = parseCurrency(claim.paid_amount) ?? (String(claim.status).toLowerCase() === 'pending' ? parseCurrency(claim.expected_payment) : null);
   if (!Number.isFinite(raAmount) || !Number.isFinite(dbAmount)) {
     return {
       ra_data: record,
@@ -500,7 +500,7 @@ export function groupRecordsByClaim(records, agencyId) {
       const daily = groupedRecords
         .map(({ record, claim: dayClaim }) => {
           const raAmount = parseCurrency(record.amount_paid);
-          const dbAmount = parseCurrency(dayClaim.paid_amount);
+          const dbAmount = parseCurrency(dayClaim.paid_amount) ?? (String(dayClaim.status).toLowerCase() === 'pending' ? parseCurrency(dayClaim.expected_payment) : null);
           const statusText = String(
             record.claim_status ?? record.claimStatus ?? ''
           ).toUpperCase();
@@ -647,7 +647,7 @@ export function groupRecordsByClaim(records, agencyId) {
     const chargeTotal = Number.isFinite(printedCharge)
       ? roundMoney(printedCharge)
       : roundMoney(charges.reduce((sum, amount) => sum + amount, 0));
-    const dbAmount = parseCurrency(claim.paid_amount);
+    const dbAmount = parseCurrency(claim.paid_amount) ?? (String(claim.status).toLowerCase() === 'pending' ? parseCurrency(claim.expected_payment) : null);
     const claimStatus = String(primary.claim_status ?? primary.claimStatus ?? '').toUpperCase();
     const isReversal = claimStatus.includes('REVERSAL') || claimStatus.includes('REVERSED') || raTotal < 0;
     const isDenied = claimStatus.includes('DENIED') || claimStatus.includes('DENY');
@@ -720,6 +720,39 @@ export function groupRecordsByClaim(records, agencyId) {
         : {}),
       ...(isDenied ? { is_denied: true } : {}),
     });
+  }
+
+  // Reconcile 277 claims that were imported as pending.
+  for (const result of results) {
+    if (!['paid', 'mismatch', 'rebilled'].includes(result.status)) continue;
+    const clientId = result.db_data?.client_id;
+    const periodStart = result.ra_data?.claim_period_start ?? result.db_data?.period_start;
+    const periodEnd = result.ra_data?.claim_period_end ?? result.db_data?.period_end;
+    if (!clientId || !periodStart || !periodEnd) continue;
+    const pending = db.prepare(
+      `SELECT id, expected_payment FROM claims
+        WHERE agency_id = ? AND client_id = ? AND status = 'pending'
+          AND period_start <= ? AND period_end >= ?
+        ORDER BY id LIMIT 1`
+    ).get(agencyId, clientId, periodEnd, periodStart);
+    if (!pending) continue;
+    const paidAmount = parseCurrency(result.ra_data?.amount_paid);
+    const expected = parseCurrency(pending.expected_payment);
+    const nextStatus =
+      result.status === 'paid' &&
+      Number.isFinite(paidAmount) &&
+      Number.isFinite(expected) &&
+      Math.abs(paidAmount - expected) >= 0.01
+        ? 'mismatch'
+        : result.status;
+    db.prepare(
+      `UPDATE claims SET status = ?, paid_amount = ?, paid_date = date('now') WHERE id = ? AND agency_id = ?`
+    ).run(nextStatus, Number.isFinite(paidAmount) ? paidAmount : null, pending.id, agencyId);
+    console.log(
+      `[RECONCILIATION] Pending claim moved to ${nextStatus} for ${
+        result.ra_data?.client_name ?? 'unknown client'
+      }.`
+    );
   }
 
   if (unmatched.length) {

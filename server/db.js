@@ -272,6 +272,9 @@ db.exec(`
     date_of_service   TEXT,
     charge_amount     REAL,
     procedure_code    TEXT,
+    patient_control_number TEXT,
+    expected_payment  REAL,
+    claim_status_code TEXT,
     ra_import_id      INTEGER,
     agency_id         INTEGER NOT NULL DEFAULT 1,
     created_at        TEXT NOT NULL DEFAULT (datetime('now'))
@@ -473,6 +476,7 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_day_entries_claim   ON day_entries (claim_id);
   CREATE INDEX IF NOT EXISTS idx_claims_client       ON claims (client_id, period_start);
   CREATE INDEX IF NOT EXISTS idx_claims_status       ON claims (status);
+  CREATE INDEX IF NOT EXISTS idx_claims_pending_reconciliation ON claims (agency_id, status, client_id, period_start, period_end);
 `);
 
 /*
@@ -628,6 +632,9 @@ addColumnIfMissing('claims', 'member_id', 'TEXT');
 addColumnIfMissing('claims', 'date_of_service', 'TEXT');
 addColumnIfMissing('claims', 'charge_amount', 'REAL');
 addColumnIfMissing('claims', 'procedure_code', 'TEXT');
+addColumnIfMissing('claims', 'patient_control_number', 'TEXT');
+addColumnIfMissing('claims', 'expected_payment', 'REAL');
+addColumnIfMissing('claims', 'claim_status_code', 'TEXT');
 
 // Alternative client names used by Import/Verify fuzzy matching.
 addColumnIfMissing('clients', 'alternative_names', 'TEXT');

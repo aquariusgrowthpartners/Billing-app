@@ -126,6 +126,17 @@ export const api = {
       { method: 'POST', body }
     );
   },
+  parseClaimSubmission: (file) => {
+    const body = new FormData();
+    body.append('file', file);
+    return request('/import-claims/parse', { method: 'POST', body });
+  },
+  saveClaimSubmission: (body) => request('/import-claims/save', { method: 'POST', body: JSON.stringify(body) }),
+  pendingClaims: (params = {}) => {
+    const q = new URLSearchParams(Object.entries(params).filter(([, v]) => v)).toString();
+    return request(`/import-claims/pending${q ? `?${q}` : ''}`);
+  },
+
   parseServiceAgreementImport: (file) => {
     const body = new FormData();
     body.append('file', file);

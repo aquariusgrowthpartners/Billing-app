@@ -23,6 +23,8 @@ const Caretakers = lazy(() => import('./pages/Caretakers.jsx'));
 const CaretakerProfile = lazy(() => import('./pages/CaretakerProfile.jsx'));
 const ImportRa = lazy(() => import('./pages/ImportRa.jsx'));
 const ImportSa = lazy(() => import('./pages/ImportSA.jsx'));
+const ImportClaims = lazy(() => import('./pages/ImportClaims.jsx'));
+const PendingClaims = lazy(() => import('./pages/PendingClaims.jsx'));
 const Spreadsheet = lazy(() => import('./pages/Spreadsheet.jsx'));
 const Denials = lazy(() => import('./pages/Denials.jsx'));
 const Tasks = lazy(() => import('./pages/Tasks.jsx'));
@@ -254,6 +256,8 @@ function AnimatedRoutes({ user }) {
             <Route path="/caretakers/:id" element={<CaretakerProfile />} />
             <Route path="/import-ra" element={<ImportRa />} />
             <Route path="/import-sa" element={<ImportSa />} />
+            <Route path="/import-claims" element={<ImportClaims />} />
+            <Route path="/pending-claims" element={<PendingClaims />} />
             <Route path="/reports" element={<Reports />} />
             <Route path="/spreadsheet" element={<Spreadsheet />} />
             <Route path="/denials" element={<Denials />} />
@@ -565,6 +569,9 @@ export default function App() {
             <NavLink to="/import-sa" className={({ isActive }) => (isActive ? 'active' : '')}>
               Import SA
             </NavLink>
+            <NavLink to="/pending-claims" className={({ isActive }) => (isActive ? 'active' : '')}>
+              Pending Claims
+            </NavLink>
             <NavLink to="/reports" className={({ isActive }) => (isActive ? 'active' : '')}>
               Reports
             </NavLink>
@@ -646,6 +653,9 @@ export default function App() {
               </NavLink>
               <NavLink to="/import-sa" onClick={() => setNavOpen(false)}>
                 Import SA
+              </NavLink>
+              <NavLink to="/pending-claims" onClick={() => setNavOpen(false)}>
+                Pending Claims
               </NavLink>
               <NavLink to="/reports" onClick={() => setNavOpen(false)}>
                 Reports
