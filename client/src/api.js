@@ -123,6 +123,14 @@ export const api = {
       { method: 'POST', body }
     );
   },
+  parseServiceAgreementImport: (file) => {
+    const body = new FormData();
+    body.append('file', file);
+    return request('/import-sa/parse', { method: 'POST', body });
+  },
+  saveServiceAgreementImport: (body) =>
+    request('/import-sa/save', { method: 'POST', body: JSON.stringify(body) }),
+
   /** The auth number lives on the PARENT service agreement, not on a line. */
   /* ------------------------------------------------------------- tasks */
   tasks: () => request('/tasks'),

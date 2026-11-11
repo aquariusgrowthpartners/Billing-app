@@ -22,6 +22,7 @@ const Settings = lazy(() => import('./pages/Settings.jsx'));
 const Caretakers = lazy(() => import('./pages/Caretakers.jsx'));
 const CaretakerProfile = lazy(() => import('./pages/CaretakerProfile.jsx'));
 const ImportRa = lazy(() => import('./pages/ImportRa.jsx'));
+const ImportSa = lazy(() => import('./pages/ImportSA.jsx'));
 const Spreadsheet = lazy(() => import('./pages/Spreadsheet.jsx'));
 const Denials = lazy(() => import('./pages/Denials.jsx'));
 const Tasks = lazy(() => import('./pages/Tasks.jsx'));
@@ -252,6 +253,7 @@ function AnimatedRoutes({ user }) {
             <Route path="/caretakers" element={<Caretakers />} />
             <Route path="/caretakers/:id" element={<CaretakerProfile />} />
             <Route path="/import-ra" element={<ImportRa />} />
+            <Route path="/import-sa" element={<ImportSa />} />
             <Route path="/reports" element={<Reports />} />
             <Route path="/spreadsheet" element={<Spreadsheet />} />
             <Route path="/denials" element={<Denials />} />
@@ -506,6 +508,9 @@ export default function App() {
             <NavLink to="/import-ra" className={({ isActive }) => (isActive ? 'active' : '')}>
               Import RA
             </NavLink>
+            <NavLink to="/import-sa" className={({ isActive }) => (isActive ? 'active' : '')}>
+              Import SA
+            </NavLink>
             <NavLink to="/reports" className={({ isActive }) => (isActive ? 'active' : '')}>
               Reports
             </NavLink>
@@ -573,6 +578,9 @@ export default function App() {
               </NavLink>
               <NavLink to="/import-ra" onClick={() => setNavOpen(false)}>
                 Import RA
+              </NavLink>
+              <NavLink to="/import-sa" onClick={() => setNavOpen(false)}>
+                Import SA
               </NavLink>
               <NavLink to="/reports" onClick={() => setNavOpen(false)}>
                 Reports

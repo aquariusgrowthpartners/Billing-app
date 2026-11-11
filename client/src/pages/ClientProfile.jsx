@@ -618,12 +618,17 @@ export default function ClientProfile() {
               const removed = sa.lines.filter((l) => l.superseded_at);
               const shown = removedOn ? [...active, ...removed] : active;
               const pdf = sa.pdf_path ?? sa.lines.find((l) => l.service_agreement_pdf_path)?.service_agreement_pdf_path ?? null;
+              const totalAuthorized = active.reduce(
+                (sum, line) => sum + (Number(line.authorized_total_amount) || 0),
+                0
+              );
 
               return (
                 <div className="card" key={key} id={`sa-card-${key}`} style={{ margin: '10px 0', padding: 12 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
                     <strong id={`sa-dhs-${key}`}>{sa.dhs_service_agreement_num ?? '(no DHS #)'}</strong>
                     <span className="muted small">
+                      {active.length ? 'Active' : 'Removed'} · {formatMoney(totalAuthorized)} ·{' '}
                       {sa.effective_date ? formatLongDate(sa.effective_date) : '—'} →{' '}
                       {sa.through_date ? formatLongDate(sa.through_date) : 'open'}
                     </span>
