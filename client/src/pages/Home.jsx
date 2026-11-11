@@ -120,6 +120,20 @@ export default function Home({ user }) {
     return () => window.removeEventListener('data-updated', refresh);
   }, [load, periodStart]);
 
+  useEffect(() => {
+    let cancelled = false;
+    api.alerts()
+      .then((result) => {
+        if (!cancelled) setAlerts(Array.isArray(result?.alerts) ? result.alerts : []);
+      })
+      .catch(() => {
+        if (!cancelled) setAlerts([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   /*
    * Keep the page from ever rendering with no dashboard payload. If the fetch
    * failed, show the reason instead of an eternal loading message.
@@ -167,10 +181,7 @@ export default function Home({ user }) {
     Number(denial?.unrecovered_days) > 0 || Number(denial?.unrecovered_dollars) > 0;
   const recentRaList = Array.isArray(recentRa) ? recentRa : [];
   const recentClientsList = Array.isArray(recentClients) ? recentClients : [];
-
-  useEffect(() => {
-    api.alerts().then((r) => setAlerts(r.alerts ?? [])).catch(() => setAlerts([]));
-  }, []);
+  const alertList = Array.isArray(alerts) ? alerts : [];
 
   return (
     <div className="page wide home">
@@ -202,10 +213,10 @@ export default function Home({ user }) {
 
       {error && <div className="alert error">{error}</div>}
 
-      {alerts.length > 0 && (
+      {alertList.length > 0 && (
         <section className="home-alerts" id="home-alerts">
           <h2>Notifications</h2>
-          {alerts.map((alert) => (
+          {alertList.map((alert) => (
             <div className="home-alert" key={alert.id}>
               <button
                 type="button"
