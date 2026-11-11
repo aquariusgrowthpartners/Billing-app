@@ -148,7 +148,8 @@ export default function Home({ user }) {
           </div>
         </header>
 
-        <InsightBar userName={user?.email} loading />
+
+      <InsightBar userName={user?.email} loading />
 
         {error ? (
           <div className="alert error" id="home-fetch-error">
@@ -192,6 +193,65 @@ export default function Home({ user }) {
         </div>
         <DueReminder />
       </header>
+
+      <section className="card ytd-claims-card" id="ytd-paid-claims">
+        <div className="ytd-claims-copy">
+          <span className="metric-label">Year-to-date paid claims</span>
+          <span className="muted small">
+            Jan 1 – today{ytd ? ` · ${ytd.count ?? 0} paid claim${(ytd.count ?? 0) === 1 ? '' : 's'}` : ''}
+          </span>
+        </div>
+        <div className="ytd-claims-amount">
+          <span className="metric-value ytd-claims-value" id="ytd-claims-total">
+            {formatMoney(ytd?.total ?? 0)}
+          </span>
+          <span className="ytd-trend" aria-label="Active">
+            <svg viewBox="0 0 16 16" width="12" height="12" fill="none" aria-hidden="true">
+              <path d="M3 11l4-4 3 3 3-5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+              <path d="M10 5h3v3" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            Active
+          </span>
+        </div>
+      </section>
+
+      {/* the period navigator: label centred between the arrows */}
+      <section className="card home-period-nav" id="period-nav">
+        <button
+          className="btn"
+          id="period-prev"
+          onClick={() => period && setPeriodStart(period.prev_start)}
+          disabled={!period}
+        >
+          ← Prev
+        </button>
+        <div className="period-label">
+          <span className="period-range" id="period-range">
+            {period?.start && period?.end
+              ? `${formatLongDate(period.start)} – ${formatLongDate(period.end)}`
+              : 'Loading…'}
+          </span>
+          <span className="period-tag">
+            {period?.is_current ? 'Current pay period' : 'Past pay period'}
+          </span>
+        </div>
+        <button
+          className="btn"
+          id="period-next"
+          onClick={() => period && setPeriodStart(period.next_start)}
+          disabled={!period}
+        >
+          Next →
+        </button>
+        <button
+          className="btn ghost period-current"
+          id="period-current"
+          onClick={() => setPeriodStart(null)}
+          disabled={!period || period.is_current}
+        >
+          Jump to current
+        </button>
+      </section>
 
       <InsightBar
         userName={user?.email}
@@ -258,64 +318,6 @@ export default function Home({ user }) {
         </div>
       )}
 
-      {/* the period navigator: label centred between the arrows */}
-      <section className="card home-period-nav" id="period-nav">
-        <button
-          className="btn"
-          id="period-prev"
-          onClick={() => period && setPeriodStart(period.prev_start)}
-          disabled={!period}
-        >
-          ← Prev
-        </button>
-        <div className="period-label">
-          <span className="period-range" id="period-range">
-            {period?.start && period?.end
-              ? `${formatLongDate(period.start)} – ${formatLongDate(period.end)}`
-              : 'Loading…'}
-          </span>
-          <span className="period-tag">
-            {period?.is_current ? 'Current pay period' : 'Past pay period'}
-          </span>
-        </div>
-        <button
-          className="btn"
-          id="period-next"
-          onClick={() => period && setPeriodStart(period.next_start)}
-          disabled={!period}
-        >
-          Next →
-        </button>
-        <button
-          className="btn ghost period-current"
-          id="period-current"
-          onClick={() => setPeriodStart(null)}
-          disabled={!period || period.is_current}
-        >
-          Jump to current
-        </button>
-      </section>
-
-      <section className="card ytd-claims-card" id="ytd-paid-claims">
-        <div className="ytd-claims-copy">
-          <span className="metric-label">Year-to-date paid claims</span>
-          <span className="muted small">
-            Jan 1 – today{ytd ? ` · ${ytd.count ?? 0} paid claim${(ytd.count ?? 0) === 1 ? '' : 's'}` : ''}
-          </span>
-        </div>
-        <div className="ytd-claims-amount">
-          <span className="metric-value ytd-claims-value" id="ytd-claims-total">
-            {formatMoney(ytd?.total ?? 0)}
-          </span>
-          <span className="ytd-trend" aria-label="Active">
-            <svg viewBox="0 0 16 16" width="12" height="12" fill="none" aria-hidden="true">
-              <path d="M3 11l4-4 3 3 3-5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-              <path d="M10 5h3v3" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-            Active
-          </span>
-        </div>
-      </section>
 
       {/* ---------------------------------------------- section B: totals */}
       <section className="card totals-bar" id="period-totals">
