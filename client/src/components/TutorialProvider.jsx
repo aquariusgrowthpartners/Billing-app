@@ -16,18 +16,26 @@ export const TUTORIAL_STEPS = [
   { target: '[data-tour="settings"]', title: 'Settings', text: 'Customize your agency logo, branding, and AI quick prompts here.', path: '/settings' },
 ];
 
-function markComplete() {
+function markComplete(isDemo) {
+  if (isDemo) {
+    try { sessionStorage.setItem('demo_tutorial_completed', '1'); } catch {}
+    return Promise.resolve({ ignored: true });
+  }
   return api.completeTutorial().catch(() => {});
 }
 
 export function TutorialProvider({ user, children }) {
   const navigate = useNavigate();
+  const isDemo = Number(user?.is_demo) === 1;
   const [welcome, setWelcome] = useState(false);
   const [step, setStep] = useState(-1);
 
   useEffect(() => {
-    if (user?.is_demo && !user?.tutorial_completed) setWelcome(true);
-  }, [user?.is_demo, user?.tutorial_completed]);
+    // Demo tours are never persisted in the database. A demo reload starts
+    // the welcome modal again; real users resume from their saved flag.
+    if (isDemo) setWelcome(true);
+    else if (!user?.tutorial_completed) setWelcome(true);
+  }, [isDemo, user?.tutorial_completed]);
 
   const go = (index) => {
     setStep(index);
@@ -38,13 +46,18 @@ export function TutorialProvider({ user, children }) {
     go(0);
   };
   const skip = async () => {
-    await markComplete();
+    await markComplete(isDemo);
+    setWelcome(false);
+    setStep(-1);
     window.location.assign('/login?mode=signup');
   };
   const next = async () => {
     if (step >= TUTORIAL_STEPS.length - 1) {
-      await markComplete();
+      await markComplete(isDemo);
       setStep(-1);
+      if (isDemo) {
+        try { sessionStorage.removeItem('demo_tutorial_completed'); } catch {}
+      }
       return;
     }
     go(step + 1);

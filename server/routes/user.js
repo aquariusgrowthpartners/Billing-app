@@ -47,6 +47,14 @@ router.post('/onboarding', (req, res) => {
 });
 
 router.post('/tutorial', (req, res) => {
+  const user = db.prepare('SELECT agency_id FROM users WHERE id = ?').get(req.user.id);
+  const agency = user
+    ? db.prepare('SELECT is_demo FROM agencies WHERE id = ?').get(user.agency_id)
+    : null;
+  if (Number(agency?.is_demo) === 1) {
+    console.log('[DEMO] Ignored tutorial completion update.');
+    return res.json({ tutorial_completed: 0, ignored: true });
+  }
   db.prepare('UPDATE users SET tutorial_completed = 1 WHERE id = ?').run(req.user.id);
   res.json({ tutorial_completed: 1 });
 });
