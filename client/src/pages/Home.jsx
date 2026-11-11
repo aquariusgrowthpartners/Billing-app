@@ -82,6 +82,7 @@ export default function Home({ user }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [alerts, setAlerts] = useState([]);
+  const [onboarding, setOnboarding] = useState(null);
 
   const load = useCallback(async (start) => {
     setLoading(true);
@@ -123,6 +124,13 @@ export default function Home({ user }) {
     window.addEventListener('data-updated', refresh);
     return () => window.removeEventListener('data-updated', refresh);
   }, [load, periodStart, periodEnd]);
+
+  useEffect(() => {
+    if (!user || user.is_demo) return undefined;
+    let cancelled = false;
+    api.onboarding().then((result) => { if (!cancelled) setOnboarding(result); }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [user]);
 
   useEffect(() => {
     let cancelled = false;
@@ -197,6 +205,27 @@ export default function Home({ user }) {
         </div>
         <DueReminder />
       </header>
+
+      {onboarding && !onboarding.complete && (
+        <section className="card onboarding-card" id="onboarding-checklist">
+          <div className="card-head">
+            <div><h2>Getting started</h2><p className="muted small" style={{ margin: '2px 0 0' }}>Complete these steps to finish setting up.</p></div>
+          </div>
+          <ul className="onboarding-list">
+            {[
+              ['client', 'Add your first Client', '/clients'],
+              ['service_agreement', 'Import a Service Agreement', '/uploads'],
+              ['ra_upload', 'Upload an RA', '/uploads'],
+              ['ra_verify', 'Verify an RA', '/ask'],
+            ].map(([key, label, href]) => (
+              <li key={key} className={onboarding.checklist?.[key] ? 'done' : ''}>
+                <span className="onboarding-check">{onboarding.checklist?.[key] ? '✓' : '○'}</span>
+                <Link to={href}>{label}</Link>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       <section className="card ytd-claims-card" id="ytd-paid-claims">
         <div className="ytd-claims-copy">

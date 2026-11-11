@@ -24,6 +24,9 @@ function publicUser(user, agency) {
     role: user.role,
     agency_id: user.agency_id,
     agency_name: agency?.name ?? null,
+    is_demo: Number(agency?.is_demo ?? 0),
+    tutorial_completed: Number(user.tutorial_completed ?? 0),
+    onboarding_checklist: user.onboarding_checklist ?? null,
     must_change_password: user.must_change_password ?? 0,
   };
 }

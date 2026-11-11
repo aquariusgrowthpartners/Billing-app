@@ -142,6 +142,7 @@ db.exec(`
     name       TEXT    NOT NULL,
     logo_url   TEXT,
     ai_quick_prompts TEXT,
+    is_demo    INTEGER NOT NULL DEFAULT 0,
     created_at TEXT    NOT NULL DEFAULT (datetime('now'))
   );
 
@@ -151,6 +152,8 @@ db.exec(`
     email         TEXT    NOT NULL UNIQUE,
     password_hash TEXT    NOT NULL,
     role          TEXT    NOT NULL DEFAULT 'admin' CHECK (role IN ('admin','member')),
+    onboarding_checklist TEXT,
+    tutorial_completed INTEGER NOT NULL DEFAULT 0,
     created_at    TEXT    NOT NULL DEFAULT (datetime('now'))
   );
 
@@ -644,6 +647,9 @@ addColumnIfMissing('clients', 'case_manager_email', 'TEXT');
 addColumnIfMissing('clients', 'is_stub', 'INTEGER NOT NULL DEFAULT 0');
 addColumnIfMissing('agencies', 'logo_url', 'TEXT');
 addColumnIfMissing('agencies', 'ai_quick_prompts', 'TEXT');
+addColumnIfMissing('agencies', 'is_demo', 'INTEGER NOT NULL DEFAULT 0');
+addColumnIfMissing('users', 'onboarding_checklist', 'TEXT');
+addColumnIfMissing('users', 'tutorial_completed', 'INTEGER NOT NULL DEFAULT 0');
 
 // Service-agreement parent/link fields used by the Client Profile.
 addColumnIfMissing('agreements', 'dhs_service_agreement_num', 'TEXT');
@@ -1066,6 +1072,11 @@ if (process.env.BILLING_MIGRATION_LOG !== '0') {
       `day_entries.caretaker_id (${caretakerColumn})`
   );
 }
+
+db.prepare(
+  `UPDATE agencies SET is_demo = 1
+    WHERE id IN (SELECT agency_id FROM users WHERE lower(email) = 'demo@dundas.com')`
+).run();
 
 /** Seed defaults. INSERT OR IGNORE, so an existing value is never overwritten. */
 function seedSetting(key, value) {

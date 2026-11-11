@@ -715,6 +715,7 @@ export default function AskDundas() {
           id="ask-tab-verify"
           aria-selected={tab === 'verify'}
           aria-controls="ask-verify-panel"
+          data-tour="verify"
           className={`ask-tab${tab === 'verify' ? ' active' : ''}`}
           onClick={() => selectTab('verify')}
         >
@@ -1377,6 +1378,7 @@ export default function AskDundas() {
           <input
             ref={inputRef}
             id="ask-input"
+            data-tour="chat-input"
             className="ask-input"
             name="question"
             inputMode="text"

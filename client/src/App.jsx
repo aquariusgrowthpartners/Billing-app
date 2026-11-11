@@ -4,6 +4,7 @@ import { flushSync } from 'react-dom';
 import { ToastProvider } from './components/Toast.jsx';
 import SkeletonPage from './components/SkeletonPage.jsx';
 import GlobalSearch from './components/GlobalSearch.jsx';
+import { TutorialProvider } from './components/TutorialProvider.jsx';
 import Login from './pages/Login.jsx';
 import ChangePassword from './pages/ChangePassword.jsx';
 import { getToken, clearToken } from './api.js';
@@ -480,6 +481,7 @@ export default function App() {
       <ChangePassword user={user} onChanged={setUser} />
     ) : (
     <BrowserRouter basename={BASENAME}>
+      <TutorialProvider user={user}>
       <div
         className={`app${demoMode ? ' demo-mode' : ''}`}
         style={demoMode ? { paddingTop: bannerHeight, '--demo-banner-h': `${bannerHeight}px` } : undefined}
@@ -565,7 +567,7 @@ export default function App() {
             <NavLink to="/caretakers" className={({ isActive }) => (isActive ? 'active' : '')}>
               Caretakers
             </NavLink>
-            <NavLink to="/uploads" className={({ isActive }) => (isActive ? 'active' : '')}>
+            <NavLink to="/uploads" data-tour="uploads" className={({ isActive }) => (isActive ? 'active' : '')}>
               ☁ Uploads
             </NavLink>
             <NavLink to="/pending-claims" className={({ isActive }) => (isActive ? 'active' : '')}>
@@ -647,7 +649,7 @@ export default function App() {
               <NavLink to="/caretakers" onClick={() => setNavOpen(false)}>
                 Caretakers
               </NavLink>
-              <NavLink to="/uploads" onClick={() => setNavOpen(false)}>
+              <NavLink to="/uploads" data-tour="uploads" onClick={() => setNavOpen(false)}>
                 ☁ Uploads
               </NavLink>
               <NavLink to="/pending-claims" onClick={() => setNavOpen(false)}>
@@ -698,6 +700,7 @@ export default function App() {
           <AnimatedRoutes user={user} />
         </main>
       </div>
+      </TutorialProvider>
     </BrowserRouter>
     )}
     </ToastProvider>

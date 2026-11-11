@@ -8929,3 +8929,16 @@ body {
 .home-period-nav { position: relative; }
 .period-picker-actions { display: flex; justify-content: flex-end; gap: 8px; }
 @media (max-width: 768px) { .period-picker { left: 8px; right: 8px; } }
+
+.tour-welcome-backdrop { position: fixed; inset: 0; z-index: 10002; display: grid; place-items: center; padding: 20px; background: rgba(15,23,42,.64); }
+.tour-welcome { width: min(440px, calc(100vw - 32px)); max-height: calc(100vh - 40px); overflow-y: auto; background: var(--surface); border-radius: 16px; padding: 22px; box-shadow: 0 20px 50px rgba(0,0,0,.3); }
+.tour-welcome h2 { margin-top: 0; }
+.tour-actions { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+.tour-spotlight { border: 2px solid #60a5fa; border-radius: 10px; box-shadow: 0 0 0 9999px rgba(15,23,42,.62); pointer-events: none; }
+.tour-dim { position: fixed; inset: 0; z-index: 10000; background: rgba(15,23,42,.62); }
+.tour-tooltip { background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 12px; padding: 14px; box-shadow: 0 16px 40px rgba(0,0,0,.25); }
+.tour-tooltip p { margin: 6px 0 0; font-size: 13px; }
+.onboarding-list { list-style: none; margin: 0; padding: 0 16px 16px; display: grid; gap: 8px; }
+.onboarding-list li { display: flex; align-items: center; gap: 8px; }
+.onboarding-list li.done { color: #15803d; text-decoration: line-through; }
+.onboarding-check { width: 20px; font-weight: 800; }

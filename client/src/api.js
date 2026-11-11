@@ -64,6 +64,8 @@ export const api = {
   mode: () => request('/mode'),
   week: (start) => request(`/week${start ? `?start=${start}` : ''}`),
 
+  onboarding: () => request('/user/onboarding'),
+  completeTutorial: () => request('/user/tutorial', { method: 'POST' }),
   alerts: () => request('/alerts'),
   dismissAlert: (id) => request(`/alerts/${id}/dismiss`, { method: 'POST' }),
   clearAllData: (confirm) => request('/admin/clear-data', { method: 'DELETE', body: JSON.stringify({ confirm }) }),
