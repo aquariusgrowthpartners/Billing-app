@@ -37,6 +37,8 @@ export default function Settings() {
   const [notice, setNotice] = useState(null);
   const [agency, setAgency] = useState({});
   const [agencyBusy, setAgencyBusy] = useState(false);
+  const [brandLogo, setBrandLogo] = useState(null);
+  const [quickPrompts, setQuickPrompts] = useState('');
   const [audit, setAudit] = useState(null);
   const [auditBusy, setAuditBusy] = useState(false);
   const [raStorage, setRaStorage] = useState(null);
@@ -59,6 +61,13 @@ export default function Settings() {
       setSettings(s);
       setTokens(d?.template_tokens ?? []);
       setTemplate(s.claim_name_template ?? '');
+      setBrandLogo(s.logo_url || null);
+      try {
+        const parsed = JSON.parse(s.ai_quick_prompts || '[]');
+        setQuickPrompts(Array.isArray(parsed) ? parsed.join('\n') : '');
+      } catch {
+        setQuickPrompts('');
+      }
       setAgency({
         agency_name: s.agency_name ?? '',
         agency_street_address: s.agency_street_address ?? '',
@@ -107,6 +116,53 @@ export default function Settings() {
     setBackingUp(true);
     download(api.backupUrl());
     setTimeout(() => setBackingUp(false), 2500);
+  }
+
+  async function saveLogoFile(file) {
+    if (!file) return;
+    setAgencyBusy(true);
+    try {
+      const dataUrl = await new Promise((resolve, reject) => {
+        const img = new Image();
+        const reader = new FileReader();
+        reader.onload = () => { img.src = reader.result; };
+        reader.onerror = reject;
+        img.onerror = reject;
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          canvas.width = 100;
+          canvas.height = 100;
+          const ctx = canvas.getContext('2d');
+          const size = Math.min(img.width, img.height);
+          const sx = (img.width - size) / 2;
+          const sy = (img.height - size) / 2;
+          ctx.drawImage(img, sx, sy, size, size, 0, 0, 100, 100);
+          resolve(canvas.toDataURL('image/png'));
+        };
+        reader.readAsDataURL(file);
+      });
+      await api.updateSettings({ logo_url: dataUrl });
+      setBrandLogo(dataUrl);
+      setNotice('Brand logo saved');
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setAgencyBusy(false);
+    }
+  }
+
+  async function saveQuickPrompts() {
+    setAgencyBusy(true);
+    try {
+      const list = quickPrompts.split('\n').map((v) => v.trim()).filter(Boolean);
+      const d = await api.updateSettings({ ai_quick_prompts: list });
+      setSettings(d?.settings ?? {});
+      setNotice('AI quick prompts saved');
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setAgencyBusy(false);
+    }
   }
 
   async function saveAgency() {
@@ -1300,6 +1356,34 @@ export default function Settings() {
           <button className="btn primary" id="save-agency" onClick={saveAgency} disabled={agencyBusy}>
             {agencyBusy ? 'Saving…' : 'Save agency information'}
           </button>
+        </div>
+      </section>
+
+      <section className="card" id="brand-logo">
+        <div className="card-head">
+          <div>
+            <h2>Brand Logo</h2>
+            <p className="muted small" style={{ margin: '2px 0 0' }}>
+              Upload any image; it is center-cropped to a 100×100 square for the top bar.
+            </p>
+          </div>
+          <label className="btn" style={{ cursor: 'pointer' }}>
+            Upload Logo
+            <input
+              type="file"
+              accept="image/png,image/jpeg,image/webp"
+              style={{ display: 'none' }}
+              onChange={(e) => saveLogoFile(e.target.files?.[0])}
+            />
+          </label>
+        </div>
+        <div className="card-body">
+          {brandLogo ? <img src={brandLogo} alt="Agency logo" style={{ maxHeight: 100, maxWidth: 100, borderRadius: 12, objectFit: 'cover' }} /> : <p className="muted small">No custom logo set. The Dundas text mark is used.</p>}
+          <label style={{ marginTop: 16 }}>
+            AI Quick Prompts — one per line
+            <textarea rows={4} value={quickPrompts} onChange={(e) => setQuickPrompts(e.target.value)} placeholder="Summarize this week's billing&#10;Which claims are still unpaid?" />
+          </label>
+          <button className="btn primary" onClick={saveQuickPrompts} disabled={agencyBusy}>Save Quick Prompts</button>
         </div>
       </section>
 

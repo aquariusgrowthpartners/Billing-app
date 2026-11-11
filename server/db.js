@@ -140,6 +140,8 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS agencies (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     name       TEXT    NOT NULL,
+    logo_url   TEXT,
+    ai_quick_prompts TEXT,
     created_at TEXT    NOT NULL DEFAULT (datetime('now'))
   );
 
@@ -633,6 +635,8 @@ addColumnIfMissing('clients', 'case_manager_name', 'TEXT');
 addColumnIfMissing('clients', 'case_manager_phone', 'TEXT');
 addColumnIfMissing('clients', 'case_manager_email', 'TEXT');
 addColumnIfMissing('clients', 'is_stub', 'INTEGER NOT NULL DEFAULT 0');
+addColumnIfMissing('agencies', 'logo_url', 'TEXT');
+addColumnIfMissing('agencies', 'ai_quick_prompts', 'TEXT');
 
 // Service-agreement parent/link fields used by the Client Profile.
 addColumnIfMissing('agreements', 'dhs_service_agreement_num', 'TEXT');

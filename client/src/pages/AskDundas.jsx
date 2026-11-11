@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { formatMoney } from '../calc.js';
 import api from '../api.js';
 import { toast } from '../components/Toast.jsx';
@@ -292,6 +292,8 @@ export default function AskDundas() {
   const [docIntelDebugLoading, setDocIntelDebugLoading] = useState(false);
   const inputRef = useRef(null);
   const pageRef = useRef(null);
+  const promptHandledRef = useRef(false);
+  const [searchParams] = useSearchParams();
   const threadRef = useRef(null);
   const latestAiRef = useRef(null);
 
@@ -362,6 +364,14 @@ export default function AskDundas() {
     const thread = threadRef.current;
     if (thread) thread.scrollTop = thread.scrollHeight;
   }, [asking]);
+
+  useEffect(() => {
+    const prompt = searchParams.get('prompt');
+    if (!prompt || promptHandledRef.current) return;
+    promptHandledRef.current = true;
+    setTab('chat');
+    ask(prompt);
+  }, [searchParams]);
 
   useEffect(() => {
     if (!bulkJobId) return undefined;

@@ -6,6 +6,7 @@ import {
   TEMPLATE_TOKENS,
 } from '../settings.js';
 import { identifier } from '../hhaFields.js';
+import db from '../db.js';
 
 const router = express.Router();
 
@@ -23,7 +24,11 @@ function redactedSettings(agencyId) {
 }
 
 router.get('/', (req, res) => {
-  res.json({ settings: redactedSettings(req.agencyId), template_tokens: TEMPLATE_TOKENS });
+  const agency = db.prepare('SELECT logo_url, ai_quick_prompts FROM agencies WHERE id = ?').get(req.agencyId) ?? {};
+  res.json({
+    settings: { ...redactedSettings(req.agencyId), ...agency },
+    template_tokens: TEMPLATE_TOKENS,
+  });
 });
 
 /** PUT /api/settings  { claim_name_template } */
@@ -104,12 +109,39 @@ router.put('/', (req, res) => {
     updates.theme_color = color;
   }
 
-  if (!Object.keys(updates).length) {
+  let logoUrl;
+  let aiQuickPrompts;
+  if ('logo_url' in body) {
+    logoUrl = String(body.logo_url ?? '').trim() || null;
+    if (logoUrl && !/^data:image\/(png|jpeg|jpg|webp);base64,/i.test(logoUrl)) {
+      return res.status(400).json({ error: 'Logo must be a PNG, JPEG or WebP data URL.' });
+    }
+    if (logoUrl && logoUrl.length > 2_500_000) {
+      return res.status(400).json({ error: 'Logo is too large (max 2.5 MB).' });
+    }
+  }
+  if ('ai_quick_prompts' in body) {
+    const raw = body.ai_quick_prompts;
+    const list = Array.isArray(raw) ? raw : String(raw ?? '').split('\n').map((v) => v.trim()).filter(Boolean);
+    aiQuickPrompts = JSON.stringify(list);
+  }
+
+  if (!Object.keys(updates).length && logoUrl === undefined && aiQuickPrompts === undefined) {
     return res.status(400).json({ error: 'Nothing to update.' });
   }
   for (const [key, value] of Object.entries(updates)) setSetting(key, value, req.agencyId);
+  if (logoUrl !== undefined) {
+    db.prepare('UPDATE agencies SET logo_url = ? WHERE id = ?').run(logoUrl, req.agencyId);
+  }
+  if (aiQuickPrompts !== undefined) {
+    db.prepare('UPDATE agencies SET ai_quick_prompts = ? WHERE id = ?').run(aiQuickPrompts, req.agencyId);
+  }
 
-  res.json({ settings: redactedSettings(req.agencyId), template_tokens: TEMPLATE_TOKENS });
+  const agency = db.prepare('SELECT logo_url, ai_quick_prompts FROM agencies WHERE id = ?').get(req.agencyId) ?? {};
+  res.json({
+    settings: { ...redactedSettings(req.agencyId), ...agency },
+    template_tokens: TEMPLATE_TOKENS,
+  });
 });
 
 export default router;

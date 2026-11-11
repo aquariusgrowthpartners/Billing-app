@@ -1,5 +1,5 @@
 import React, { lazy, Suspense, useEffect, useState, useRef } from 'react';
-import { BrowserRouter, Routes, Route, NavLink, useLocation, useNavigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, NavLink, Link, useLocation, useNavigate } from 'react-router-dom';
 import { flushSync } from 'react-dom';
 import { ToastProvider } from './components/Toast.jsx';
 import SkeletonPage from './components/SkeletonPage.jsx';
@@ -304,6 +304,9 @@ export default function App() {
   }, []);
 
   const [navOpen, setNavOpen] = useState(false);
+  const [brandLogo, setBrandLogo] = useState(null);
+  const [aiPrompts, setAiPrompts] = useState([]);
+  const [aiOpen, setAiOpen] = useState(false);
   const [demoMode, setDemoMode] = useState(false);
   const [authed, setAuthed] = useState(false);
   const [user, setUser] = useState(null);
@@ -411,6 +414,25 @@ export default function App() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!authed) return undefined;
+    let cancelled = false;
+    api.getSettings()
+      .then((result) => {
+        if (cancelled) return;
+        const settings = result?.settings ?? {};
+        setBrandLogo(settings.logo_url || null);
+        try {
+          const parsed = JSON.parse(settings.ai_quick_prompts || '[]');
+          setAiPrompts(Array.isArray(parsed) ? parsed.filter(Boolean) : []);
+        } catch {
+          setAiPrompts([]);
+        }
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [authed]);
+
   /* Demo mode is a server fact, so ask once on load. */
   useEffect(() => {
     let cancelled = false;
@@ -462,9 +484,41 @@ export default function App() {
           </div>
         )}
         <header className="topbar">
-          {/* Brand left out on purpose: this is a client demo, so the nav is the
-              first thing on screen rather than our product name. */}
+          <Link to="/" className="brand-logo" aria-label="Dundas Home">
+            {brandLogo ? <img src={brandLogo} alt="Agency logo" /> : <span>Dundas</span>}
+          </Link>
           <GlobalSearch />
+          <div className="ai-command-center">
+            <button
+              type="button"
+              className="ai-command-pill"
+              id="ai-command-pill"
+              aria-expanded={aiOpen}
+              onClick={() => setAiOpen((v) => !v)}
+            >
+              ✨ Ask Dundas
+            </button>
+            {aiOpen && (
+              <div className="ai-command-dropdown" id="ai-command-dropdown">
+                <strong>Quick questions</strong>
+                {aiPrompts.length ? aiPrompts.map((prompt) => (
+                  <button
+                    type="button"
+                    key={prompt}
+                    onClick={() => {
+                      setAiOpen(false);
+                      window.location.assign(`/ask?prompt=${encodeURIComponent(prompt)}`);
+                    }}
+                  >
+                    {prompt}
+                  </button>
+                )) : <span className="muted small">No quick prompts configured.</span>}
+                <Link to="/ask" className="btn primary" onClick={() => setAiOpen(false)}>
+                  Open Full Dundas AI
+                </Link>
+              </div>
+            )}
+          </div>
           <button
             type="button"
             className="nav-toggle show-on-mobile"

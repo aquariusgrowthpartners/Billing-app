@@ -215,6 +215,29 @@ export default function Home({ user }) {
         </div>
       </section>
 
+      {/* ---------------------------------------------- section B: totals */}
+      <section className="card totals-bar" id="period-totals">
+        <h2 className="home-section-title">Period totals</h2>
+        <div className="metric">
+          <span className="metric-label">Total hours</span>
+          <span className="metric-value" id="total-hours">
+            {hours(totals?.hours ?? 0)}
+          </span>
+        </div>
+        <div className="metric">
+          <span className="metric-label">Total billed value</span>
+          <span className="metric-value" id="total-dollars">
+            {formatMoney(totals?.dollars ?? 0)}
+          </span>
+        </div>
+        <div className="metric">
+          <span className="metric-label">Active caretakers</span>
+          <span className="metric-value" id="total-caretakers">
+            {totals?.active_caretakers ?? 0}
+          </span>
+        </div>
+      </section>
+
       {/* the period navigator: label centred between the arrows */}
       <section className="card home-period-nav" id="period-nav">
         <button
@@ -253,25 +276,22 @@ export default function Home({ user }) {
         </button>
       </section>
 
-      <InsightBar
-        userName={user?.email}
-        loading={loading}
-        hasData={
-          Boolean(data) &&
-          ((recentRaList?.length ?? 0) > 0 ||
-            (recentClientsList?.length ?? 0) > 0 ||
-            Number(data?.totals?.hours) > 0)
-        }
-        detail={
-          Number(data?.totals?.hours) > 0
-            ? `${hours(data.totals.hours)} across ${data.totals.active_caretakers ?? 0} caretaker${
-                (data.totals.active_caretakers ?? 0) === 1 ? '' : 's'
-              } — ${formatMoney(data.totals.dollars)} this pay period.`
-            : 'No visits in this pay period yet — use Prev to review history.'
-        }
-      />
-
-      {error && <div className="alert error">{error}</div>}
+      {/* Denials alert: shown only while there is unrecovered work. */}
+      {denial && Number(denial.open_tasks) > 0 && hasDenialExposure && (
+        <div className="ds-alert-card" id="home-denial-alert">
+          <span className="ds-alert-icon" aria-hidden="true">⚠</span>
+          <span className="ds-alert-text">
+            <strong>{denial.unrecovered_days ?? 0}</strong> unrecovered day
+            {(denial.unrecovered_days ?? 0) === 1 ? '' : 's'} across{' '}
+            <strong>{byClientCount}</strong> client
+            {byClientCount === 1 ? '' : 's'} —{' '}
+            <strong>{formatMoney(denial.unrecovered_dollars)}</strong> at risk.
+          </span>
+          <Link className="btn danger" to="/denials" id="home-denial-link">
+            View Denials →
+          </Link>
+        </div>
+      )}
 
       {alertList.length > 0 && (
         <section className="home-alerts" id="home-alerts">
@@ -301,46 +321,7 @@ export default function Home({ user }) {
         </section>
       )}
 
-      {/* Denials alert: shown only while there is unrecovered work. */}
-      {denial && Number(denial.open_tasks) > 0 && hasDenialExposure && (
-        <div className="ds-alert-card" id="home-denial-alert">
-          <span className="ds-alert-icon" aria-hidden="true">⚠</span>
-          <span className="ds-alert-text">
-            <strong>{denial.unrecovered_days ?? 0}</strong> unrecovered day
-            {(denial.unrecovered_days ?? 0) === 1 ? '' : 's'} across{' '}
-            <strong>{byClientCount}</strong> client
-            {byClientCount === 1 ? '' : 's'} —{' '}
-            <strong>{formatMoney(denial.unrecovered_dollars)}</strong> at risk.
-          </span>
-          <Link className="btn danger" to="/denials" id="home-denial-link">
-            View Denials →
-          </Link>
-        </div>
-      )}
-
-
-      {/* ---------------------------------------------- section B: totals */}
-      <section className="card totals-bar" id="period-totals">
-        <h2 className="home-section-title">Period totals</h2>
-        <div className="metric">
-          <span className="metric-label">Total hours</span>
-          <span className="metric-value" id="total-hours">
-            {hours(totals?.hours ?? 0)}
-          </span>
-        </div>
-        <div className="metric">
-          <span className="metric-label">Total billed value</span>
-          <span className="metric-value" id="total-dollars">
-            {formatMoney(totals?.dollars ?? 0)}
-          </span>
-        </div>
-        <div className="metric">
-          <span className="metric-label">Active caretakers</span>
-          <span className="metric-value" id="total-caretakers">
-            {totals?.active_caretakers ?? 0}
-          </span>
-        </div>
-      </section>
+      {error && <div className="alert error">{error}</div>}
 
       {/* ------------------------------------------- section A: caretakers */}
       <Card
