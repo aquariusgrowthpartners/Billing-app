@@ -24,6 +24,7 @@ const CaretakerProfile = lazy(() => import('./pages/CaretakerProfile.jsx'));
 const ImportRa = lazy(() => import('./pages/ImportRa.jsx'));
 const ImportSa = lazy(() => import('./pages/ImportSA.jsx'));
 const ImportClaims = lazy(() => import('./pages/ImportClaims.jsx'));
+const Uploads = lazy(() => import('./pages/Uploads.jsx'));
 const PendingClaims = lazy(() => import('./pages/PendingClaims.jsx'));
 const Spreadsheet = lazy(() => import('./pages/Spreadsheet.jsx'));
 const Denials = lazy(() => import('./pages/Denials.jsx'));
@@ -255,6 +256,7 @@ function AnimatedRoutes({ user }) {
             <Route path="/caretakers" element={<Caretakers />} />
             <Route path="/caretakers/:id" element={<CaretakerProfile />} />
             <Route path="/import-ra" element={<ImportRa />} />
+            <Route path="/uploads" element={<Uploads />} />
             <Route path="/import-sa" element={<ImportSa />} />
             <Route path="/import-claims" element={<ImportClaims />} />
             <Route path="/pending-claims" element={<PendingClaims />} />
@@ -563,11 +565,8 @@ export default function App() {
             <NavLink to="/caretakers" className={({ isActive }) => (isActive ? 'active' : '')}>
               Caretakers
             </NavLink>
-            <NavLink to="/import-ra" className={({ isActive }) => (isActive ? 'active' : '')}>
-              Import RA
-            </NavLink>
-            <NavLink to="/import-sa" className={({ isActive }) => (isActive ? 'active' : '')}>
-              Import SA
+            <NavLink to="/uploads" className={({ isActive }) => (isActive ? 'active' : '')}>
+              ☁ Uploads
             </NavLink>
             <NavLink to="/pending-claims" className={({ isActive }) => (isActive ? 'active' : '')}>
               Pending Claims
@@ -648,11 +647,8 @@ export default function App() {
               <NavLink to="/caretakers" onClick={() => setNavOpen(false)}>
                 Caretakers
               </NavLink>
-              <NavLink to="/import-ra" onClick={() => setNavOpen(false)}>
-                Import RA
-              </NavLink>
-              <NavLink to="/import-sa" onClick={() => setNavOpen(false)}>
-                Import SA
+              <NavLink to="/uploads" onClick={() => setNavOpen(false)}>
+                ☁ Uploads
               </NavLink>
               <NavLink to="/pending-claims" onClick={() => setNavOpen(false)}>
                 Pending Claims

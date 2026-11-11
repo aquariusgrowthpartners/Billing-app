@@ -8919,3 +8919,6 @@ body {
   }
   .ai-command-dropdown .btn { width: 100%; }
 }
+
+.uploads-panel .page { max-width: none; margin: 0; }
+.uploads-panel[hidden] { display: none !important; }
