@@ -544,9 +544,15 @@ export function groupRecordsByClaim(records, agencyId) {
       const primaryRecord = groupedRecords[0].record;
       const printedPaid = parseCurrency(primaryRecord.claim_total_paid);
       const printedCharge = parseCurrency(primaryRecord.claim_total_charge);
-      const raTotal = Number.isFinite(printedPaid)
-        ? roundMoney(printedPaid)
-        : roundMoney(daily.reduce((sum, day) => sum + (day.amount_paid || 0), 0));
+      const summedPaid = roundMoney(
+        daily.reduce((sum, day) => sum + (day.amount_paid || 0), 0)
+      );
+      console.log(
+        `[MATH-FIX] Extracted Doc Intel Total: ${
+          Number.isFinite(printedPaid) ? printedPaid : 'null'
+        }. Calculated Daily Sum: ${summedPaid}.`
+      );
+      const raTotal = summedPaid;
       const chargeTotal = Number.isFinite(printedCharge)
         ? roundMoney(printedCharge)
         : roundMoney(daily.reduce((sum, day) => sum + (day.charge_amount || 0), 0));
@@ -631,9 +637,13 @@ export function groupRecordsByClaim(records, agencyId) {
     const primary = eligible[0];
     const printedPaid = parseCurrency(primary.claim_total_paid);
     const printedCharge = parseCurrency(primary.claim_total_charge);
-    const raTotal = Number.isFinite(printedPaid)
-      ? roundMoney(printedPaid)
-      : roundMoney(amounts.reduce((sum, amount) => sum + amount, 0));
+    const summedPaid = roundMoney(amounts.reduce((sum, amount) => sum + amount, 0));
+    console.log(
+      `[MATH-FIX] Extracted Doc Intel Total: ${
+        Number.isFinite(printedPaid) ? printedPaid : 'null'
+      }. Calculated Daily Sum: ${summedPaid}.`
+    );
+    const raTotal = summedPaid;
     const chargeTotal = Number.isFinite(printedCharge)
       ? roundMoney(printedCharge)
       : roundMoney(charges.reduce((sum, amount) => sum + amount, 0));

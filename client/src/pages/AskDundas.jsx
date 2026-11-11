@@ -1001,8 +1001,8 @@ export default function AskDundas() {
                           <tr>
                             <th>Client</th>
                             <th>Claim Period</th>
-                            <th className="num">RA Paid</th>
-                            <th className="num">DB Paid</th>
+                            <th className="num">Total RA Paid</th>
+                            <th className="num">Total DB Paid</th>
                             <th>Status</th>
                           </tr>
                         </thead>
@@ -1062,7 +1062,6 @@ export default function AskDundas() {
                                             <thead>
                                               <tr>
                                                 <th>Date</th>
-                                                <th className="num">RA Billed</th>
                                                 <th className="num">RA Paid</th>
                                                 <th className="num">DB Paid</th>
                                                 <th>Status</th>
@@ -1072,9 +1071,6 @@ export default function AskDundas() {
                                               {daily.map((day, dayIndex) => (
                                                 <tr key={`${day.date_of_service}-${dayIndex}`}>
                                                   <td>{day.date_of_service ?? '—'}</td>
-                                                  <td className="num">
-                                                    {dbAmountText(day.charge_amount)}
-                                                  </td>
                                                   <td className="num">
                                                     {dbAmountText(day.amount_paid)}
                                                   </td>
@@ -1131,8 +1127,8 @@ export default function AskDundas() {
                               <div className="ask-vision-claim-status">{ra.claim_status}</div>
                             )}
                             <div className="ask-vision-card-amounts">
-                              <span>RA Paid {visionAmount(ra)}</span>
-                              <span>DB Paid {dbAmountText(db.paid_amount)}</span>
+                              <span>Total RA Paid {visionAmount(ra)}</span>
+                              <span>Total DB Paid {dbAmountText(db.paid_amount)}</span>
                             </div>
                             {record.discrepancy && (
                               <p className="ask-vision-card-note">{record.discrepancy}</p>
@@ -1156,7 +1152,6 @@ export default function AskDundas() {
                                       key={`${day.date_of_service}-${dayIndex}`}
                                     >
                                       <strong>{day.date_of_service ?? '—'}</strong>
-                                      <span>RA Billed {dbAmountText(day.charge_amount)}</span>
                                       <span>RA Paid {dbAmountText(day.amount_paid)}</span>
                                       <span>DB Paid {dbAmountText(day.db_paid ?? db.paid_amount)}</span>
                                       <span>{VISION_STATUS_LABEL[day.status] ?? day.status}</span>
