@@ -155,7 +155,7 @@ export default function Home({ user }) {
       <div className="page wide home" id="home-loading">
         <header className="home-top">
           <div>
-            <h1>Home</h1>
+            <h1 data-tour="home">Home</h1>
             <p className="home-sub">Pay period overview and recent activity</p>
           </div>
         </header>
@@ -213,14 +213,29 @@ export default function Home({ user }) {
           </div>
           <ul className="onboarding-list">
             {[
-              ['client', 'Add your first Client', '/clients'],
-              ['service_agreement', 'Import a Service Agreement', '/uploads'],
-              ['ra_upload', 'Upload an RA', '/uploads'],
-              ['ra_verify', 'Verify an RA', '/ask'],
+              ['home', 'Explore Home dashboard', '/'],
+              ['clients', 'Add or manage Clients', '/clients'],
+              ['uploads_ra', 'Upload an RA', '/uploads?tab=ra'],
+              ['uploads_claim', 'Upload a Claim Submission', '/uploads?tab=claims'],
+              ['uploads_sa', 'Import a Service Agreement', '/uploads?tab=sa'],
+              ['pending_claims', 'Review Pending Claims', '/pending-claims'],
+              ['ask_ai', 'Ask Dundas AI a question', '/ask'],
+              ['settings', 'Customize Settings', '/settings'],
             ].map(([key, label, href]) => (
               <li key={key} className={onboarding.checklist?.[key] ? 'done' : ''}>
                 <span className="onboarding-check">{onboarding.checklist?.[key] ? '✓' : '○'}</span>
-                <Link to={href}>{label}</Link>
+                <Link
+                  to={href}
+                  onClick={async () => {
+                    if (onboarding.checklist?.[key]) return;
+                    try {
+                      const result = await api.completeOnboardingStep(key);
+                      setOnboarding((prev) => ({ ...prev, ...result }));
+                    } catch {}
+                  }}
+                >
+                  {label}
+                </Link>
               </li>
             ))}
           </ul>

@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import ImportRa from './ImportRa.jsx';
 import ImportClaims from './ImportClaims.jsx';
 import ImportSA from './ImportSA.jsx';
@@ -10,7 +11,13 @@ const TABS = [
 ];
 
 export default function Uploads() {
-  const [tab, setTab] = useState('ra');
+  const [searchParams] = useSearchParams();
+  const initialTab = searchParams.get('tab');
+  const [tab, setTab] = useState(['ra', 'claims', 'sa'].includes(initialTab) ? initialTab : 'ra');
+  useEffect(() => {
+    const next = searchParams.get('tab');
+    if (['ra', 'claims', 'sa'].includes(next)) setTab(next);
+  }, [searchParams]);
   return (
     <div className="page" id="uploads-page">
       <div className="page-head">
@@ -26,6 +33,7 @@ export default function Uploads() {
             type="button"
             role="tab"
             aria-selected={tab === item.id}
+            data-tour={`uploads-${item.id}`}
             className={`ask-tab${tab === item.id ? ' active' : ''}`}
             onClick={() => setTab(item.id)}
           >

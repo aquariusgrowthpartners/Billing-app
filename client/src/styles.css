@@ -8934,10 +8934,35 @@ body {
 .tour-welcome { width: min(440px, calc(100vw - 32px)); max-height: calc(100vh - 40px); overflow-y: auto; background: var(--surface); border-radius: 16px; padding: 22px; box-shadow: 0 20px 50px rgba(0,0,0,.3); }
 .tour-welcome h2 { margin-top: 0; }
 .tour-actions { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
-.tour-spotlight { border: 2px solid #60a5fa; border-radius: 10px; box-shadow: 0 0 0 9999px rgba(15,23,42,.62); pointer-events: none; }
-.tour-dim { position: fixed; inset: 0; z-index: 10000; background: rgba(15,23,42,.62); }
-.tour-tooltip { background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 12px; padding: 14px; box-shadow: 0 16px 40px rgba(0,0,0,.25); }
+
+.tour-tooltip {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  left: auto;
+  z-index: 10001;
+  width: min(380px, calc(100vw - 32px));
+  max-height: min(60vh, 460px);
+  overflow-y: auto;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 16px;
+  box-shadow: 0 16px 40px rgba(0,0,0,.22);
+}
+.tour-tooltip-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+.tour-tooltip > strong { font-size: 16px; }
 .tour-tooltip p { margin: 6px 0 0; font-size: 13px; }
+@media (max-width: 768px) {
+  .tour-tooltip {
+    left: 12px;
+    right: 12px;
+    bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+    width: auto;
+    max-height: 42vh;
+  }
+}
 .onboarding-list { list-style: none; margin: 0; padding: 0 16px 16px; display: grid; gap: 8px; }
 .onboarding-list li { display: flex; align-items: center; gap: 8px; }
 .onboarding-list li.done { color: #15803d; text-decoration: line-through; }

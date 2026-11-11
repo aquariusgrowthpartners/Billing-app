@@ -1,15 +1,22 @@
 import express from 'express';
 import db from '../db.js';
 const router = express.Router();
-const STEPS = ['client', 'service_agreement', 'ra_upload', 'ra_verify'];
+const STEPS = [
+  'home', 'clients', 'uploads_ra', 'uploads_claim',
+  'uploads_sa', 'pending_claims', 'ask_ai', 'settings',
+];
 
 function computedChecklist(agencyId) {
   const count = (sql) => db.prepare(sql).get(agencyId)?.n ?? 0;
   return {
-    client: count('SELECT COUNT(*) n FROM clients WHERE agency_id = ?') > 0,
-    service_agreement: count('SELECT COUNT(*) n FROM service_agreements WHERE agency_id = ?') > 0,
-    ra_upload: count('SELECT COUNT(*) n FROM ra_imports WHERE agency_id = ?') > 0,
-    ra_verify: count('SELECT COUNT(*) n FROM ra_verification_jobs WHERE agency_id = ? AND status = \'completed\'') > 0,
+    home: false,
+    clients: count('SELECT COUNT(*) n FROM clients WHERE agency_id = ?') > 0,
+    uploads_ra: count('SELECT COUNT(*) n FROM ra_imports WHERE agency_id = ?') > 0,
+    uploads_claim: count('SELECT COUNT(*) n FROM claims WHERE agency_id = ? AND claim_status_code = \'46\'') > 0,
+    uploads_sa: count('SELECT COUNT(*) n FROM service_agreements WHERE agency_id = ?') > 0,
+    pending_claims: count('SELECT COUNT(*) n FROM claims WHERE agency_id = ? AND status = \'pending\'') > 0,
+    ask_ai: false,
+    settings: false,
   };
 }
 

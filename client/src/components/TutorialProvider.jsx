@@ -5,10 +5,15 @@ import api from '../api.js';
 const TutorialContext = createContext(null);
 export const useTutorial = () => useContext(TutorialContext);
 
-const STEPS = [
-  { target: '[data-tour="uploads"]', title: 'Upload your first RA', text: 'Start in Uploads. Drop a Remittance Advice PDF to import paid claims.', nextPath: '/uploads' },
-  { target: '[data-tour="verify"]', title: 'Match your data', text: 'Use Verify RA to compare the state payment against your billing records.', nextPath: '/ask' },
-  { target: '[data-tour="chat-input"]', title: 'Ask questions about your billing', text: 'Ask Dundas can explain discrepancies, reversals, and missed payments.', nextPath: '/ask' },
+export const TUTORIAL_STEPS = [
+  { target: '[data-tour="home"]', title: 'Home dashboard', text: 'This is your dashboard. See your YTD paid claims and current pay period.', path: '/' },
+  { target: '[data-tour="clients"]', title: 'Clients', text: 'Manage your client profiles, their alternative names, and service agreements here.', path: '/clients' },
+  { target: '[data-tour="uploads-ra"]', title: 'Uploads — RA', text: 'Upload your Remittance Advice PDFs here. The AI will read them and verify against your data.', path: '/uploads?tab=ra' },
+  { target: '[data-tour="uploads-claim"]', title: 'Uploads — Claim Submission', text: 'Upload claim submissions (Status 46) to track pending payments.', path: '/uploads?tab=claim' },
+  { target: '[data-tour="uploads-sa"]', title: 'Uploads — Service Agreement', text: 'Upload Service Agreements to auto-create client profiles and track authorized units.', path: '/uploads?tab=sa' },
+  { target: '[data-tour="pending-claims"]', title: 'Pending Claims', text: 'Track claims waiting for payment. The AI automatically moves them to Paid when the matching RA arrives.', path: '/pending-claims' },
+  { target: '[data-tour="chat-input"]', title: 'Ask Dundas AI', text: 'Ask our AI to explain any discrepancies. It knows your billing data inside and out.', path: '/ask' },
+  { target: '[data-tour="settings"]', title: 'Settings', text: 'Customize your agency logo, branding, and AI quick prompts here.', path: '/settings' },
 ];
 
 function markComplete() {
@@ -19,67 +24,36 @@ export function TutorialProvider({ user, children }) {
   const navigate = useNavigate();
   const [welcome, setWelcome] = useState(false);
   const [step, setStep] = useState(-1);
-  const [rect, setRect] = useState(null);
 
   useEffect(() => {
     if (user?.is_demo && !user?.tutorial_completed) setWelcome(true);
   }, [user?.is_demo, user?.tutorial_completed]);
 
-  useEffect(() => {
-    if (step < 0) return undefined;
-    if (step === 0 && window.innerWidth <= 768 && !document.querySelector('#mobile-nav')) {
-      document.querySelector('#nav-toggle')?.click();
-    }
-    const update = () => {
-      const els = [...document.querySelectorAll(STEPS[step]?.target)];
-      const el = els.find((candidate) => candidate.getBoundingClientRect().width > 0);
-      if (el) {
-        const r = el.getBoundingClientRect();
-        setRect({ top: r.top, left: r.left, width: r.width, height: r.height });
-      } else setRect(null);
-    };
-    update();
-    window.addEventListener('resize', update);
-    window.addEventListener('scroll', update, true);
-    const timer = setTimeout(update, 250);
-    return () => {
-      clearTimeout(timer);
-      window.removeEventListener('resize', update);
-      window.removeEventListener('scroll', update, true);
-    };
-  }, [step]);
-
+  const go = (index) => {
+    setStep(index);
+    navigate(TUTORIAL_STEPS[index].path);
+  };
   const start = () => {
     setWelcome(false);
-    setStep(0);
-    navigate(STEPS[0].nextPath);
+    go(0);
   };
   const skip = async () => {
     await markComplete();
     window.location.assign('/login?mode=signup');
   };
   const next = async () => {
-    if (step >= STEPS.length - 1) {
+    if (step >= TUTORIAL_STEPS.length - 1) {
       await markComplete();
       setStep(-1);
       return;
     }
-    const nextStep = step + 1;
-    setStep(nextStep);
-    navigate(STEPS[nextStep].nextPath);
+    go(step + 1);
+  };
+  const back = () => {
+    if (step > 0) go(step - 1);
   };
 
-  const current = STEPS[step];
-  const tooltipStyle = {
-    position: 'fixed',
-    left: 16,
-    right: 16,
-    bottom: 'calc(16px + env(safe-area-inset-bottom, 0px))',
-    width: 'min(320px, calc(100vw - 32px))',
-    maxWidth: 'calc(100vw - 32px)',
-    zIndex: 10001,
-  };
-
+  const current = TUTORIAL_STEPS[step];
   return (
     <TutorialContext.Provider value={{ start, step, next, skip }}>
       {children}
@@ -87,11 +61,9 @@ export function TutorialProvider({ user, children }) {
         <div className="tour-welcome-backdrop" role="dialog" aria-modal="true">
           <div className="tour-welcome">
             <h2>Welcome to Dundas Billing</h2>
-            <p>Let’s take a quick tour of the three things new teams do first.</p>
+            <p>Let’s take a quick tour of the entire workspace. You can click through the real app while the tour card stays with you.</p>
             <ol>
-              <li>Upload a Remittance Advice</li>
-              <li>Verify it against your billing data</li>
-              <li>Ask Dundas AI about anything unclear</li>
+              {TUTORIAL_STEPS.map((item) => <li key={item.title}>{item.title}</li>)}
             </ol>
             <div className="tour-actions">
               <button type="button" className="btn" onClick={skip}>Skip Tutorial</button>
@@ -101,19 +73,20 @@ export function TutorialProvider({ user, children }) {
         </div>
       )}
       {step >= 0 && current && (
-        <>
-          {rect ? (
-            <div className="tour-spotlight" style={{ position: 'fixed', top: rect.top - 6, left: rect.left - 6, width: rect.width + 12, height: rect.height + 12, zIndex: 10000 }} />
-          ) : <div className="tour-dim" />}
-          <div className="tour-tooltip" style={tooltipStyle}>
-            <strong>{current.title}</strong>
-            <p>{current.text}</p>
-            <div className="tour-actions">
-              <button type="button" className="btn tiny" onClick={skip}>Skip Tour</button>
-              <button type="button" className="btn primary tiny" onClick={next}>{step === STEPS.length - 1 ? 'Finish' : 'Next'}</button>
-            </div>
+        <aside className="tour-tooltip" role="dialog" aria-label="Tutorial step" id="tour-tooltip">
+          <div className="tour-tooltip-top">
+            <span className="pill">Step {step + 1} of {TUTORIAL_STEPS.length}</span>
+            <button type="button" className="btn tiny" onClick={skip}>Skip</button>
           </div>
-        </>
+          <strong>{current.title}</strong>
+          <p>{current.text}</p>
+          <div className="tour-actions">
+            <button type="button" className="btn tiny" onClick={back} disabled={step === 0}>Back</button>
+            <button type="button" className="btn primary tiny" onClick={next}>
+              {step === TUTORIAL_STEPS.length - 1 ? 'Finish' : 'Next'}
+            </button>
+          </div>
+        </aside>
       )}
     </TutorialContext.Provider>
   );

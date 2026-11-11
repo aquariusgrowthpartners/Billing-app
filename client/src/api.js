@@ -65,6 +65,7 @@ export const api = {
   week: (start) => request(`/week${start ? `?start=${start}` : ''}`),
 
   onboarding: () => request('/user/onboarding'),
+  completeOnboardingStep: (step) => request('/user/onboarding', { method: 'POST', body: JSON.stringify({ step }) }),
   completeTutorial: () => request('/user/tutorial', { method: 'POST' }),
   alerts: () => request('/alerts'),
   dismissAlert: (id) => request(`/alerts/${id}/dismiss`, { method: 'POST' }),
