@@ -3194,7 +3194,7 @@ body,
     position: fixed;
     inset: 0;
     background: rgba(15, 23, 42, 0.45);
-    z-index: 900;
+    z-index: 9999;
     animation: nav-fade 120ms ease-out;
   }
 
@@ -3203,7 +3203,7 @@ body,
     top: 0;
     left: 0;
     right: 0;
-    z-index: 901;
+    z-index: 9999;
     display: flex;
     flex-direction: column;
     gap: 2px;
@@ -8922,3 +8922,10 @@ body {
 
 .uploads-panel .page { max-width: none; margin: 0; }
 .uploads-panel[hidden] { display: none !important; }
+
+
+.period-range-button { border: 0; background: transparent; color: inherit; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; cursor: pointer; text-align: left; }
+.period-picker { position: absolute; z-index: 30; top: calc(100% + 8px); left: 16px; right: 16px; display: flex; flex-direction: column; gap: 10px; padding: 14px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); box-shadow: 0 14px 36px rgba(15,23,42,.2); }
+.home-period-nav { position: relative; }
+.period-picker-actions { display: flex; justify-content: flex-end; gap: 8px; }
+@media (max-width: 768px) { .period-picker { left: 8px; right: 8px; } }

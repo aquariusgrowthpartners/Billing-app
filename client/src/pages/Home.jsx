@@ -70,6 +70,10 @@ function Card({ title, hint, right, children, id }) {
 export default function Home({ user }) {
   const navigate = useNavigate();
   const [periodStart, setPeriodStart] = useState(null);
+  const [periodEnd, setPeriodEnd] = useState(null);
+  const [periodPickerOpen, setPeriodPickerOpen] = useState(false);
+  const [pickerStart, setPickerStart] = useState('');
+  const [pickerEnd, setPickerEnd] = useState('');
   const [data, setData] = useState(null);
   const [recentRa, setRecentRa] = useState([]);
   const [recentClients, setRecentClients] = useState([]);
@@ -84,7 +88,7 @@ export default function Home({ user }) {
     setError(null);
     try {
       const [d, ra, rc, dn, ytdData] = await Promise.all([
-        api.payPeriod(start),
+        api.payPeriod(start, periodEnd),
         api.recentRa(),
         api.recentClients(),
         api.denialSummary().catch(() => null),
@@ -105,12 +109,12 @@ export default function Home({ user }) {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [periodEnd]);
 
   useEffect(() => {
     load(periodStart);
     // Only re-run when the user pages the period.
-  }, [periodStart, load]);
+  }, [periodStart, periodEnd, load]);
 
   // Refetch whenever something elsewhere changes the underlying data (an RA
   // import, for instance), so the figures here are never stale.
@@ -118,7 +122,7 @@ export default function Home({ user }) {
     const refresh = () => load(periodStart);
     window.addEventListener('data-updated', refresh);
     return () => window.removeEventListener('data-updated', refresh);
-  }, [load, periodStart]);
+  }, [load, periodStart, periodEnd]);
 
   useEffect(() => {
     let cancelled = false;
@@ -238,42 +242,44 @@ export default function Home({ user }) {
         </div>
       </section>
 
-      {/* the period navigator: label centred between the arrows */}
       <section className="card home-period-nav" id="period-nav">
         <button
-          className="btn"
-          id="period-prev"
-          onClick={() => period && setPeriodStart(period.prev_start)}
-          disabled={!period}
+          type="button"
+          className="period-range-button"
+          id="period-range"
+          onClick={() => {
+            setPickerStart(period?.start ?? '');
+            setPickerEnd(period?.end ?? '');
+            setPeriodPickerOpen((v) => !v);
+          }}
         >
-          ← Prev
-        </button>
-        <div className="period-label">
-          <span className="period-range" id="period-range">
+          <strong>
             {period?.start && period?.end
-              ? `${formatLongDate(period.start)} – ${formatLongDate(period.end)}`
-              : 'Loading…'}
-          </span>
-          <span className="period-tag">
-            {period?.is_current ? 'Current pay period' : 'Past pay period'}
-          </span>
-        </div>
-        <button
-          className="btn"
-          id="period-next"
-          onClick={() => period && setPeriodStart(period.next_start)}
-          disabled={!period}
-        >
-          Next →
+              ? `${formatLongDate(period.start)} → ${formatLongDate(period.end)}`
+              : 'Choose date range'}
+          </strong>
+          <span className="muted small">{period?.is_current ? 'Current pay period' : 'Custom range'}</span>
         </button>
-        <button
-          className="btn ghost period-current"
-          id="period-current"
-          onClick={() => setPeriodStart(null)}
-          disabled={!period || period.is_current}
-        >
-          Jump to current
-        </button>
+        {periodPickerOpen && (
+          <div className="period-picker" id="period-picker">
+            <label className="small">Start Date<input type="date" value={pickerStart} onChange={(e) => setPickerStart(e.target.value)} /></label>
+            <label className="small">End Date<input type="date" value={pickerEnd} onChange={(e) => setPickerEnd(e.target.value)} /></label>
+            <div className="period-picker-actions">
+              <button className="btn" onClick={() => setPeriodPickerOpen(false)}>Cancel</button>
+              <button
+                className="btn primary"
+                disabled={!pickerStart || !pickerEnd || pickerStart > pickerEnd}
+                onClick={() => {
+                  setPeriodStart(pickerStart);
+                  setPeriodEnd(pickerEnd);
+                  setPeriodPickerOpen(false);
+                }}
+              >
+                Apply Range
+              </button>
+            </div>
+          </div>
+        )}
       </section>
 
       {/* Denials alert: shown only while there is unrecovered work. */}

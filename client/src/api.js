@@ -297,8 +297,13 @@ export const api = {
   },
 
   // Home Dashboard.
-  payPeriod: (start) =>
-    request(`/dashboard/pay-period${start ? `?start=${start}` : ''}`),
+  payPeriod: (start, end) => {
+    const params = new URLSearchParams();
+    if (start) params.set('start', start);
+    if (end) params.set('end', end);
+    const q = params.toString();
+    return request(`/dashboard/pay-period${q ? `?${q}` : ''}`);
+  },
   recentRa: () => request('/dashboard/recent-ra'),
   recentClients: () => request('/dashboard/recent-clients'),
 
