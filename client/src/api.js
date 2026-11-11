@@ -79,8 +79,14 @@ export const api = {
     if (opts.limit) params.set('limit', String(opts.limit));
     return request(`/clients?${params}`);
   },
-  getClient: (id, opts = {}) =>
-    request(`/clients/${id}${opts.archived ? '?archived=1' : ''}`),
+  getClient: (id, opts = {}) => {
+    const params = new URLSearchParams();
+    if (opts.archived) params.set('archived', '1');
+    if (opts.from) params.set('from', opts.from);
+    if (opts.to) params.set('to', opts.to);
+    const q = params.toString();
+    return request(`/clients/${id}${q ? `?${q}` : ''}`);
+  },
   createClient: (body) => request('/clients', { method: 'POST', body: JSON.stringify(body) }),
   deleteClient: (id) => request(`/clients/${id}`, { method: 'DELETE' }),
   claimDeleteCheck: (id) => request(`/claims/${id}/delete-check`),
@@ -453,8 +459,9 @@ export const api = {
   updateSettings: (body) => request('/settings', { method: 'PUT', body: JSON.stringify(body) }),
   createPayer: (body) => request('/payers', { method: 'POST', body: JSON.stringify(body) }),
   claims: (params = {}) => {
-    const search = new URLSearchParams(params);
-    return request(`/claims?${search}`);
+    const search = new URLSearchParams(Object.entries(params).filter(([, value]) => value !== '' && value != null));
+    const q = search.toString();
+    return request(`/claims${q ? `?${q}` : ''}`);
   },
 };
 

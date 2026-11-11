@@ -63,15 +63,20 @@ router.get('/:id', (req, res) => {
   // Archived claims are hidden unless explicitly asked for, matching the
   // dashboard's Show Archived toggle.
   const includeArchived = req.query.archived === '1';
-  const claims = db
-    .prepare(
-      `SELECT * FROM claims
-       WHERE client_id = ? AND agency_id = ?
-         ${includeArchived ? '' : 'AND COALESCE(archived, 0) = 0'}
-       ORDER BY COALESCE(period_start, created_at) DESC, id DESC
-       LIMIT 25`
-    )
-    .all(id, req.agencyId);
+  const from = String(req.query.from ?? '').trim();
+  const to = String(req.query.to ?? '').trim();
+  const claims = from && to
+    ? db
+        .prepare(
+          `SELECT * FROM claims
+           WHERE client_id = ? AND agency_id = ?
+             ${includeArchived ? '' : 'AND COALESCE(archived, 0) = 0'}
+             AND period_start <= ? AND period_end >= ?
+           ORDER BY COALESCE(period_start, created_at) DESC, id DESC
+           LIMIT 100`
+        )
+        .all(id, req.agencyId, to, from)
+    : [];
 
   const case_manager = client.case_manager_id
     ? db

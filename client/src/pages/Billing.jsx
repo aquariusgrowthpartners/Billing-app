@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { toast } from '../components/Toast.jsx';
 import { formatMoney, formatLongDate } from '../calc.js';
 
@@ -11,6 +11,11 @@ const INVOICES = [
 ];
 
 export default function Billing() {
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
+  const visibleInvoices = from && to
+    ? INVOICES.filter((invoice) => invoice.issued <= to && invoice.due >= from)
+    : [];
   const paid = INVOICES.filter((i) => i.status === 'Paid').reduce((sum, i) => sum + i.amount, 0);
   const pending = INVOICES.filter((i) => i.status === 'Pending').reduce((sum, i) => sum + i.amount, 0);
 
@@ -48,6 +53,14 @@ export default function Billing() {
           </div>
         </div>
 
+        <div className="claim-date-filter" style={{ padding: '0 16px 12px', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <label className="small">From <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></label>
+          <label className="small">To <input type="date" value={to} onChange={(e) => setTo(e.target.value)} /></label>
+        </div>
+        {!from || !to ? (
+          <p className="empty" id="billing-date-empty">Select a date range to view claims.</p>
+        ) : (
+        <>
         <div className="table-scroll hide-on-mobile">
           <table className="table billing-table">
             <thead>
@@ -61,7 +74,7 @@ export default function Billing() {
               </tr>
             </thead>
             <tbody>
-              {INVOICES.map((invoice) => (
+              {visibleInvoices.map((invoice) => (
                 <tr key={invoice.id}>
                   <td><strong>{invoice.id}</strong></td>
                   <td>{formatLongDate(invoice.issued)}</td>
@@ -88,7 +101,7 @@ export default function Billing() {
         </div>
 
         <div className="show-on-mobile billing-cards">
-          {INVOICES.map((invoice) => (
+          {visibleInvoices.map((invoice) => (
             <div className="billing-card" key={invoice.id}>
               <div className="billing-card-top">
                 <strong>{invoice.id}</strong>
@@ -108,6 +121,8 @@ export default function Billing() {
             </div>
           ))}
         </div>
+        </>
+        )}
       </section>
     </div>
   );

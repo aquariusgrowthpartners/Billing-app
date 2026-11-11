@@ -94,6 +94,8 @@ export default function ClientProfile() {
 
   const { data, loading, error, reload } = useClientProfile(validId ? clientId : null, {
     includeArchivedClaims: showArchivedClaims,
+    claimFrom,
+    claimTo,
   });
 
   // Tab is plain component state — deliberately NOT stored in the URL.
@@ -370,13 +372,16 @@ export default function ClientProfile() {
   }
 
   const { client, agreements, claims, totals, case_manager: caseManager } = profile;
-  const visibleClaims = claims.filter((claim) => {
-    const start = claim.period_start ?? claim.date_of_service ?? '';
-    const end = claim.period_end ?? claim.date_of_service ?? start;
-    if (claimFrom && end && end < claimFrom) return false;
-    if (claimTo && start && start > claimTo) return false;
-    return true;
-  });
+  const hasClaimRange = Boolean(claimFrom && claimTo);
+  const visibleClaims = hasClaimRange
+    ? claims.filter((claim) => {
+        const start = claim.period_start ?? claim.date_of_service ?? '';
+        const end = claim.period_end ?? claim.date_of_service ?? start;
+        if (end && end < claimFrom) return false;
+        if (start && start > claimTo) return false;
+        return true;
+      })
+    : [];
   const today = todayISO();
   const activeAgreement = agreements.find(
     (a) => (!a.start_date || a.start_date <= today) && (!a.end_date || a.end_date >= today)
@@ -821,6 +826,9 @@ export default function ClientProfile() {
             <label className="small">To <input type="date" value={claimTo} onChange={(e) => setClaimTo(e.target.value)} /></label>
             {(claimFrom || claimTo) && <button className="btn tiny" onClick={() => { setClaimFrom(''); setClaimTo(''); }}>Clear</button>}
           </div>
+          {!hasClaimRange ? (
+            <p className="empty" id="claims-date-empty">Select a date range to view claims.</p>
+          ) : (
           <ClaimsTable
             claims={visibleClaims}
             onEdit={setEditingClaim}
@@ -831,8 +839,9 @@ export default function ClientProfile() {
             onError={setActionError}
             onNotify={flash}
             clientName={client ? `${client.first_name} ${client.last_name}`.trim() : undefined}
-            emptyMessage="No claims yet. Use Generate Claim to sweep this client's logged days into a claim."
+            emptyMessage="No claims match this date range."
           />
+          )}
         </section>
 
         {/* B1 — this client's denied / reversed claims. Hidden entirely at zero. */}

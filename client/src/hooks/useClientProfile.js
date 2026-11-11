@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import api from '../api.js';
 
 /** Loads one client's profile (client + agreements + claims + totals). */
-export function useClientProfile(clientId, { includeArchivedClaims = false } = {}) {
+export function useClientProfile(clientId, { includeArchivedClaims = false, claimFrom = '', claimTo = '' } = {}) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(Boolean(clientId));
   const [error, setError] = useState(null);
@@ -15,7 +15,11 @@ export function useClientProfile(clientId, { includeArchivedClaims = false } = {
     }
     setLoading(true);
     try {
-      const d = await api.getClient(clientId, { archived: includeArchivedClaims });
+      const d = await api.getClient(clientId, {
+        archived: includeArchivedClaims,
+        from: claimFrom,
+        to: claimTo,
+      });
       setData(d);
       setError(null);
       return d;
@@ -26,7 +30,7 @@ export function useClientProfile(clientId, { includeArchivedClaims = false } = {
     } finally {
       setLoading(false);
     }
-  }, [clientId, includeArchivedClaims]);
+  }, [clientId, includeArchivedClaims, claimFrom, claimTo]);
 
   useEffect(() => {
     reload();

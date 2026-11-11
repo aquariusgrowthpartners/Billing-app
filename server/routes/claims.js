@@ -238,6 +238,11 @@ router.get('/', (req, res) => {
   }
   // Archived claims are hidden unless explicitly asked for.
   if (req.query.archived !== '1') where.push('COALESCE(cl.archived, 0) = 0');
+  if (req.query.from && req.query.to) {
+    where.push('cl.period_start <= @to AND cl.period_end >= @from');
+    params.from = req.query.from;
+    params.to = req.query.to;
+  }
 
   if (req.query.overdue === '1') {
     where.push(`cl.paid_date IS NULL AND cl.expected_pay_date IS NOT NULL

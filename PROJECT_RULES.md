@@ -15,3 +15,7 @@ The `visualViewport` keyboard hook in `AskDundas.jsx` is protected. Do not remov
 ## Data and Schema
 
 Do not make destructive schema changes without explicit approval. Do not use the billed `charge_amount` as the paid amount.
+
+## Claims Views
+
+Claims Views: No claims list should render data by default. A From/To date filter is mandatory. Render an empty state ('Select a date range to view claims') until both dates are selected.

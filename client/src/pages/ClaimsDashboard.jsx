@@ -22,12 +22,19 @@ export default function ClaimsDashboard({ user }) {
   // "Show reversed claims" narrows the list to claims a payer reversed.
   const [showReversed, setShowReversed] = useState(false);
   const [flash, setFlash] = useState(null);
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
 
   const load = useCallback(async () => {
+    if (!from || !to) {
+      setClaims([]);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     try {
       const [c, s] = await Promise.all([
-        api.claims(showArchived ? { archived: '1' } : {}),
+        api.claims({ archived: showArchived ? '1' : undefined, from, to }),
         api.payerStats(),
       ]);
       setClaims(Array.isArray(c?.claims) ? c.claims : []);
@@ -39,7 +46,7 @@ export default function ClaimsDashboard({ user }) {
     } finally {
       setLoading(false);
     }
-  }, [showArchived]);
+  }, [showArchived, from, to]);
 
   useEffect(() => {
     load();
@@ -120,6 +127,8 @@ export default function ClaimsDashboard({ user }) {
             />
             Show reversed claims
           </label>
+          <label className="small">From <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></label>
+          <label className="small">To <input type="date" value={to} onChange={(e) => setTo(e.target.value)} /></label>
         </div>
       </div>
 
@@ -267,12 +276,15 @@ export default function ClaimsDashboard({ user }) {
             Export Claims to CSV
           </button>
         </div>
-        {loading && !claims.length ? (
+        {!from || !to ? (
+          <EmptyState icon="📅" title="Select a date range to view claims" id="claims-date-empty">
+            Choose a From and To date above.
+          </EmptyState>
+        ) : loading && !claims.length ? (
           <SkeletonCards count={5} />
         ) : claims.length === 0 ? (
-          <EmptyState icon="🧾" title="No claims yet" id="claims-empty">
-            Open a <Link to="/clients">client</Link> → <strong>Generate Claim</strong> to create the
-            first one.
+          <EmptyState icon="🧾" title="No claims in this range" id="claims-empty">
+            Adjust the date range or open a <Link to="/clients">client</Link> to generate a claim.
           </EmptyState>
         ) : (
           <ClaimsTable
