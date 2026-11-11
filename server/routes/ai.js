@@ -72,6 +72,17 @@ function parseCurrency(value) {
   return parseFloat(normalized);
 }
 
+/** Pending 277 claims have no paid_amount yet; use their expected payment. */
+function claimPaidAmount(claim) {
+  const paid = parseCurrency(claim?.paid_amount);
+  if (Number.isFinite(paid)) return paid;
+  if (String(claim?.status ?? '').toLowerCase() === 'pending') {
+    const expected = parseCurrency(claim?.expected_payment);
+    return Number.isFinite(expected) ? expected : null;
+  }
+  return null;
+}
+
 function money(value) {
   const n = parseCurrency(value);
   return Number.isFinite(n)
@@ -381,7 +392,7 @@ function verifyRecord(record, agencyId) {
   }
 
   const raAmount = parseCurrency(record?.amount_paid ?? record?.amountPaid);
-  const dbAmount = parseCurrency(claim.paid_amount) ?? (String(claim.status).toLowerCase() === 'pending' ? parseCurrency(claim.expected_payment) : null);
+  const dbAmount = claimPaidAmount(claim);
   if (!Number.isFinite(raAmount) || !Number.isFinite(dbAmount)) {
     return {
       ra_data: record,
@@ -500,7 +511,7 @@ export function groupRecordsByClaim(records, agencyId) {
       const daily = groupedRecords
         .map(({ record, claim: dayClaim }) => {
           const raAmount = parseCurrency(record.amount_paid);
-          const dbAmount = parseCurrency(dayClaim.paid_amount) ?? (String(dayClaim.status).toLowerCase() === 'pending' ? parseCurrency(dayClaim.expected_payment) : null);
+          const dbAmount = claimPaidAmount(dayClaim);
           const statusText = String(
             record.claim_status ?? record.claimStatus ?? ''
           ).toUpperCase();
@@ -647,7 +658,7 @@ export function groupRecordsByClaim(records, agencyId) {
     const chargeTotal = Number.isFinite(printedCharge)
       ? roundMoney(printedCharge)
       : roundMoney(charges.reduce((sum, amount) => sum + amount, 0));
-    const dbAmount = parseCurrency(claim.paid_amount) ?? (String(claim.status).toLowerCase() === 'pending' ? parseCurrency(claim.expected_payment) : null);
+    const dbAmount = claimPaidAmount(claim);
     const claimStatus = String(primary.claim_status ?? primary.claimStatus ?? '').toUpperCase();
     const isReversal = claimStatus.includes('REVERSAL') || claimStatus.includes('REVERSED') || raTotal < 0;
     const isDenied = claimStatus.includes('DENIED') || claimStatus.includes('DENY');
