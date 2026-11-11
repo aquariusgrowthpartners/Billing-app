@@ -414,6 +414,88 @@ export default function Settings() {
 
       {error && <div className="alert error">{error}</div>}
 
+      <section className="card" id="agency-info">
+        <div className="card-head">
+          <div>
+            <h2>Agency information</h2>
+            <p className="muted small" style={{ margin: '2px 0 0' }}>
+              Appears in the header of the MPSMISC reporting spreadsheet.
+            </p>
+          </div>
+        </div>
+        <div className="card-body" id="brand-logo">
+          <h3 style={{ marginTop: 0 }}>Brand Logo</h3>
+          <p className="muted small">Upload any image; it is center-cropped to a 100×100 square for the top bar.</p>
+          <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+            {brandLogo ? <img src={brandLogo} alt="Agency logo" style={{ maxHeight: 72, maxWidth: 72, borderRadius: 10, objectFit: 'cover' }} /> : <span className="muted small">No custom logo set. The Dundas text mark is used.</span>}
+            <label className="btn" style={{ cursor: 'pointer' }}>
+              Upload Logo
+              <input type="file" accept="image/png,image/jpeg,image/webp" style={{ display: 'none' }} onChange={(e) => saveLogoFile(e.target.files?.[0])} />
+            </label>
+          </div>
+          <label style={{ marginTop: 14 }}>
+            AI Quick Prompts — one per line
+            <textarea rows={4} value={quickPrompts} onChange={(e) => setQuickPrompts(e.target.value)} placeholder="Summarize this week's billing&#10;Which claims are still unpaid?" />
+          </label>
+          <button className="btn primary" onClick={saveQuickPrompts} disabled={agencyBusy}>Save Quick Prompts</button>
+        </div>
+        <div className="grid-3">
+          <label className="span-2">
+            Agency name
+            <input
+              name="agency_name"
+              id="agency_name"
+              value={agency.agency_name ?? ''}
+              placeholder="Dundas Home Care LLC"
+              onChange={(e) => setAgency((a) => ({ ...a, agency_name: e.target.value }))}
+            />
+          </label>
+          <label className="span-2">
+            Street address
+            <input
+              name="agency_street_address"
+              id="agency_street_address"
+              value={agency.agency_street_address ?? ''}
+              onChange={(e) => setAgency((a) => ({ ...a, agency_street_address: e.target.value }))}
+            />
+          </label>
+          <label>
+            City
+            <input
+              name="agency_city"
+              id="agency_city"
+              value={agency.agency_city ?? ''}
+              onChange={(e) => setAgency((a) => ({ ...a, agency_city: e.target.value }))}
+            />
+          </label>
+          <label>
+            State
+            <input
+              name="agency_state"
+              id="agency_state"
+              maxLength={2}
+              value={agency.agency_state ?? ''}
+              onChange={(e) => setAgency((a) => ({ ...a, agency_state: e.target.value }))}
+            />
+          </label>
+          <label>
+            ZIP
+            <input
+              name="agency_zip"
+              id="agency_zip"
+              maxLength={5}
+              value={agency.agency_zip ?? ''}
+              onChange={(e) => setAgency((a) => ({ ...a, agency_zip: e.target.value }))}
+            />
+          </label>
+        </div>
+        <div className="form-actions">
+          <button className="btn primary" id="save-agency" onClick={saveAgency} disabled={agencyBusy}>
+            {agencyBusy ? 'Saving…' : 'Save agency information'}
+          </button>
+        </div>
+      </section>
+
       {settings && <ProfileSettingsCard settings={settings} />}
 
       {/* ------------------------------------------------ app settings */}
@@ -1293,87 +1375,6 @@ export default function Settings() {
       )}
 
       {/* ------------------------------------------- agency identity */}      {/* ------------------------------------------- agency identity */}
-      <section className="card" id="agency-info">
-        <div className="card-head">
-          <div>
-            <h2>Agency information</h2>
-            <p className="muted small" style={{ margin: '2px 0 0' }}>
-              Appears in the header of the MPSMISC reporting spreadsheet.
-            </p>
-          </div>
-        </div>
-        <div className="card-body" id="brand-logo">
-          <h3 style={{ marginTop: 0 }}>Brand Logo</h3>
-          <p className="muted small">Upload any image; it is center-cropped to a 100×100 square for the top bar.</p>
-          <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-            {brandLogo ? <img src={brandLogo} alt="Agency logo" style={{ maxHeight: 72, maxWidth: 72, borderRadius: 10, objectFit: 'cover' }} /> : <span className="muted small">No custom logo set. The Dundas text mark is used.</span>}
-            <label className="btn" style={{ cursor: 'pointer' }}>
-              Upload Logo
-              <input type="file" accept="image/png,image/jpeg,image/webp" style={{ display: 'none' }} onChange={(e) => saveLogoFile(e.target.files?.[0])} />
-            </label>
-          </div>
-          <label style={{ marginTop: 14 }}>
-            AI Quick Prompts — one per line
-            <textarea rows={4} value={quickPrompts} onChange={(e) => setQuickPrompts(e.target.value)} placeholder="Summarize this week's billing&#10;Which claims are still unpaid?" />
-          </label>
-          <button className="btn primary" onClick={saveQuickPrompts} disabled={agencyBusy}>Save Quick Prompts</button>
-        </div>
-        <div className="grid-3">
-          <label className="span-2">
-            Agency name
-            <input
-              name="agency_name"
-              id="agency_name"
-              value={agency.agency_name ?? ''}
-              placeholder="Dundas Home Care LLC"
-              onChange={(e) => setAgency((a) => ({ ...a, agency_name: e.target.value }))}
-            />
-          </label>
-          <label className="span-2">
-            Street address
-            <input
-              name="agency_street_address"
-              id="agency_street_address"
-              value={agency.agency_street_address ?? ''}
-              onChange={(e) => setAgency((a) => ({ ...a, agency_street_address: e.target.value }))}
-            />
-          </label>
-          <label>
-            City
-            <input
-              name="agency_city"
-              id="agency_city"
-              value={agency.agency_city ?? ''}
-              onChange={(e) => setAgency((a) => ({ ...a, agency_city: e.target.value }))}
-            />
-          </label>
-          <label>
-            State
-            <input
-              name="agency_state"
-              id="agency_state"
-              maxLength={2}
-              value={agency.agency_state ?? ''}
-              onChange={(e) => setAgency((a) => ({ ...a, agency_state: e.target.value }))}
-            />
-          </label>
-          <label>
-            ZIP
-            <input
-              name="agency_zip"
-              id="agency_zip"
-              maxLength={5}
-              value={agency.agency_zip ?? ''}
-              onChange={(e) => setAgency((a) => ({ ...a, agency_zip: e.target.value }))}
-            />
-          </label>
-        </div>
-        <div className="form-actions">
-          <button className="btn primary" id="save-agency" onClick={saveAgency} disabled={agencyBusy}>
-            {agencyBusy ? 'Saving…' : 'Save agency information'}
-          </button>
-        </div>
-      </section>
 
 
       <Payers onError={setError} note={note} />
