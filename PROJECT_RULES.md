@@ -19,3 +19,7 @@ Do not make destructive schema changes without explicit approval. Do not use the
 ## Claims Views
 
 Claims Views: No claims list should render data by default. A From/To date filter is mandatory. Render an empty state ('Select a date range to view claims') until both dates are selected.
+
+## UI Animation Standards
+
+UI Animation: All motion must use spring-like cubic-bezier curves (e.g., `cubic-bezier(0.16, 1, 0.3, 1)`), never plain `ease`/`ease-in-out` for interactive transitions. Animations may only animate `transform` and `opacity` (never `width`, `height`, or `top`), and animated elements should declare `will-change: transform`. Buttons scale to `0.97` on press; cards lift on hover; list cards fade in with a subtle stagger. Respect `prefers-reduced-motion`.

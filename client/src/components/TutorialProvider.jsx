@@ -9,7 +9,7 @@ export const TUTORIAL_STEPS = [
   { target: '[data-tour="home"]', title: 'Home dashboard', text: 'This is your dashboard. See your YTD paid claims and current pay period.', path: '/' },
   { target: '[data-tour="clients"]', title: 'Clients', text: 'Manage your client profiles, their alternative names, and service agreements here.', path: '/clients' },
   { target: '[data-tour="uploads-ra"]', title: 'Uploads — RA', text: 'Upload your Remittance Advice PDFs here. The AI will read them and verify against your data.', path: '/uploads?tab=ra' },
-  { target: '[data-tour="uploads-claim"]', title: 'Uploads — Claim Submission', text: 'Upload claim submissions (Status 46) to track pending payments.', path: '/uploads?tab=claim' },
+  { target: '[data-tour="uploads-claims"]', title: 'Uploads — Claim Submission', text: 'Upload claim submissions (Status 46) to track pending payments.', path: '/uploads?tab=claims' },
   { target: '[data-tour="uploads-sa"]', title: 'Uploads — Service Agreement', text: 'Upload Service Agreements to auto-create client profiles and track authorized units.', path: '/uploads?tab=sa' },
   { target: '[data-tour="pending-claims"]', title: 'Pending Claims', text: 'Track claims waiting for payment. The AI automatically moves them to Paid when the matching RA arrives.', path: '/pending-claims' },
   { target: '[data-tour="chat-input"]', title: 'Ask Dundas AI', text: 'Ask our AI to explain any discrepancies. It knows your billing data inside and out.', path: '/ask' },
