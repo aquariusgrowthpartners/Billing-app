@@ -109,7 +109,7 @@ export function TutorialProvider({ user, children }) {
                 <span><strong>Name:</strong> {SAMPLE_CLIENT.name}</span>
                 <span><strong>Client ID:</strong> {SAMPLE_CLIENT.id}</span>
                 <span><strong>DOB:</strong> {SAMPLE_CLIENT.dob}</span>
-                <span><strong>MA #:</strong> {SAMPLE_CLIENT.ma}</span>
+                <span><strong>MA #:</strong> {SAMPLE_CLIENT.ma_number}</span>
                 <button
                   type="button"
                   className="btn primary tutorial-sample-btn"

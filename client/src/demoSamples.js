@@ -1,8 +1,8 @@
 export const SAMPLE_CLIENT = {
-  name: 'Sarah Nnadikwe',
-  id: '36',
-  dob: '1985-04-12',
-  ma: '03276736',
+  name: 'Jane Doe',
+  id: '9999',
+  dob: '1990-01-01',
+  ma_number: '12345678',
 };
 
 export async function loadSampleFile(kind) {

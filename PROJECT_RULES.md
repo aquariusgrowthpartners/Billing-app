@@ -31,3 +31,7 @@ Premium Date Inputs: Every `input[type="date"]` is enhanced by the global `DateW
 ## Typography
 
 Typography: Use the system font stack `-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`, apply `letter-spacing: -0.01em` globally, keep body text at weight 400 and headings at weight 600, and never underline links.
+
+## Demo Isolation
+
+Demo Isolation: The demo account (is_demo=1) must NEVER query or display real production data. All tutorial examples, sample clients, and sample files must be hardcoded dummy data or static fixtures.
