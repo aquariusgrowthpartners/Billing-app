@@ -100,6 +100,22 @@ router.post('/login', (req, res) => {
       });
     }
     const agency = db.prepare('SELECT * FROM agencies WHERE id = ?').get(user.agency_id);
+    // The public demo always starts from a blank slate. Only this agency is
+    // touched; real tenants are never cleared by a demo login.
+    if (Number(agency?.is_demo) === 1) {
+      db.transaction(() => {
+        db.prepare('DELETE FROM denied_claims WHERE agency_id = ?').run(user.agency_id);
+        db.prepare('DELETE FROM rebill_tasks WHERE agency_id = ?').run(user.agency_id);
+        db.prepare('DELETE FROM day_entries WHERE agency_id = ?').run(user.agency_id);
+        db.prepare('DELETE FROM claims WHERE agency_id = ?').run(user.agency_id);
+        db.prepare('DELETE FROM service_agreements WHERE agency_id = ?').run(user.agency_id);
+        db.prepare('DELETE FROM agreements WHERE agency_id = ?').run(user.agency_id);
+        db.prepare('DELETE FROM alerts WHERE agency_id = ?').run(user.agency_id);
+        db.prepare('DELETE FROM recent_clients WHERE agency_id = ?').run(user.agency_id);
+        db.prepare('DELETE FROM clients WHERE agency_id = ?').run(user.agency_id);
+      })();
+      console.log('[DEMO] Reset demo data to a blank slate.');
+    }
     return res.json({ token: signToken(user), user: publicUser(user, agency) });
   }
 

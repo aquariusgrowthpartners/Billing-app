@@ -9545,3 +9545,39 @@ body.tour-active .content { padding-bottom: 260px; }
 @media (min-width: 1024px) {
   body.tour-active .content { padding-bottom: 200px; }
 }
+
+/* ==================================================================
+   PHASE 8 — minimizable tutorial card
+   ================================================================== */
+
+.tour-tooltip-actions { display: flex; align-items: center; gap: 6px; }
+
+.tour-mini-pill {
+  position: fixed;
+  right: 16px;
+  bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  z-index: 10001;
+  max-width: calc(100vw - 32px);
+  padding: 10px 16px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  box-shadow: 0 12px 30px -10px rgba(0, 0, 0, 0.4);
+  cursor: pointer;
+  transition: transform 160ms var(--ease-spring), box-shadow 160ms var(--ease-spring);
+}
+.tour-mini-pill:active { transform: scale(0.97); }
+
+@media (max-width: 768px) {
+  .tour-mini-pill {
+    left: 12px;
+    right: 12px;
+    width: auto;
+    text-align: center;
+    bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+  }
+}
