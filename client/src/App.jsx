@@ -6,6 +6,8 @@ import SkeletonPage from './components/SkeletonPage.jsx';
 import GlobalSearch from './components/GlobalSearch.jsx';
 import { TutorialProvider } from './components/TutorialProvider.jsx';
 import { DateWheelProvider } from './components/DateWheel.jsx';
+import BaaGate from './components/BaaGate.jsx';
+import SessionTimeout from './components/SessionTimeout.jsx';
 import { setDemoMode as setDemoFlag } from './demoMode.js';
 import Login from './pages/Login.jsx';
 import ChangePassword from './pages/ChangePassword.jsx';
@@ -486,6 +488,8 @@ export default function App() {
       />
     ) : user?.must_change_password === 1 ? (
       <ChangePassword user={user} onChanged={setUser} />
+    ) : user && !user.is_demo && !user.baa_signed_at ? (
+      <BaaGate user={user} onSigned={setUser} />
     ) : (
     <BrowserRouter basename={BASENAME}>
       <TutorialProvider user={user}>
@@ -722,6 +726,13 @@ export default function App() {
         <main className="content">
           <AnimatedRoutes user={user} />
         </main>
+        <SessionTimeout
+          onLogout={() => {
+            clearToken();
+            setAuthed(false);
+            setUser(null);
+          }}
+        />
       </div>
       </DateWheelProvider>
       </TutorialProvider>

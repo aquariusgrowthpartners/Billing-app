@@ -432,6 +432,111 @@ export default function SuperAdmin() {
           </form>
         </Modal>
       )}
+
+      <SecurityLogCard />
     </div>
+  );
+}
+
+function SecurityLogCard() {
+  const [logs, setLogs] = useState([]);
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [action, setAction] = useState('');
+  const [allow, setAllow] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+  const limit = 25;
+
+  const load = useCallback(async (nextPage = page, nextAction = action) => {
+    setBusy(true);
+    try {
+      const result = await api.auditLogs({ page: nextPage, limit, action: nextAction });
+      setLogs(result.logs ?? []);
+      setTotal(result.total ?? 0);
+      setPage(nextPage);
+      setError(null);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  }, [page, action]);
+
+  useEffect(() => {
+    load(1, '');
+    api.getAllowlist().then((r) => setAllow(r.allowed_ips ?? '')).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function saveAllowlist() {
+    setBusy(true);
+    try {
+      const result = await api.setAllowlist(allow);
+      setAllow(result.allowed_ips ?? '');
+      toast.success('IP allowlist saved.');
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const pages = Math.max(1, Math.ceil(total / limit));
+
+  return (
+    <>
+      <section className="card" id="security-log">
+        <div className="card-head">
+          <div>
+            <h2>Security Log</h2>
+            <p className="muted small" style={{ margin: '2px 0 0' }}>
+              HIPAA audit trail for client views, RA downloads, and claim changes.
+            </p>
+          </div>
+          <div className="head-actions">
+            <input placeholder="Filter action" value={action} onChange={(e) => setAction(e.target.value)} />
+            <button className="btn" onClick={() => load(1, action)} disabled={busy}>Filter</button>
+          </div>
+        </div>
+        {error && <div className="alert error">{error}</div>}
+        <div className="table-scroll">
+          <table className="table">
+            <thead><tr><th>Time</th><th>User</th><th>Action</th><th>Resource</th><th>IP</th></tr></thead>
+            <tbody>
+              {logs.map((row) => (
+                <tr key={row.id}>
+                  <td className="small">{row.timestamp}</td>
+                  <td className="small">{row.email ?? '—'}</td>
+                  <td>{row.action}</td>
+                  <td className="mono small">{row.resource_type} {row.resource_id ?? ''}</td>
+                  <td className="mono small">{row.ip_address ?? '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div className="form-actions">
+          <button className="btn" disabled={page <= 1 || busy} onClick={() => load(page - 1, action)}>Previous</button>
+          <span className="muted small">Page {page} of {pages}</span>
+          <button className="btn" disabled={page >= pages || busy} onClick={() => load(page + 1, action)}>Next</button>
+        </div>
+      </section>
+
+      <section className="card" id="ip-allowlist">
+        <div className="card-head">
+          <div>
+            <h2>IP Allowlist</h2>
+            <p className="muted small" style={{ margin: '2px 0 0' }}>
+              One IP per line or comma-separated. Empty allows all IPs.
+            </p>
+          </div>
+        </div>
+        <div className="card-body">
+          <textarea rows={3} value={allow} onChange={(e) => setAllow(e.target.value)} placeholder="203.0.113.10" />
+          <button className="btn primary" onClick={saveAllowlist} disabled={busy}>Save Allowlist</button>
+        </div>
+      </section>
+    </>
   );
 }

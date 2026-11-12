@@ -19,6 +19,7 @@ import { parseRemittance, visitTimes, MINUTES_PER_UNIT } from '../raImport.js';
 import { buildClaimName } from './claims.js';
 import { saveDeniedBlock, runRecovery, ensureRebillTasks } from '../denials.js';
 import { resolveStored } from '../pdfStorage.js';
+import { logAudit } from '../audit.js';
 
 const router = express.Router();
 
@@ -1419,6 +1420,7 @@ router.get('/file/:id/diagnostic', async (req, res) => {
 /** GET /api/import-ra/file/:id/pdf — the stored original, for download. */
 // accepts: file-row id (ra_import_files.id)  [X-Expects-Id: file-row]
 router.get('/file/:id/pdf', (req, res) => {
+  logAudit(req, 'ra_downloaded', 'ra_file', req.params.id);
   res.setHeader('X-Expects-Id', 'file-row');
   const row = db
     .prepare(`SELECT * FROM ra_import_files WHERE id = ? AND agency_id = ?`)

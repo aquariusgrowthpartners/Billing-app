@@ -1,5 +1,6 @@
 import express from 'express';
 import db from '../db.js';
+import { logAudit } from '../audit.js';
 import { computeEntry, todayISO, round2 } from '../calc.js';
 import { diagnosisCodes } from '../hhaFields.js';
 
@@ -49,6 +50,7 @@ router.get('/:id', (req, res) => {
   const id = Number(req.params.id);
   const client = db.prepare(`SELECT * FROM clients WHERE id = ? AND agency_id = ?`).get(id, req.agencyId);
   if (!client) return res.status(404).json({ error: 'Client not found' });
+  logAudit(req, 'client_viewed', 'client', id);
 
   const agreements = db
     .prepare(

@@ -23,6 +23,8 @@ import exportsRouter from './routes/exports.js';
 import importRaRouter from './routes/importRa.js';
 import importSaRouter from './routes/importSa.js';
 import importClaimsRouter from './routes/importClaims.js';
+import securityRouter from './routes/security.js';
+import { clientIp } from './audit.js';
 import dashboardRouter from './routes/dashboard.js';
 import adminRouter from './routes/admin.js';
 import alertsRouter from './routes/alerts.js';
@@ -161,6 +163,25 @@ app.get('/api/mode', (_req, res) => {
 /* every route below is tenant-scoped */
 app.use('/api', tenant);
 
+// HIPAA IP allowlisting: when an agency has configured a list, every API
+// request must originate from one of those addresses.
+app.use('/api', (req, res, next) => {
+  if (!req.agencyId) return next();
+  let allowed = '';
+  try {
+    allowed = db.prepare(`SELECT value FROM settings WHERE agency_id = ? AND key = 'allowed_ips'`).get(req.agencyId)?.value ?? '';
+  } catch {
+    allowed = '';
+  }
+  const list = String(allowed).split(',').map((v) => v.trim()).filter(Boolean);
+  if (!list.length) return next();
+  const ip = clientIp(req);
+  if (!list.includes(ip)) {
+    return res.status(403).json({ error: 'This IP address is not allowed for this workspace.' });
+  }
+  next();
+});
+
 app.use('/api/clients', clientsRouter);
 app.use('/api/agreements', agreementsRouter);
 app.use('/api/service-agreements', serviceAgreementsRouter);
@@ -183,6 +204,7 @@ app.use('/api/dashboard', dashboardRouter);
 app.use('/api/admin', adminRouter);
 app.use('/api/alerts', alertsRouter);
 app.use('/api/user', userRouter);
+app.use('/api/security', securityRouter);
 app.use('/api/exports', mpsmiscRouter);
 app.use('/api/denials', denialsRouter);
 app.use('/api/superadmin', superadminRouter);

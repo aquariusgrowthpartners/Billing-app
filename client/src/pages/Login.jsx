@@ -14,6 +14,8 @@ export default function Login({ onAuthed }) {
   const [agencyName, setAgencyName] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
+  const [challenge, setChallenge] = useState(null);
+  const [code, setCode] = useState('');
 
   const isSignup = mode === 'signup';
 
@@ -41,6 +43,10 @@ export default function Login({ onAuthed }) {
       const fn = isSignup ? api.signup : api.login;
       const body = isSignup ? { email, password, agency_name: agencyName } : { email, password };
       const res = await fn(body);
+      if (res.requires2fa) {
+        setChallenge(res.challengeToken);
+        return;
+      }
       setToken(res.token);
       onAuthed?.(res.user);
     } catch (err) {
@@ -48,6 +54,47 @@ export default function Login({ onAuthed }) {
     } finally {
       setBusy(false);
     }
+  }
+
+  async function submit2fa(e) {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await api.verify2fa({ challengeToken: challenge, token: code });
+      setToken(res.token);
+      onAuthed?.(res.user);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (challenge) {
+    return (
+      <div className="login-page" id="login-page">
+        <form className="login-card" onSubmit={submit2fa}>
+          <h1 className="login-title">Two-factor verification</h1>
+          <p className="muted small login-sub">Enter the 6-digit code from your authenticator app.</p>
+          {error && <div className="alert error">{error}</div>}
+          <label>
+            Authentication code
+            <input
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              maxLength={6}
+              value={code}
+              onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
+              autoFocus
+            />
+          </label>
+          <button className="btn primary login-submit" disabled={busy || code.length !== 6} type="submit">
+            {busy ? 'Verifying…' : 'Verify'}
+          </button>
+        </form>
+      </div>
+    );
   }
 
   return (

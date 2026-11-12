@@ -3,6 +3,7 @@ import multer from 'multer';
 import fs from 'node:fs';
 import path from 'node:path';
 import db from '../db.js';
+import { logAudit } from '../audit.js';
 import { importFactors, netPaid } from '../paidMath.js';
 import { markOrphanedImports } from '../denials.js';
 import { round2, daysBetween, todayISO, addDays } from '../calc.js';
@@ -468,6 +469,7 @@ router.post('/', (req, res) => {
   try {
     const claimId = run();
     const row = db.prepare(`SELECT * FROM claims WHERE id = ? AND agency_id = ?`).get(claimId, req.agencyId);
+    logAudit(req, 'claim_created', 'claim', claimId);
     res.status(201).json({ claim: decorate(row, req.agencyId) });
   } catch (err) {
     res.status(err.status ?? 500).json({ error: err.message });
@@ -565,6 +567,7 @@ function updateClaim(req, res) {
     agency: req.agencyId,
   });
 
+  logAudit(req, 'claim_updated', 'claim', id);
   res.json({ claim: decorate(db.prepare(`SELECT * FROM claims WHERE id = ? AND agency_id = ?`).get(id, req.agencyId), req.agencyId) });
 }
 

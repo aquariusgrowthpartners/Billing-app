@@ -143,6 +143,9 @@ db.exec(`
     logo_url   TEXT,
     ai_quick_prompts TEXT,
     is_demo    INTEGER NOT NULL DEFAULT 0,
+    baa_signed_at TEXT,
+    baa_signed_name TEXT,
+    baa_signed_ip TEXT,
     created_at TEXT    NOT NULL DEFAULT (datetime('now'))
   );
 
@@ -154,6 +157,9 @@ db.exec(`
     role          TEXT    NOT NULL DEFAULT 'admin' CHECK (role IN ('admin','member')),
     onboarding_checklist TEXT,
     tutorial_completed INTEGER NOT NULL DEFAULT 0,
+    totp_secret   TEXT,
+    totp_enabled  INTEGER NOT NULL DEFAULT 0,
+    totp_recovery_codes TEXT,
     created_at    TEXT    NOT NULL DEFAULT (datetime('now'))
   );
 
@@ -649,6 +655,12 @@ addColumnIfMissing('agencies', 'logo_url', 'TEXT');
 addColumnIfMissing('agencies', 'ai_quick_prompts', 'TEXT');
 addColumnIfMissing('agencies', 'is_demo', 'INTEGER NOT NULL DEFAULT 0');
 addColumnIfMissing('alerts', 'metadata', 'TEXT');
+addColumnIfMissing('users', 'totp_secret', 'TEXT');
+addColumnIfMissing('users', 'totp_enabled', 'INTEGER NOT NULL DEFAULT 0');
+addColumnIfMissing('users', 'totp_recovery_codes', 'TEXT');
+addColumnIfMissing('agencies', 'baa_signed_at', 'TEXT');
+addColumnIfMissing('agencies', 'baa_signed_name', 'TEXT');
+addColumnIfMissing('agencies', 'baa_signed_ip', 'TEXT');
 addColumnIfMissing('users', 'onboarding_checklist', 'TEXT');
 addColumnIfMissing('users', 'tutorial_completed', 'INTEGER NOT NULL DEFAULT 0');
 
@@ -992,6 +1004,23 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_alerts_agency_created ON alerts (agency_id, created_at DESC);
   CREATE INDEX IF NOT EXISTS idx_alerts_client ON alerts (client_id);
+`);
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS audit_logs (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    agency_id     INTEGER NOT NULL REFERENCES agencies(id) ON DELETE CASCADE,
+    user_id       INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    action        TEXT NOT NULL,
+    resource_type TEXT NOT NULL,
+    resource_id   TEXT,
+    ip_address    TEXT,
+    timestamp     TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_audit_logs_agency_time
+    ON audit_logs (agency_id, timestamp DESC);
+  CREATE INDEX IF NOT EXISTS idx_audit_logs_user_time
+    ON audit_logs (user_id, timestamp DESC);
 `);
 
 db.exec(`

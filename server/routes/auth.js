@@ -28,6 +28,9 @@ function publicUser(user, agency) {
     tutorial_completed: Number(user.tutorial_completed ?? 0),
     onboarding_checklist: user.onboarding_checklist ?? null,
     must_change_password: user.must_change_password ?? 0,
+    totp_enabled: Number(user.totp_enabled ?? 0),
+    baa_signed_at: agency?.baa_signed_at ?? null,
+    baa_signed_name: agency?.baa_signed_name ?? null,
   };
 }
 
@@ -125,6 +128,22 @@ router.post('/login', (req, res) => {
   // Same message either way: revealing which half was wrong helps attackers.
   if (!user || !verifyPassword(password, user.password_hash)) {
     return res.status(401).json({ error: 'Incorrect email or password.' });
+  }
+  const agency = db.prepare('SELECT * FROM agencies WHERE id = ?').get(user.agency_id);
+  if (Number(user.totp_enabled) === 1) {
+    return res.json({ requires2fa: true, challengeToken: signChallenge(user) });
+  }
+  res.json({ token: signToken(user), user: publicUser(user, agency) });
+});
+
+/* POST /api/auth/2fa  { challengeToken, token } */
+router.post('/2fa', (req, res) => {
+  const body = req.body ?? {};
+  const challenge = verifyChallenge(body.challengeToken);
+  if (!challenge) return res.status(401).json({ error: 'Your verification window expired. Sign in again.' });
+  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(challenge.sub);
+  if (!user || !verifyTotp(user.totp_secret, body.token)) {
+    return res.status(401).json({ error: 'Invalid authentication code.' });
   }
   const agency = db.prepare('SELECT * FROM agencies WHERE id = ?').get(user.agency_id);
   res.json({ token: signToken(user), user: publicUser(user, agency) });

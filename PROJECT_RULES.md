@@ -41,3 +41,7 @@ Demo Isolation Verification: Any changes to the demo mode MUST physically verify
 Demo Blank Slate: Every demo login must clear the demo agency's clients and claims so the tutorial always starts from an empty tenant and requires creating the sample client.
 
 Demo Parser Isolation: Demo sample loads (SA, Claim, RA) must set hardcoded frontend state. They must never call backend document-parse endpoints or depend on extracted production data.
+
+## Security & HIPAA
+
+HIPAA Security: Sessions expire after 15 minutes of inactivity with a 60-second warning. All users have unique IDs; Super Admin accounts must enable TOTP 2FA before accessing platform administration. Client profile views, RA downloads, and claim changes are audit-logged. BAA signature (name, timestamp, IP) is required before a new agency can use the app. PHI must never be written to console logs or error trackers.

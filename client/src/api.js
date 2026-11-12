@@ -64,6 +64,18 @@ export const api = {
   mode: () => request('/mode'),
   week: (start) => request(`/week${start ? `?start=${start}` : ''}`),
 
+  verify2fa: (body) => request('/auth/2fa', { method: 'POST', body: JSON.stringify(body) }),
+  securityStatus: () => request('/security/status'),
+  setup2fa: () => request('/security/2fa/setup', { method: 'POST' }),
+  verify2faSetup: (token) => request('/security/2fa/verify', { method: 'POST', body: JSON.stringify({ token }) }),
+  signBaa: (body) => request('/security/baa', { method: 'POST', body: JSON.stringify(body) }),
+  getAllowlist: () => request('/security/allowlist'),
+  setAllowlist: (allowed_ips) => request('/security/allowlist', { method: 'PUT', body: JSON.stringify({ allowed_ips }) }),
+  auditLogs: (params = {}) => {
+    const q = new URLSearchParams(Object.entries(params).filter(([, v]) => v !== '' && v != null)).toString();
+    return request(`/security/audit${q ? `?${q}` : ''}`);
+  },
+
   onboarding: () => request('/user/onboarding'),
   completeOnboardingStep: (step) => request('/user/onboarding', { method: 'POST', body: JSON.stringify({ step }) }),
   completeTutorial: () => request('/user/tutorial', { method: 'POST' }),

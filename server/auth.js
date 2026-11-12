@@ -39,6 +39,19 @@ export function signToken(user) {
   );
 }
 
+export function signChallenge(user) {
+  return jwt.sign({ sub: user.id, purpose: '2fa' }, JWT_SECRET, { expiresIn: '5m' });
+}
+
+export function verifyChallenge(token) {
+  try {
+    const payload = jwt.verify(token, JWT_SECRET);
+    return payload?.purpose === '2fa' ? payload : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Returns the decoded payload, or null when the token is missing/invalid. */
 export function verifyToken(token) {
   if (!token) return null;

@@ -528,6 +528,7 @@ export default function Settings() {
       )}
 
       <AccountSecurityCard />
+      <TwoFactorCard />
 
       {/* -------------------------------------------- HHAeXchange export */}
       <HhaExportsCard onError={setError} />
@@ -2025,6 +2026,92 @@ function AiConfigCard({ settings, onSaved, onError }) {
   );
 }
 
+
+/* -------------------------------------------------- two-factor auth */
+
+function TwoFactorCard() {
+  const [status, setStatus] = useState(null);
+  const [setup, setSetup] = useState(null);
+  const [token, setToken] = useState('');
+  const [codes, setCodes] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    api.securityStatus().then(setStatus).catch(() => {});
+  }, []);
+
+  async function start() {
+    setBusy(true); setError(null);
+    try { setSetup(await api.setup2fa()); } catch (e) { setError(e.message); } finally { setBusy(false); }
+  }
+
+  async function verify() {
+    setBusy(true); setError(null);
+    try {
+      const result = await api.verify2faSetup(token);
+      setCodes(result.recovery_codes);
+      setStatus((s) => ({ ...s, totp_enabled: 1 }));
+      setSetup(null);
+      setToken('');
+    } catch (e) { setError(e.message); } finally { setBusy(false); }
+  }
+
+  return (
+    <section className="card" id="security-2fa">
+      <div className="card-head">
+        <div>
+          <h2>Security — Two-Factor Authentication</h2>
+          <p className="muted small" style={{ margin: '2px 0 0' }}>
+            Protect PHI with a TOTP authenticator app (Google Authenticator, Authy, 1Password).
+          </p>
+        </div>
+        {status?.totp_enabled ? <span className="pill ok">Enabled</span> : <span className="pill pending">Not enabled</span>}
+      </div>
+      <div className="card-body">
+        {error && <div className="alert error">{error}</div>}
+        {status?.totp_enabled && !codes && (
+          <p className="muted small">Two-factor authentication is active on this account.</p>
+        )}
+        {!status?.totp_enabled && !setup && (
+          <button className="btn primary" id="enable-2fa" onClick={start} disabled={busy}>
+            {busy ? 'Starting…' : 'Enable 2FA'}
+          </button>
+        )}
+        {setup && (
+          <div className="grid-3" style={{ alignItems: 'start' }}>
+            <div>
+              {setup.qr ? (
+                <img src={setup.qr} alt="2FA QR code" style={{ width: 200, maxWidth: '100%', borderRadius: 12 }} />
+              ) : (
+                <p className="muted small">QR unavailable. Enter this key manually in your authenticator app:</p>
+              )}
+              <p className="mono small" style={{ wordBreak: 'break-all' }}>{setup.secret}</p>
+            </div>
+            <div className="span-2">
+              <label>
+                Enter the 6-digit code
+                <input inputMode="numeric" maxLength={6} value={token} onChange={(e) => setToken(e.target.value.replace(/\D/g, ''))} />
+              </label>
+              <button className="btn primary" id="verify-2fa" onClick={verify} disabled={busy || token.length !== 6}>
+                {busy ? 'Verifying…' : 'Verify and enable'}
+              </button>
+            </div>
+          </div>
+        )}
+        {codes && (
+          <div className="card" style={{ padding: 16, marginTop: 12 }}>
+            <strong>Save your recovery codes</strong>
+            <p className="muted small">Each code works once if you lose your authenticator.</p>
+            <div className="mono small" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 6 }}>
+              {codes.map((code) => <span key={code}>{code}</span>)}
+            </div>
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
 
 /* -------------------------------------------------- account security */
 
