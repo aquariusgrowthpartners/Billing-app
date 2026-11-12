@@ -9504,3 +9504,7 @@ a:hover { text-decoration: none; }
   color: #fff;
 }
 [data-theme='dark'] .onboarding-check { background: #1f2937; border-color: #4b5563; }
+
+/* Specificity override so the off-white panel wins over .card's surface. */
+.home .onboarding-drawer { background-color: #FAFAFA; }
+[data-theme='dark'] .home .onboarding-drawer { background-color: #1f2937; }
