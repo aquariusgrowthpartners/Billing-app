@@ -13,7 +13,7 @@ const STEPS = ['Personal Info', 'Checklist', 'Save'];
  * fill in a name, confirm the document list, done. Progress is always visible
  * on the card so nobody has to open a task to find out what is outstanding.
  */
-export default function Tasks() {
+export default function Tasks({ embedded = false }) {
   const [data, setData] = useState({ tasks: [] });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -158,7 +158,7 @@ export default function Tasks() {
   const tasks = data.tasks ?? [];
 
   return (
-    <div className="page wide" id="tasks-page">
+    <div className={embedded ? 'tasks-embedded' : 'page wide'} id={embedded ? 'home-tasks' : 'tasks-page'}>
       <div className="page-head">
         <div>
           <h1>Tasks</h1>

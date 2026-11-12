@@ -4,6 +4,7 @@ import api from '../api.js';
 import { formatLongDate, formatMoney, formatClientName, todayISO } from '../calc.js';
 import InsightBar from '../components/InsightBar.jsx';
 import Skeleton from '../components/Skeleton.jsx';
+import Tasks from './Tasks.jsx';
 
 /** "6.5 hrs" — one decimal, always. */
 function hours(minutesOrHours) {
@@ -75,23 +76,20 @@ export default function Home({ user }) {
   const [pickerStart, setPickerStart] = useState('');
   const [pickerEnd, setPickerEnd] = useState('');
   const [data, setData] = useState(null);
-  const [recentRa, setRecentRa] = useState([]);
-  const [recentClients, setRecentClients] = useState([]);
   const [denialAlert, setDenialAlert] = useState(null);
   const [ytd, setYtd] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [alerts, setAlerts] = useState([]);
   const [onboarding, setOnboarding] = useState(null);
+  const [onboardingOpen, setOnboardingOpen] = useState(() => (typeof window === 'undefined' ? true : window.innerWidth >= 1024));
 
   const load = useCallback(async (start) => {
     setLoading(true);
     setError(null);
     try {
-      const [d, ra, rc, dn, ytdData] = await Promise.all([
+      const [d, dn, ytdData] = await Promise.all([
         api.payPeriod(start, periodEnd),
-        api.recentRa(),
-        api.recentClients(),
         api.denialSummary().catch(() => null),
         api.ytdClaims().catch(() => null),
       ]);
@@ -102,8 +100,6 @@ export default function Home({ user }) {
       setYtd(ytdData);
       setData(d ?? null);
       setPeriodStart(d?.period?.start ?? null);
-      setRecentRa(Array.isArray(ra?.imports) ? ra.imports : []);
-      setRecentClients(Array.isArray(rc?.clients) ? rc.clients : []);
     } catch (e) {
       console.error('Dashboard fetch failed', e);
       setError(e.message || 'Dashboard fetch failed');
@@ -192,24 +188,25 @@ export default function Home({ user }) {
   const byClientCount = Array.isArray(denial?.by_client) ? denial.by_client.length : 0;
   const hasDenialExposure =
     Number(denial?.unrecovered_days) > 0 || Number(denial?.unrecovered_dollars) > 0;
-  const recentRaList = Array.isArray(recentRa) ? recentRa : [];
-  const recentClientsList = Array.isArray(recentClients) ? recentClients : [];
   const alertList = Array.isArray(alerts) ? alerts : [];
 
   return (
-    <div className="page wide home">
-      <header className="home-top">
-        <div>
-          <h1>Home</h1>
-          <p className="home-sub">Pay period overview and recent activity</p>
-        </div>
-        <DueReminder />
-      </header>
-
+    <div className={`page wide home${onboarding && !onboarding.complete ? (onboardingOpen ? ' onboarding-open' : ' onboarding-closed') : ''}`}>
       {onboarding && !onboarding.complete && (
-        <section className="card onboarding-card" id="onboarding-checklist">
+        <>
+          <button
+            type="button"
+            className="onboarding-toggle"
+            id="onboarding-toggle"
+            onClick={() => setOnboardingOpen(true)}
+          >
+            ☰ Getting Started
+          </button>
+          {onboardingOpen && <div className="onboarding-scrim" onClick={() => setOnboardingOpen(false)} />}
+        <aside className="card onboarding-card onboarding-drawer" id="onboarding-checklist">
           <div className="card-head">
             <div><h2>Getting started</h2><p className="muted small" style={{ margin: '2px 0 0' }}>Complete these steps to finish setting up.</p></div>
+            <button type="button" className="btn tiny" aria-label="Collapse Getting Started" onClick={() => setOnboardingOpen(false)}>✕</button>
           </div>
           <ul className="onboarding-list">
             {[
@@ -239,8 +236,19 @@ export default function Home({ user }) {
               </li>
             ))}
           </ul>
-        </section>
+        </aside>
+        </>
       )}
+
+      <div className="home-main">
+      <header className="home-top">
+        <div>
+          <h1>Home</h1>
+          <p className="home-sub">Pay period overview and recent activity</p>
+        </div>
+        <DueReminder />
+      </header>
+
 
       <section className="card ytd-claims-card" id="ytd-paid-claims">
         <div className="ytd-claims-copy">
@@ -439,87 +447,7 @@ export default function Home({ user }) {
         )}
       </Card>
 
-      <div className="split-2">
-        {/* --------------------------------------- section C: recent RA */}
-        <Card
-          id="recent-ra"
-          title="Recent RA submissions"
-          hint="The last 5 saved remittance advices."
-        >
-          {recentRaList.length === 0 ? (
-            <p className="empty">No RA imports saved yet.</p>
-          ) : (
-            <ul className="rows" id="recent-ra-list">
-              {recentRaList.map((r, index) => {
-                if (!r) return null;
-                const claims = Array.isArray(r.claims) ? r.claims : [];
-                return (
-                  <li key={r.id ?? `ra-${index}`} className="row-item" id={`recent-ra-${r.id}`}>
-                    <div className="row-main">
-                      <strong>
-                        {r.imported_at ? new Date(r.imported_at).toLocaleDateString() : '—'}
-                      </strong>
-                      <span className="muted small">
-                        {r.num_clients ?? 0} client{(r.num_clients ?? 0) === 1 ? '' : 's'}
-                        {r.file_name ? ` · ${r.file_name}` : ''}
-                      </span>
-                    </div>
-                    <div className="row-side">
-                      <span className="dollars">{formatMoney(r.total_payment)}</span>
-                      {claims.length > 0 && (
-                        <span className="muted small">
-                          {claims.slice(0, 2).map((c, claimIndex) => (
-                            <Link
-                              key={c?.id ?? `claim-${claimIndex}`}
-                              to="/claims"
-                              className="claim-link"
-                              title={`Open ${c?.claim_name ?? 'claim'}`}
-                            >
-                              {c?.claim_name ?? 'claim'}
-                            </Link>
-                          ))}
-                          {claims.length > 2 && ` +${claims.length - 2}`}
-                        </span>
-                      )}
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </Card>
-
-        {/* ---------------------------------- section D: recently viewed */}
-        <Card
-          id="recent-clients"
-          title="Recently viewed clients"
-          hint="The last 8 profiles you opened."
-        >
-          {recentClientsList.length === 0 ? (
-            <p className="empty">No clients opened yet.</p>
-          ) : (
-            <ul className="rows" id="recent-clients-list">
-              {recentClientsList.map((c, index) => {
-                if (!c) return null;
-                return (
-                  <li key={c.client_id ?? `recent-${index}`} className="row-item">
-                    <Link
-                      to={`/clients/${c.client_id ?? ''}`}
-                      id={`recent-client-${c.client_id}`}
-                      className="recent-client-link"
-                    >
-                      {formatClientName(c)}
-                      {c.archived ? ' (archived)' : ''}
-                    </Link>
-                    <span className="muted small">
-                      {c.viewed_at ? new Date(c.viewed_at).toLocaleDateString() : '—'}
-                    </span>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </Card>
+      <Tasks embedded />
       </div>
     </div>
   );

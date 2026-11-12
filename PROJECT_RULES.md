@@ -23,3 +23,7 @@ Claims Views: No claims list should render data by default. A From/To date filte
 ## UI Animation Standards
 
 UI Animation: All motion must use spring-like cubic-bezier curves (e.g., `cubic-bezier(0.16, 1, 0.3, 1)`), never plain `ease`/`ease-in-out` for interactive transitions. Animations may only animate `transform` and `opacity` (never `width`, `height`, or `top`), and animated elements should declare `will-change: transform`. Buttons scale to `0.97` on press; cards lift on hover; list cards fade in with a subtle stagger. Respect `prefers-reduced-motion`.
+
+## Date Inputs and Home Layout
+
+Premium Date Inputs: Every `input[type="date"]` is enhanced by the global `DateWheelProvider` and must never fall back to the browser's native date popover. Home's onboarding checklist is a collapsible left drawer on desktop and a slide-out drawer on mobile; Tasks render at the bottom of Home.
