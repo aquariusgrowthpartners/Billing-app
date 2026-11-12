@@ -9510,3 +9510,38 @@ a:hover { text-decoration: none; }
 [data-theme='dark'] .home .onboarding-drawer { background-color: #1f2937; }
 
 .onboarding-close { height: 34px; min-height: 34px; }
+
+/* ==================================================================
+   PHASE 7 — centered mobile drawer, brand toggle, tutorial clearance
+   ================================================================== */
+
+.onboarding-toggle {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.onboarding-toggle:hover { background: var(--accent-dark); border-color: var(--accent-dark); }
+
+@media (max-width: 1023px) {
+  .onboarding-drawer {
+    left: 50%;
+    top: 50%;
+    bottom: auto;
+    width: min(92vw, 380px);
+    max-height: 86dvh;
+    border-radius: 24px;
+    transform: translate(-50%, -46%);
+    box-shadow: 0 30px 80px -20px rgba(0, 0, 0, 0.5);
+  }
+  .home.onboarding-open .onboarding-drawer {
+    transform: translate(-50%, -50%);
+  }
+  .onboarding-scrim {
+    background: rgba(0, 0, 0, 0.5);
+  }
+}
+
+body.tour-active .content { padding-bottom: 260px; }
+@media (min-width: 1024px) {
+  body.tour-active .content { padding-bottom: 200px; }
+}

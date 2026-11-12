@@ -252,6 +252,7 @@ function AnimatedRoutes({ user }) {
               }
             />
             <Route path="/clients" element={<ClientList />} />
+            <Route path="/clients/new" element={<ClientList />} />
             <Route path="/clients/:id" element={<ClientProfile />} />
             <Route path="/claims" element={<ClaimsDashboard user={user} />} />
             <Route path="/billing" element={<Billing />} />

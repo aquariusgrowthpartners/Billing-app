@@ -6,6 +6,15 @@ import InsightBar from '../components/InsightBar.jsx';
 import Skeleton from '../components/Skeleton.jsx';
 import Tasks from './Tasks.jsx';
 
+function alertMetadata(alert) {
+  try {
+    const value = typeof alert.metadata === 'string' ? JSON.parse(alert.metadata) : alert.metadata;
+    return value && typeof value === 'object' ? value : null;
+  } catch {
+    return null;
+  }
+}
+
 /** "6.5 hrs" — one decimal, always. */
 function hours(minutesOrHours) {
   const n = Number(minutesOrHours) || 0;
@@ -371,28 +380,45 @@ export default function Home({ user }) {
 
       {alertList.length > 0 && (
         <section className="home-alerts" id="home-alerts">
-          {alertList.map((alert) => (
-            <div className="home-alert" key={alert.id}>
-              <button
-                type="button"
-                className="home-alert-main"
-                onClick={() => navigate(alert.client_id ? `/clients/${alert.client_id}` : '/clients')}
-              >
-                <strong>{alert.title}</strong>
-                <span>{alert.message}</span>
-              </button>
-              <button
-                type="button"
-                className="btn tiny"
-                onClick={async () => {
-                  await api.dismissAlert(alert.id);
-                  setAlerts((current) => current.filter((a) => a.id !== alert.id));
-                }}
-              >
-                Dismiss
-              </button>
-            </div>
-          ))}
+          {alertList.map((alert) => {
+            const meta = alertMetadata(alert);
+            const prefillQs = meta
+              ? new URLSearchParams({
+                  new: '1',
+                  first: meta.first_name ?? '',
+                  last: meta.last_name ?? '',
+                  dob: meta.dob ?? '',
+                  ma: meta.ma_number ?? '',
+                }).toString()
+              : '';
+            return (
+              <div className="home-alert" key={alert.id}>
+                <button
+                  type="button"
+                  className="home-alert-main"
+                  onClick={() => navigate(alert.client_id ? `/clients/${alert.client_id}` : '/clients')}
+                >
+                  <strong>{alert.title}</strong>
+                  <span>{alert.message}</span>
+                </button>
+                {alert.type === 'client_profile' && meta && (
+                  <Link className="btn tiny primary" to={`/clients/new?${prefillQs}`}>
+                    Create Client Profile
+                  </Link>
+                )}
+                <button
+                  type="button"
+                  className="btn tiny"
+                  onClick={async () => {
+                    await api.dismissAlert(alert.id);
+                    setAlerts((current) => current.filter((a) => a.id !== alert.id));
+                  }}
+                >
+                  Dismiss
+                </button>
+              </div>
+            );
+          })}
         </section>
       )}
 

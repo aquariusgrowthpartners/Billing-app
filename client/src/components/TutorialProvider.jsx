@@ -47,6 +47,12 @@ export function TutorialProvider({ user, children }) {
     }
   }, [isDemo, user?.tutorial_completed]);
 
+  useEffect(() => {
+    const active = step >= 0;
+    document.body.classList.toggle('tour-active', active);
+    return () => document.body.classList.remove('tour-active');
+  }, [step]);
+
   const go = (index) => {
     setStep(index);
     navigate(TUTORIAL_STEPS[index].path);

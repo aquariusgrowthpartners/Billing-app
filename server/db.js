@@ -648,6 +648,7 @@ addColumnIfMissing('clients', 'is_stub', 'INTEGER NOT NULL DEFAULT 0');
 addColumnIfMissing('agencies', 'logo_url', 'TEXT');
 addColumnIfMissing('agencies', 'ai_quick_prompts', 'TEXT');
 addColumnIfMissing('agencies', 'is_demo', 'INTEGER NOT NULL DEFAULT 0');
+addColumnIfMissing('alerts', 'metadata', 'TEXT');
 addColumnIfMissing('users', 'onboarding_checklist', 'TEXT');
 addColumnIfMissing('users', 'tutorial_completed', 'INTEGER NOT NULL DEFAULT 0');
 
@@ -985,6 +986,7 @@ db.exec(`
     type       TEXT NOT NULL DEFAULT 'client_profile',
     title      TEXT NOT NULL,
     message    TEXT,
+    metadata   TEXT,
     read_at    TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   );

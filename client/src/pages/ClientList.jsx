@@ -1,6 +1,6 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Link } from 'react-router-dom';
+import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import api from '../api.js';
 import { SkeletonCards } from '../components/Skeleton.jsx';
 import EmptyState from '../components/EmptyState.jsx';
@@ -22,7 +22,16 @@ export default function ClientList() {
   const [clients, setClients] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [adding, setAdding] = useState(false);
+  const location = useLocation();
+  const [searchParams] = useSearchParams();
+  const wantsNew = location.pathname === '/clients/new' || searchParams.get('new') === '1';
+  const prefill = useMemo(() => ({
+    first_name: searchParams.get('first') ?? '',
+    last_name: searchParams.get('last') ?? '',
+    dob: searchParams.get('dob') ?? '',
+    ma_number: searchParams.get('ma') ?? '',
+  }), [searchParams]);
+  const [adding, setAdding] = useState(wantsNew);
   const [showArchived, setShowArchived] = useState(false);
   const [flash, setFlash] = useState(null);
 
@@ -79,6 +88,7 @@ export default function ClientList() {
 
       {adding && (
         <AddClientForm
+          prefill={prefill}
           onCancel={() => setAdding(false)}
           onError={setError}
           onSaved={async (client) => {
@@ -202,8 +212,8 @@ export default function ClientList() {
 }
 
 /** Add a client. First/last name are required; everything else is optional. */
-function AddClientForm({ onCancel, onSaved, onError }) {
-  const [form, setForm] = useState(BLANK);
+function AddClientForm({ onCancel, onSaved, onError, prefill = {} }) {
+  const [form, setForm] = useState(() => ({ ...BLANK, ...prefill }));
   const [saving, setSaving] = useState(false);
   const [localError, setLocalError] = useState(null);
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));

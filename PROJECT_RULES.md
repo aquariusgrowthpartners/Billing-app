@@ -35,3 +35,5 @@ Typography: Use the system font stack `-apple-system, BlinkMacSystemFont, "Segoe
 ## Demo Isolation
 
 Demo Isolation: The demo account (is_demo=1) must NEVER query or display real production data. All tutorial examples, sample clients, and sample files must be hardcoded dummy data or static fixtures.
+
+Demo Isolation Verification: Any changes to the demo mode MUST physically verify that ALL sample files (PDFs) and client cards contain dummy data (Jane Doe / 12345678). Never use real production PDFs.

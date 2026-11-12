@@ -77,10 +77,22 @@ router.post('/save', (req, res) => {
       ).run(first, last, ma || null, body.case_manager_name || null, body.case_manager_phone || null, body.case_manager_email || null, req.agencyId);
       clientId = Number(info.lastInsertRowid);
       createdClient = true;
+      const metadata = JSON.stringify({
+        first_name: first,
+        last_name: last,
+        dob: body.dob || null,
+        ma_number: ma || null,
+        source: 'service_agreement',
+      });
       db.prepare(
-        `INSERT INTO alerts (agency_id, client_id, type, title, message)
-         VALUES (?, ?, 'client_profile', 'New Client Profile', ?)`
-      ).run(req.agencyId, clientId, `Client ${first} ${last} created from SA. Please complete missing fields.`);
+        `INSERT INTO alerts (agency_id, client_id, type, title, message, metadata)
+         VALUES (?, ?, 'client_profile', 'New Client Profile', ?, ?)`
+      ).run(
+        req.agencyId,
+        clientId,
+        `Client ${first} ${last} created from SA. Please complete missing fields.`,
+        metadata
+      );
       alertCreated = true;
     }
   }
