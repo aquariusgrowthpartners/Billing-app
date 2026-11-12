@@ -27,3 +27,7 @@ UI Animation: All motion must use spring-like cubic-bezier curves (e.g., `cubic-
 ## Date Inputs and Home Layout
 
 Premium Date Inputs: Every `input[type="date"]` is enhanced by the global `DateWheelProvider` and must never fall back to the browser's native date popover. Home's onboarding checklist is a collapsible left drawer on desktop and a slide-out drawer on mobile; Tasks render at the bottom of Home.
+
+## Typography
+
+Typography: Use the system font stack `-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`, apply `letter-spacing: -0.01em` globally, keep body text at weight 400 and headings at weight 600, and never underline links.
