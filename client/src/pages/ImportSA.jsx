@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import api from '../api.js';
 import { toast } from '../components/Toast.jsx';
 import Modal from '../components/Modal.jsx';
+import { isDemoMode } from '../demoMode.js';
 
 function splitRecipient(name) {
   const value = String(name ?? '').trim();
@@ -13,6 +14,41 @@ function splitRecipient(name) {
   }
   const parts = value.split(/\s+/).filter(Boolean);
   return { first: parts[0] ?? '', last: parts.slice(1).join(' ') || '' };
+}
+
+export const DEMO_SA_DATA = {
+  client_name: 'DOE, JANE',
+  member_id: '12345678',
+  sa_number: 'DEMO-123456',
+  effective_date: '2024-01-01',
+  through_date: '2024-12-31',
+  case_manager_name: 'Demo Case Manager',
+  case_manager_phone: '555-0199',
+  lines: [{ procedure_code: 'T1019', rate: 5.0, units: 100 }],
+};
+
+function demoSaExtracted() {
+  return {
+    ...DEMO_SA_DATA,
+    recipient_name: DEMO_SA_DATA.client_name,
+    recipient_id: DEMO_SA_DATA.member_id,
+    dhs_service_agreement_num: DEMO_SA_DATA.sa_number,
+    case_manager_email: 'demo@example.org',
+    lines: DEMO_SA_DATA.lines.map((line, index) => ({
+      line_number: index + 1,
+      procedure_code: line.procedure_code,
+      procedure_description: 'Personal Care Assistance',
+      modifier_1: null,
+      modifier_2: null,
+      modifier_3: null,
+      modifier_4: null,
+      rate_per_unit: line.rate,
+      total_units: line.units,
+      total_amount: line.rate * line.units,
+      start_date: DEMO_SA_DATA.effective_date,
+      end_date: DEMO_SA_DATA.through_date,
+    })),
+  };
 }
 
 const MODIFIERS = ['', 'UA','U1','U2','U3','U4','U5','U6','U7','U8','U9','HQ','GT','GO','GP','GW','KX','25','26','59','95','76','77','TC'];
@@ -67,6 +103,20 @@ export default function ImportSA() {
 
   async function chooseFile(picked) {
     if (!picked) return;
+    if (isDemoMode() && picked.name === 'sample-sa.pdf') {
+      setFile(picked);
+      setError(null);
+      setBusy(false);
+      setClient(null);
+      setClientQuery('');
+      setParsed({
+        extracted: demoSaExtracted(),
+        demoData: DEMO_SA_DATA,
+        missing: { case_manager_email: false, case_manager_phone: false, modifiers: true },
+        warnings: [],
+      });
+      return;
+    }
     setFile(picked);
     setError(null);
     setParsed(null);

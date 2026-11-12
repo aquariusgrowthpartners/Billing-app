@@ -39,3 +39,5 @@ Demo Isolation: The demo account (is_demo=1) must NEVER query or display real pr
 Demo Isolation Verification: Any changes to the demo mode MUST physically verify that ALL sample files (PDFs) and client cards contain dummy data (Jane Doe / 12345678). Never use real production PDFs.
 
 Demo Blank Slate: Every demo login must clear the demo agency's clients and claims so the tutorial always starts from an empty tenant and requires creating the sample client.
+
+Demo Parser Isolation: Demo sample loads (SA, Claim, RA) must set hardcoded frontend state. They must never call backend document-parse endpoints or depend on extracted production data.

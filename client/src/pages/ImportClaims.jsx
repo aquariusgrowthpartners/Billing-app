@@ -2,6 +2,20 @@ import React, { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import api from '../api.js';
 import { toast } from '../components/Toast.jsx';
+import { isDemoMode } from '../demoMode.js';
+
+export const DEMO_CLAIM_DATA = {
+  subscriber_id: '12345678',
+  subscriber_name: 'JANE DOE',
+  patient_control_number: 'DEMO-0001',
+  period_start: '2024-01-01',
+  period_end: '2024-01-01',
+  total_charge: 100,
+  expected_payment: 100,
+  claim_status_code: '46',
+  service_lines: [{ date_of_service: '2024-01-01' }],
+  status: 'pending',
+};
 
 export default function ImportClaims() {
   const navigate = useNavigate();
@@ -31,6 +45,13 @@ export default function ImportClaims() {
 
   async function choose(file) {
     if (!file) return;
+    if (isDemoMode() && file.name === 'sample-claim.pdf') {
+      setFile(file);
+      setBusy(false);
+      setError(null);
+      setParsed({ extracted: DEMO_CLAIM_DATA, suggested_client: null });
+      return;
+    }
     setFile(file); setBusy(true); setError(null); setParsed(null);
     try {
       const result = await api.parseClaimSubmission(file);
