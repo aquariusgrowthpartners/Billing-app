@@ -80,15 +80,22 @@ async function main() {
   await page2.send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
   await page2.send('Page.addScriptToEvaluateOnNewDocument', { source: `localStorage.setItem('billing_token', ${JSON.stringify(signup.token)}); window.__SESSION_TIMEOUT_MS__=6000; window.__SESSION_WARN_MS__=3000;` });
   await page2.send('Page.navigate', { url: `${BASE}/` });
-  await sleep(7500);
+  await sleep(4500);
+  results.page2_gate = await page2.evalJs(`!!document.querySelector('#baa-gate')`);
+  results.page2_topbar = await page2.evalJs(`!!document.querySelector('.topbar')`);
+  results.session_override = await page2.evalJs(`({idle:window.__SESSION_TIMEOUT_MS__, warn:window.__SESSION_WARN_MS__, text:document.body.innerText.includes('Session expiring')})`);
   results.session_warning = await page2.evalJs(`!![...document.querySelectorAll('.modal')].find(m=>/Session expiring/i.test(m.innerText))`);
   page2.close();
 
   // 3) Audit log records client profile view for a real tenant.
-  const login = await post('/api/auth/login', { email: REAL_EMAIL, password: REAL_PASSWORD });
-  const realToken = login.token;
-  if (!realToken) throw new Error(`real login failed: ${JSON.stringify(login)}`);
-  if (!login.user?.baa_signed_at) {
+  let realToken = process.env.REAL_TOKEN || null;
+  if (!realToken) {
+    const login = await post('/api/auth/login', { email: REAL_EMAIL, password: REAL_PASSWORD });
+    realToken = login.token;
+    if (!realToken) throw new Error(`real login failed: ${JSON.stringify(login)}`);
+  }
+  const status = await get('/api/security/status', realToken);
+  if (!status.baa_signed_at) {
     await post('/api/security/baa', { accepted: true, name: 'E2E Real User' }, realToken);
   }
   const clients = await get('/api/clients?limit=1', realToken);
