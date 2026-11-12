@@ -63,6 +63,7 @@ const samples = {
     'End Date: 12/31/2026',
     'Total Amount: 2000.00',
     'Procedure Description: Personal Care Assistance',
+    '1 APPROVED T1019 U1 Personal Care Assistance Total Amount: 2000.00 Quantity: 100 Rate/Unit: 20.00 Start Date: 01/01/2026 End Date: 12/31/2026',
   ],
   'sample-claim.pdf': [
     '277 Claim Response Print',

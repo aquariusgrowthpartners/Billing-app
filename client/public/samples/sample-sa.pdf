@@ -12,7 +12,7 @@ endobj
 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
 endobj
 5 0 obj
-<< /Length 736 >>
+<< /Length 886 >>
 stream
 BT
 /F1 11 Tf
@@ -39,6 +39,7 @@ BT
 (End Date: 12/31/2026) Tj T*
 (Total Amount: 2000.00) Tj T*
 (Procedure Description: Personal Care Assistance) Tj T*
+(1 APPROVED T1019 U1 Personal Care Assistance Total Amount: 2000.00 Quantity: 100 Rate/Unit: 20.00 Start Date: 01/01/2026 End Date: 12/31/2026) Tj T*
 ET
 endstream
 endobj
@@ -53,5 +54,5 @@ xref
 trailer
 << /Size 6 /Root 1 0 R >>
 startxref
-1098
+1248
 %%EOF
