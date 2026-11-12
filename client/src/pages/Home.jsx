@@ -206,7 +206,7 @@ export default function Home({ user }) {
         <aside className="card onboarding-card onboarding-drawer" id="onboarding-checklist">
           <div className="card-head">
             <div><h2>Getting started</h2><p className="muted small" style={{ margin: '2px 0 0' }}>Complete these steps to finish setting up.</p></div>
-            <button type="button" className="btn tiny" aria-label="Collapse Getting Started" onClick={() => setOnboardingOpen(false)}>✕</button>
+            <button type="button" className="onboarding-close" aria-label="Close Getting Started" onClick={() => setOnboardingOpen(false)}>✕</button>
           </div>
           <ul className="onboarding-list">
             {[
