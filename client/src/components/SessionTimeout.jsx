@@ -1,7 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
 
-const IDLE_MS = 15 * 60 * 1000;
-const WARN_MS = 60 * 1000;
+const IDLE_MS =
+  (typeof window !== 'undefined' && Number(window.__SESSION_TIMEOUT_MS__)) || 15 * 60 * 1000;
+const WARN_MS =
+  (typeof window !== 'undefined' && Number(window.__SESSION_WARN_MS__)) || 60 * 1000;
 
 export default function SessionTimeout({ onLogout }) {
   const [warning, setWarning] = useState(false);
