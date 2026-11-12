@@ -6,7 +6,7 @@ import SkeletonPage from './components/SkeletonPage.jsx';
 import GlobalSearch from './components/GlobalSearch.jsx';
 import { TutorialProvider } from './components/TutorialProvider.jsx';
 import { DateWheelProvider } from './components/DateWheel.jsx';
-import { setDemoMode } from './demoMode.js';
+import { setDemoMode as setDemoFlag } from './demoMode.js';
 import Login from './pages/Login.jsx';
 import ChangePassword from './pages/ChangePassword.jsx';
 import { getToken, clearToken } from './api.js';
@@ -456,7 +456,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    setDemoMode(Number(user?.is_demo) === 1);
+    setDemoFlag(Number(user?.is_demo) === 1);
   }, [user]);
 
   // Every drawer link closes the drawer in its own onClick, so no route
