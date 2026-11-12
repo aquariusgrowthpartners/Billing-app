@@ -42,6 +42,14 @@ export default function ImportSA() {
       },
     }));
 
+  useEffect(() => {
+    const handler = (e) => {
+      if (e.detail?.kind === 'sa' && e.detail?.file) chooseFile(e.detail.file);
+    };
+    window.addEventListener('demo-sample-file', handler);
+    return () => window.removeEventListener('demo-sample-file', handler);
+  }, []);
+
   async function chooseFile(picked) {
     if (!picked) return;
     setFile(picked);

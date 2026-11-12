@@ -82,7 +82,7 @@ export default function Home({ user }) {
   const [error, setError] = useState(null);
   const [alerts, setAlerts] = useState([]);
   const [onboarding, setOnboarding] = useState(null);
-  const [onboardingOpen, setOnboardingOpen] = useState(() => (typeof window === 'undefined' ? true : window.innerWidth >= 1024));
+  const [onboardingOpen, setOnboardingOpen] = useState(true);
 
   const load = useCallback(async (start) => {
     setLoading(true);
@@ -294,6 +294,8 @@ export default function Home({ user }) {
         </div>
       </section>
 
+      <Tasks embedded />
+
       <section className="card home-period-nav" id="period-nav">
         <button
           type="button"
@@ -334,6 +336,22 @@ export default function Home({ user }) {
         )}
       </section>
 
+
+
+      {error && <div className="alert error">{error}</div>}
+
+
+      <section className="card notifications-card" id="home-notifications">
+        <div className="card-head">
+          <div className="notifications-head">
+            <span className="notifications-bell" aria-hidden="true">🔔</span>
+            <h2>Notifications</h2>
+            {((denial && Number(denial.open_tasks) > 0 && hasDenialExposure) || alertList.length > 0) && (
+              <span className="notifications-dot" aria-label="Unread notifications" />
+            )}
+          </div>
+        </div>
+        <div className="card-body notifications-body">
       {/* Denials alert: shown only while there is unrecovered work. */}
       {denial && Number(denial.open_tasks) > 0 && hasDenialExposure && (
         <div className="ds-alert-card" id="home-denial-alert">
@@ -353,7 +371,6 @@ export default function Home({ user }) {
 
       {alertList.length > 0 && (
         <section className="home-alerts" id="home-alerts">
-          <h2>Notifications</h2>
           {alertList.map((alert) => (
             <div className="home-alert" key={alert.id}>
               <button
@@ -379,75 +396,12 @@ export default function Home({ user }) {
         </section>
       )}
 
-      {error && <div className="alert error">{error}</div>}
+          {!((denial && Number(denial.open_tasks) > 0 && hasDenialExposure) || alertList.length > 0) && (
+            <p className="empty">You&rsquo;re all caught up.</p>
+          )}
+        </div>
+      </section>
 
-      {/* ------------------------------------------- section A: caretakers */}
-      <Card
-        id="pay-period-caretakers"
-        title="Caretakers this pay period"
-        hint="Ranked by hours worked. Every recorded day counts, whatever its client or claim."
-      >
-        {loading && !data ? (
-          <p className="empty">Loading…</p>
-        ) : caretakers.length === 0 ? (
-          <p className="empty">No caretaker hours recorded in this pay period.</p>
-        ) : (
-          <div className="table-scroll">
-            <table className="table" id="caretaker-ranking">
-              <thead>
-                <tr>
-                  <th className="num">#</th>
-                  <th>Caretaker</th>
-                  <th className="num">Hours</th>
-                  <th className="num">Billed value</th>
-                  <th className="num">Clients</th>
-                </tr>
-              </thead>
-              <tbody>
-                {caretakers.map((c, index) =>
-                  c ? (
-                    <tr
-                      key={c.id ?? `caretaker-${index}`}
-                      className="row-clickable"
-                      id={`caretaker-row-${c.id}`}
-                      onClick={() => navigate('/caretakers')}
-                      title="Open the Caretakers tab"
-                    >
-                      <td className="num rank">{c.rank ?? '—'}</td>
-                      <td>
-                        <strong>
-                          {c.last_name ?? ''}, {c.first_name ?? ''}
-                        </strong>
-                      </td>
-                      <td className="num">{hours(c.hours)}</td>
-                      <td className="num dollars">{formatMoney(c.dollars)}</td>
-                      <td className="num">{c.clients ?? 0}</td>
-                    </tr>
-                  ) : null
-                )}
-              </tbody>
-            </table>
-          </div>
-        )}
-
-        {unassigned?.hours > 0 && (
-          <p className="muted small" id="unassigned-hours" style={{ marginTop: 8 }}>
-            Plus <strong>{hours(unassigned.hours)}</strong> and{' '}
-            <strong>{formatMoney(unassigned.dollars)}</strong> with no caretaker recorded — counted
-            in the totals above.
-          </p>
-        )}
-
-        {data?.unassigned_entries > 0 && (
-          <p className="muted small" id="unassigned-note" style={{ marginTop: 4 }}>
-            {data.unassigned_entries} day {data.unassigned_entries === 1 ? 'entry has' : 'entries have'}{' '}
-            no caretaker recorded, so {data.unassigned_entries === 1 ? 'it is' : 'they are'} counted in
-            the totals above but cannot appear in the ranking.
-          </p>
-        )}
-      </Card>
-
-      <Tasks embedded />
       </div>
     </div>
   );

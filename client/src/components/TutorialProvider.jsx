@@ -1,19 +1,24 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../api.js';
+import { SAMPLE_CLIENT, loadSampleFile, dispatchSampleFile } from '../demoSamples.js';
 
 const TutorialContext = createContext(null);
 export const useTutorial = () => useContext(TutorialContext);
 
 export const TUTORIAL_STEPS = [
-  { target: '[data-tour="home"]', title: 'Home dashboard', text: 'This is your dashboard. See your YTD paid claims and current pay period.', path: '/' },
-  { target: '[data-tour="clients"]', title: 'Clients', text: 'Manage your client profiles, their alternative names, and service agreements here.', path: '/clients' },
-  { target: '[data-tour="uploads-ra"]', title: 'Uploads — RA', text: 'Upload your Remittance Advice PDFs here. The AI will read them and verify against your data.', path: '/uploads?tab=ra' },
-  { target: '[data-tour="uploads-claims"]', title: 'Uploads — Claim Submission', text: 'Upload claim submissions (Status 46) to track pending payments.', path: '/uploads?tab=claims' },
-  { target: '[data-tour="uploads-sa"]', title: 'Uploads — Service Agreement', text: 'Upload Service Agreements to auto-create client profiles and track authorized units.', path: '/uploads?tab=sa' },
-  { target: '[data-tour="pending-claims"]', title: 'Pending Claims', text: 'Track claims waiting for payment. The AI automatically moves them to Paid when the matching RA arrives.', path: '/pending-claims' },
-  { target: '[data-tour="chat-input"]', title: 'Ask Dundas AI', text: 'Ask our AI to explain any discrepancies. It knows your billing data inside and out.', path: '/ask' },
-  { target: '[data-tour="settings"]', title: 'Settings', text: 'Customize your agency logo, branding, and AI quick prompts here.', path: '/settings' },
+  { target: '[data-tour="uploads-sa"]', title: 'Service Agreements', sample: 'sa', path: '/uploads?tab=sa',
+    text: 'A Service Agreement (SA) is the authorization that defines what care a client is approved for. Load the sample SA, review the Pre-Check, then Save.' },
+  { target: '[data-tour="uploads-claims"]', title: 'Claim Submissions', sample: 'claim', path: '/uploads?tab=claims',
+    text: 'A Status 46 claim means the payer accepted it and payment is pending. Load the sample claim, review, then Save it as Pending.' },
+  { target: '[data-tour="uploads-ra"]', title: 'Remittance Advice', sample: 'ra', path: '/uploads?tab=ra',
+    text: 'An RA is the payer’s record of what was paid. Load the sample RA and verify it — the pending claim moves to Paid automatically.' },
+  { target: '[data-tour="settings"]', title: 'AI Setup', path: '/settings#brand-logo',
+    text: 'Give Dundas AI a few quick questions your team asks most. Tap the button, keep the pre-filled prompts, then Save.' },
+  { target: '[data-tour="chat-input"]', title: 'Use the AI', path: '/ask',
+    text: 'Ask a quick question. Dundas answers using your real billing data — reference the Example Client to watch it work.' },
+  { target: '[data-tour="home"]', title: 'You’re all set', path: '/',
+    text: 'That’s the full workflow. Finish the tour and explore the app on your own.' },
 ];
 
 function markComplete(isDemo) {
@@ -29,10 +34,10 @@ export function TutorialProvider({ user, children }) {
   const isDemo = Number(user?.is_demo) === 1;
   const [welcome, setWelcome] = useState(false);
   const [step, setStep] = useState(-1);
+  const [exampleOpen, setExampleOpen] = useState(true);
+  const [sampleBusy, setSampleBusy] = useState(false);
 
   useEffect(() => {
-    // Demo tours are never persisted in the database. A demo reload starts
-    // the welcome modal again; real users resume from their saved flag.
     if (isDemo) {
       let completed = false;
       try { completed = sessionStorage.getItem('demoTourCompleted') === 'true'; } catch {}
@@ -46,16 +51,11 @@ export function TutorialProvider({ user, children }) {
     setStep(index);
     navigate(TUTORIAL_STEPS[index].path);
   };
-  const start = () => {
-    setWelcome(false);
-    go(0);
-  };
+  const start = () => { setWelcome(false); go(0); };
   const skip = async () => {
     setWelcome(false);
     setStep(-1);
     await markComplete(isDemo);
-    // /login is not a route inside this SPA; sending a logged-in user there
-    // produced a blank page. Real users skip straight to the Home dashboard.
     navigate('/', { replace: true });
   };
   const next = async () => {
@@ -67,8 +67,15 @@ export function TutorialProvider({ user, children }) {
     }
     go(step + 1);
   };
-  const back = () => {
-    if (step > 0) go(step - 1);
+  const back = () => { if (step > 0) go(step - 1); };
+  const loadSample = async (kind) => {
+    setSampleBusy(true);
+    try {
+      const file = await loadSampleFile(kind);
+      dispatchSampleFile(kind, file);
+    } finally {
+      setSampleBusy(false);
+    }
   };
 
   const current = TUTORIAL_STEPS[step];
@@ -79,7 +86,7 @@ export function TutorialProvider({ user, children }) {
         <div className="tour-welcome-backdrop" role="dialog" aria-modal="true">
           <div className="tour-welcome">
             <h2>Welcome to Dundas Billing</h2>
-            <p>Let’s take a quick tour of the entire workspace. You can click through the real app while the tour card stays with you.</p>
+            <p>Let’s walk through a full billing cycle using sample data. You can click the real app the whole time.</p>
             <ol>
               {TUTORIAL_STEPS.map((item) => <li key={item.title}>{item.title}</li>)}
             </ol>
@@ -91,20 +98,49 @@ export function TutorialProvider({ user, children }) {
         </div>
       )}
       {step >= 0 && current && (
-        <aside className="tour-tooltip" role="dialog" aria-label="Tutorial step" id="tour-tooltip">
-          <div className="tour-tooltip-top">
-            <span className="pill">Step {step + 1} of {TUTORIAL_STEPS.length}</span>
-            {!isDemo && <button type="button" className="btn tiny" onClick={skip}>Skip</button>}
-          </div>
-          <strong>{current.title}</strong>
-          <p>{current.text}</p>
-          <div className="tour-actions">
-            <button type="button" className="btn tiny" onClick={back} disabled={step === 0}>Back</button>
-            <button type="button" className="btn primary tiny" onClick={next}>
-              {step === TUTORIAL_STEPS.length - 1 ? 'Finish' : 'Next'}
+        <>
+          {exampleOpen && (
+            <aside className="tutorial-example-card" id="tutorial-example-card">
+              <div className="tutorial-example-head">
+                <strong>Example Client Profile</strong>
+                <button type="button" className="btn tiny" onClick={() => setExampleOpen(false)}>Hide</button>
+              </div>
+              <div className="tutorial-example-body">
+                <span><strong>Name:</strong> {SAMPLE_CLIENT.name}</span>
+                <span><strong>Client ID:</strong> {SAMPLE_CLIENT.id}</span>
+                <span><strong>DOB:</strong> {SAMPLE_CLIENT.dob}</span>
+                <span><strong>MA #:</strong> {SAMPLE_CLIENT.ma}</span>
+                <button
+                  type="button"
+                  className="btn primary tutorial-sample-btn"
+                  onClick={() => current.sample ? loadSample(current.sample) : navigate(current.path)}
+                  disabled={sampleBusy}
+                >
+                  {current.sample ? (sampleBusy ? 'Loading sample…' : `Load Sample ${current.sample.toUpperCase()}`) : 'Open'}
+                </button>
+              </div>
+            </aside>
+          )}
+          {!exampleOpen && (
+            <button type="button" className="onboarding-toggle tutorial-example-toggle" onClick={() => setExampleOpen(true)}>
+              Show Example Client
             </button>
-          </div>
-        </aside>
+          )}
+          <aside className="tour-tooltip" role="dialog" aria-label="Tutorial step" id="tour-tooltip">
+            <div className="tour-tooltip-top">
+              <span className="pill">Step {step + 1} of {TUTORIAL_STEPS.length}</span>
+              {!isDemo && <button type="button" className="btn tiny" onClick={skip}>Skip</button>}
+            </div>
+            <strong>{current.title}</strong>
+            <p>{current.text}</p>
+            <div className="tour-actions">
+              <button type="button" className="btn tiny" onClick={back} disabled={step === 0}>Back</button>
+              <button type="button" className="btn primary tiny" onClick={next}>
+                {step === TUTORIAL_STEPS.length - 1 ? 'Finish' : 'Next'}
+              </button>
+            </div>
+          </aside>
+        </>
       )}
     </TutorialContext.Provider>
   );

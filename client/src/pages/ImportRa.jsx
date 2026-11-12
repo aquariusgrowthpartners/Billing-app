@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import api from '../api.js';
 import Modal from '../components/Modal.jsx';
 import { formatMoney } from '../calc.js';
@@ -148,6 +148,76 @@ export default function ImportRa() {
     const d = await api.caretakers({ active: '0' });
     setCaretakers(d.caretakers ?? []);
   }
+  const enqueueFiles = useCallback((fileList) => {
+    const all = Array.isArray(fileList) ? fileList : [...(fileList ?? [])];
+    const picked = all.slice(0, MAX_BATCH);
+    setCapWarning(
+      all.length > MAX_BATCH
+        ? `You selected ${all.length} files. Maximum is ${MAX_BATCH} per upload. Please upload in batches.`
+        : null
+    );
+    setFile(picked[0] ?? null);
+    const initial = picked.map((f, i) => ({
+      key: `${f.name}-${f.size}-${i}`,
+      name: f.name,
+      file: f,
+      status: 'hashing',
+      error: null,
+      hash: null,
+      duplicate: null,
+      choice: 'skip',
+    }));
+    setQueue(initial);
+    setDupMatches({});
+    setDupInBatch([]);
+    (async () => {
+      const hashes = [];
+      const withHash = [];
+      for (const item of initial) {
+        try {
+          const h = await fileHash(item.file);
+          hashes.push(h);
+          withHash.push({ ...item, hash: h });
+        } catch {
+          withHash.push({ ...item, status: 'ready' });
+        }
+      }
+      try {
+        const res = await api.checkDuplicates(hashes);
+        const byHash = new Map((res.matches ?? []).map((m) => [m.hash, m]));
+        setDupMatches(Object.fromEntries(byHash));
+        setDupInBatch(res.duplicates_in_batch ?? []);
+        setQueue((q) =>
+          q.map((it) => {
+            const h = it.hash ?? withHash.find((w) => w.key === it.key)?.hash ?? null;
+            const m = byHash.get(h);
+            return {
+              ...it,
+              hash: h,
+              status: m ? 'duplicate-exact' : 'ready',
+              duplicate: m ? { kind: 'exact', ...m, footprint: m.footprint ?? null, risks: m.risks ?? null } : null,
+              choice: 'skip',
+            };
+          })
+        );
+      } catch {
+        setQueue((q) => q.map((it) => ({ ...it, status: 'ready' })));
+      }
+    })();
+    setRows(null);
+    setResults([]);
+    setError(null);
+    setSummary(null);
+  }, []);
+
+  useEffect(() => {
+    const handler = (e) => {
+      if (e.detail?.kind === 'ra' && e.detail?.file) enqueueFiles([e.detail.file]);
+    };
+    window.addEventListener('demo-sample-file', handler);
+    return () => window.removeEventListener('demo-sample-file', handler);
+  }, [enqueueFiles]);
+
 
   async function parse() {
     if (!queue.length) return;
@@ -643,75 +713,7 @@ export default function ImportRa() {
               name="ra-file"
               accept="application/pdf,.pdf"
               multiple
-              onChange={(e) => {
-                const all = [...(e.target.files ?? [])];
-                // Keep the first 10 and say so, rather than silently dropping.
-                const picked = all.slice(0, MAX_BATCH);
-                setCapWarning(
-                  all.length > MAX_BATCH
-                    ? `You selected ${all.length} files. Maximum is ${MAX_BATCH} per upload. ` +
-                      `Please upload in batches.`
-                    : null
-                );
-                setFile(picked[0] ?? null);
-                const initial = picked.map((f, i) => ({
-                  key: `${f.name}-${f.size}-${i}`,
-                  name: f.name,
-                  file: f,
-                  // hashing comes first; "ready" is only claimed once we know
-                  status: 'hashing',
-                  error: null,
-                  hash: null,
-                  duplicate: null,
-                  choice: 'skip',
-                }));
-                setQueue(initial);
-                setDupMatches({});
-                setDupInBatch([]);
-                // Hash in the browser, then ask the server what it already holds.
-                (async () => {
-                  const hashes = [];
-                  const withHash = [];
-                  for (const item of initial) {
-                    try {
-                      const h = await fileHash(item.file);
-                      hashes.push(h);
-                      withHash.push({ ...item, hash: h });
-                    } catch {
-                      withHash.push({ ...item, status: 'ready' });
-                    }
-                  }
-                  try {
-                    const res = await api.checkDuplicates(hashes);
-                    const byHash = new Map((res.matches ?? []).map((m) => [m.hash, m]));
-                    setDupMatches(Object.fromEntries(byHash));
-                    setDupInBatch(res.duplicates_in_batch ?? []);
-                    setQueue((q) =>
-                      q.map((it) => {
-                        // resolve the hash FIRST — reading it.hash before the
-                        // fallback silently matched nothing
-                        const h = it.hash ?? withHash.find((w) => w.key === it.key)?.hash ?? null;
-                        const m = byHash.get(h);
-                        return {
-                          ...it,
-                          hash: h,
-                          status: m ? 'duplicate-exact' : 'ready',
-                          duplicate: m
-                            ? { kind: 'exact', ...m, footprint: m.footprint ?? null, risks: m.risks ?? null }
-                            : null,
-                          choice: 'skip',
-                        };
-                      })
-                    );
-                  } catch {
-                    setQueue((q) => q.map((it) => ({ ...it, status: 'ready' })));
-                  }
-                })();
-                setRows(null);
-                setResults([]);
-                setError(null);
-                setSummary(null);
-              }}
+              onChange={(e) => enqueueFiles([...(e.target.files ?? [])])}
             />
             <button
               className="btn primary"

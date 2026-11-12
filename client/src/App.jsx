@@ -504,7 +504,13 @@ export default function App() {
               className="ai-command-pill"
               id="ai-command-pill"
               aria-expanded={aiOpen}
-              onClick={() => setAiOpen((v) => !v)}
+              onClick={() => {
+                if (window.location.pathname === '/ask') {
+                  window.location.reload();
+                  return;
+                }
+                setAiOpen((v) => !v);
+              }}
             >
               ✨ Ask Dundas
             </button>
@@ -522,7 +528,15 @@ export default function App() {
                   >
                     {prompt}
                   </button>
-                )) : <span className="muted small">No quick prompts configured.</span>}
+                )) : (
+                  <Link
+                    to="/settings#brand-logo"
+                    className="muted small"
+                    onClick={() => setAiOpen(false)}
+                  >
+                    No quick prompts configured — add some in Settings.
+                  </Link>
+                )}
                 <Link to="/ask" className="btn primary" onClick={() => setAiOpen(false)}>
                   Open Full Dundas AI
                 </Link>

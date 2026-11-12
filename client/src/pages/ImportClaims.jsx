@@ -21,6 +21,14 @@ export default function ImportClaims() {
     return () => clearTimeout(timer);
   }, [query]);
 
+  useEffect(() => {
+    const handler = (e) => {
+      if (e.detail?.kind === 'claim' && e.detail?.file) choose(e.detail.file);
+    };
+    window.addEventListener('demo-sample-file', handler);
+    return () => window.removeEventListener('demo-sample-file', handler);
+  }, []);
+
   async function choose(file) {
     if (!file) return;
     setFile(file); setBusy(true); setError(null); setParsed(null);

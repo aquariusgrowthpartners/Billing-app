@@ -50,8 +50,13 @@ function WheelColumn({ label, items, value, onChange }) {
 export function DateWheelProvider({ children }) {
   const [state, setState] = useState(null);
 
+  const lastOpen = useRef({ input: null, at: 0 });
+
   useEffect(() => {
     const open = (input) => {
+      const now = Date.now();
+      if (lastOpen.current.input === input && now - lastOpen.current.at < 300) return;
+      lastOpen.current = { input, at: now };
       const parts = parseValue(input.value);
       setState({ input, ...parts });
     };
