@@ -2,6 +2,18 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import api from '../api.js';
 import { toast } from '../components/Toast.jsx';
+import Modal from '../components/Modal.jsx';
+
+function splitRecipient(name) {
+  const value = String(name ?? '').trim();
+  if (!value) return { first: '', last: '' };
+  if (value.includes(',')) {
+    const [last, ...rest] = value.split(',');
+    return { first: rest.join(' ').trim().split(/\s+/)[0] || '', last: last.trim() };
+  }
+  const parts = value.split(/\s+/).filter(Boolean);
+  return { first: parts[0] ?? '', last: parts.slice(1).join(' ') || '' };
+}
 
 const MODIFIERS = ['', 'UA','U1','U2','U3','U4','U5','U6','U7','U8','U9','HQ','GT','GO','GP','GW','KX','25','26','59','95','76','77','TC'];
 
@@ -19,6 +31,9 @@ export default function ImportSA() {
   const [clientQuery, setClientQuery] = useState('');
   const [clients, setClients] = useState([]);
   const [client, setClient] = useState(null);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [newClient, setNewClient] = useState({ first_name: '', last_name: '', dob: '', ma_number: '' });
+  const [creating, setCreating] = useState(false);
 
   useEffect(() => {
     if (!clientQuery.trim()) { setClients([]); return undefined; }
@@ -64,6 +79,45 @@ export default function ImportSA() {
       setError(err.message);
     } finally {
       setBusy(false);
+    }
+  }
+
+  const isDemoSample = file?.name === 'sample-sa.pdf';
+  const demoRecipient = isDemoSample
+    ? { first_name: 'Jane', last_name: 'Doe', dob: '1990-01-01', ma_number: '12345678' }
+    : null;
+  const extractedRecipient = parsed?.extracted?.recipient_name;
+
+  function openCreateClient() {
+    const src = parsed?.extracted ?? {};
+    const { first, last } = splitRecipient(src.recipient_name);
+    setNewClient(demoRecipient ?? {
+      first_name: first,
+      last_name: last,
+      dob: src.dob ?? '',
+      ma_number: String(src.recipient_id ?? '').replace(/\D/g, ''),
+    });
+    setCreateOpen(true);
+  }
+
+  async function createClient() {
+    if (!newClient.first_name.trim() || !newClient.last_name.trim()) return;
+    setCreating(true);
+    try {
+      const saved = await api.createClient({
+        first_name: newClient.first_name.trim(),
+        last_name: newClient.last_name.trim(),
+        dob: newClient.dob || null,
+        ma_number: newClient.ma_number.trim() || null,
+      });
+      setClient(saved);
+      setClientQuery(`${saved.last_name}, ${saved.first_name}`);
+      setCreateOpen(false);
+      toast.success('Client profile created and linked.');
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setCreating(false);
     }
   }
 
@@ -155,6 +209,11 @@ export default function ImportSA() {
                   </ul>
                 )}
                 {client && <p className="muted small" style={{ margin: 0 }}>Linked to Client ID {client.id} · {client.first_name} {client.last_name}</p>}
+                {!client && (extractedRecipient || demoRecipient) && (
+                  <button type="button" className="btn primary" id="sa-create-client" onClick={openCreateClient}>
+                    + Create New Client Profile: {extractedRecipient || 'Jane Doe'}
+                  </button>
+                )}
               </div>
 
               <div className="grid-3 sa-parent-grid">
@@ -219,6 +278,41 @@ export default function ImportSA() {
         </>
       )}
       <p className="muted small"><Link to="/clients">← Back to Clients</Link></p>
+
+      {createOpen && (
+        <Modal title="Create Client Profile" onClose={() => setCreateOpen(false)} width={520}>
+          <div className="wizard-body">
+            <label>
+              First name <span className="required">required</span>
+              <input value={newClient.first_name} onChange={(e) => setNewClient((f) => ({ ...f, first_name: e.target.value }))} />
+            </label>
+            <label>
+              Last name <span className="required">required</span>
+              <input value={newClient.last_name} onChange={(e) => setNewClient((f) => ({ ...f, last_name: e.target.value }))} />
+            </label>
+            <label>
+              Date of birth
+              <input type="date" value={newClient.dob} onChange={(e) => setNewClient((f) => ({ ...f, dob: e.target.value }))} />
+            </label>
+            <label>
+              MA number
+              <input value={newClient.ma_number} onChange={(e) => setNewClient((f) => ({ ...f, ma_number: e.target.value }))} />
+            </label>
+          </div>
+          <div className="wizard-actions">
+            <button type="button" className="btn" onClick={() => setCreateOpen(false)}>Cancel</button>
+            <button
+              type="button"
+              className="btn primary"
+              id="sa-create-client-save"
+              disabled={creating || !newClient.first_name.trim() || !newClient.last_name.trim()}
+              onClick={createClient}
+            >
+              {creating ? 'Creating…' : 'Create Client Profile'}
+            </button>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }
