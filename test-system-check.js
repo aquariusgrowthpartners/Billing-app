@@ -131,15 +131,59 @@ async function main() {
   await cdp.send('Emulation.setDeviceMetricsOverride', {
     width: 1440, height: 900, deviceScaleFactor: 1, mobile: false,
   });
-  await cdp.send('Page.addScriptToEvaluateOnNewDocument', {
+  const demoInitScript = await cdp.send('Page.addScriptToEvaluateOnNewDocument', {
     source: `localStorage.setItem('billing_token', ${JSON.stringify(token)}); sessionStorage.setItem('demoTourCompleted', 'true');`,
   });
 
-  for (const route of ROUTES) {
-    const path = route.path.replace('{id}', String(clientId ?? ''));
-    await cdp.send('Page.navigate', { url: `${BASE}${path}` });
+  const skipOnly = process.env.SKIP_ONLY === '1';
+  if (!skipOnly) {
+    for (const route of ROUTES) {
+      const path = route.path.replace('{id}', String(clientId ?? ''));
+      await cdp.send('Page.navigate', { url: `${BASE}${path}` });
+      await sleep(WAIT_MS);
+      console.log(`[SYSTEM-CHECK] visited ${route.label} (${path})`);
+    }
+  }
+
+  // Real-user tutorial Skip flow: click Skip, assert Home actually renders.
+  if (process.env.REAL_TOKEN) {
+    // Stop the demo-token init script from overwriting the real token.
+    await cdp.send('Page.removeScriptToEvaluateOnNewDocument', {
+      identifier: demoInitScript.identifier,
+    });
+    await cdp.send('Page.navigate', { url: `${BASE}/` });
+    await sleep(1200);
+    await cdp.send('Runtime.evaluate', {
+      expression: `localStorage.setItem('billing_token', ${JSON.stringify(process.env.REAL_TOKEN)});`,
+    });
+    await cdp.send('Page.navigate', { url: `${BASE}/` });
     await sleep(WAIT_MS);
-    console.log(`[SYSTEM-CHECK] visited ${route.label} (${path})`);
+    const clicked = await cdp.send('Runtime.evaluate', {
+      expression: `(() => {
+        const btn = [...document.querySelectorAll('.tour-welcome button')].find((b) => /skip/i.test(b.innerText));
+        if (!btn) return false;
+        btn.click();
+        return true;
+      })()`,
+      returnByValue: true,
+    });
+    await sleep(2500);
+    const after = await cdp.send('Runtime.evaluate', {
+      expression: `({
+        path: location.pathname,
+        welcome: !!document.querySelector('.tour-welcome'),
+        home: !!document.querySelector('#ytd-paid-claims'),
+        text: document.body.innerText.slice(0, 80),
+        overflow: document.documentElement.scrollWidth > window.innerWidth,
+      })`,
+      returnByValue: true,
+    });
+    const result = after.result?.value ?? {};
+    console.log(`[SKIP-FLOW] clicked Skip: ${clicked.result?.value}`);
+    console.log(`[SKIP-FLOW] path=${result.path} home=${result.home} welcome=${result.welcome} overflow=${result.overflow}`);
+    if (!clicked.result?.value || !result.home || result.welcome) {
+      issues.push('SKIP-FLOW: Home did not render after clicking Skip Tutorial.');
+    }
   }
 
   cdp.close();

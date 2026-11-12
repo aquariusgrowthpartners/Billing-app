@@ -51,10 +51,12 @@ export function TutorialProvider({ user, children }) {
     go(0);
   };
   const skip = async () => {
-    await markComplete(isDemo);
     setWelcome(false);
     setStep(-1);
-    window.location.assign('/login?mode=signup');
+    await markComplete(isDemo);
+    // /login is not a route inside this SPA; sending a logged-in user there
+    // produced a blank page. Real users skip straight to the Home dashboard.
+    navigate('/', { replace: true });
   };
   const next = async () => {
     if (step >= TUTORIAL_STEPS.length - 1) {
